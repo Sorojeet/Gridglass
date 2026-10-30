@@ -3,7 +3,8 @@ import {
 } from './tools.js';
 
 const API = '/api/v1';
-const PREVIEW_ROWS = 50;
+const desktop = window.matchMedia('(min-width: 1024px)');
+const previewRows = () => (desktop.matches ? 200 : 50); // the big desktop preview shows more rows
 const $ = (s, el = document) => el.querySelector(s);
 const view = $('#view');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -176,10 +177,11 @@ function renderHome() {
       <span class="file-text"><strong>${esc(state.file.filename)}</strong><small>${state.file.steps.length ? `${plural(state.file.steps.length, 'step')} applied · ` : ''}pick any tool to keep going</small></span>
       <button class="btn-link" type="button" data-action="startover">Clear</button>
     </div>` : '';
+  view.dataset.screen = 'home';
   view.innerHTML = `${topbar()}
     <section class="hero">
       <h1>Every spreadsheet tool you need, one tap away.</h1>
-      <p>Clean, reshape and convert CSV and Excel files right from your phone. Free, no sign-up.</p>
+      <p>Clean, reshape and convert CSV and Excel files on your phone or computer. Free, no sign-up.</p>
     </section>
     ${working}
     <div class="search glass">${ui('search')}
@@ -229,6 +231,7 @@ async function openTool(tool) {
 function renderUpload() {
   const t = state.tool;
   state.stage = 'upload';
+  view.dataset.screen = 'upload';
   view.innerHTML = `${topbar({ back: '#/', title: 'All tools' })}
     <section class="intro">
       <span class="badge cat-${t.cat}">${CATS[t.cat]}</span>
@@ -318,6 +321,7 @@ async function enterOptions() {
 function renderOptions() {
   const t = state.tool;
   state.stage = 'options';
+  view.dataset.screen = 'options';
   const action = t.convert
     ? `<div class="field"><label class="field-label" for="fmt">Save as</label>${formatSelect()}</div>`
     : '';
@@ -537,7 +541,7 @@ async function showPreview(steps, step, hint = null) {
   const note = $('#pv-note');
   box.classList.add('loading');
   try {
-    const { preview } = await api(`/files/${state.file.id}/preview?limit=${PREVIEW_ROWS}`, { method: 'POST', body: { steps } });
+    const { preview } = await api(`/files/${state.file.id}/preview?limit=${previewRows()}`, { method: 'POST', body: { steps } });
     if (seq !== previewSeq) return;
     box.classList.remove('loading', 'error');
     box.innerHTML = table(preview);
@@ -600,6 +604,7 @@ function renderDone() {
   const t = state.tool;
   const { before, after } = state.result;
   state.stage = 'done';
+  view.dataset.screen = 'done';
   const title = t.done ? t.done(before, after) : `${t.label} done`;
   const suggestions = SUGGEST.filter((op) => op !== t.op).slice(0, 6);
   const steps = state.file.steps;
