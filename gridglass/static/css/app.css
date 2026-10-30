@@ -322,3 +322,58 @@ td.null { background: repeating-linear-gradient(135deg, transparent 0 6px, var(-
 
 .hint.needs { color: var(--ink); font-weight: 600; }
 .hint.needs::before { content: "→ "; color: var(--accent); }
+
+/* ----------------------------------------------------------------- desktop
+   Phones keep the single column above. From 1024px wide, screens spread out:
+   options on the left, a big live preview on the right. */
+@media (min-width: 1024px) {
+  :root { --gutter: 40px; }
+  main { max-width: 1240px; gap: 22px 40px; }
+  .topbar { margin: 0; }
+  .hero { padding-top: 24px; }
+  .hero h1 { font-size: 52px; max-width: 16em; }
+  .hero p { font-size: 17px; }
+  .tool-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .tool-card { min-height: 160px; padding: 20px; }
+  .search, .working { max-width: 640px; }
+  #toast { bottom: 32px; }
+
+  /* Two-column screens: everything goes left unless placed on the right. */
+  main[data-screen="upload"], main[data-screen="options"], main[data-screen="done"] {
+    display: grid; align-content: start; align-items: start;
+  }
+  main[data-screen] > .topbar, main[data-screen] > .privacy, main[data-screen] > .done-foot { grid-column: 1 / -1; }
+
+  /* Upload: explanation left, drop zone right. */
+  main[data-screen="upload"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  main[data-screen="upload"] > .intro { grid-column: 1; grid-row: 2; padding-top: 24px; }
+  main[data-screen="upload"] > .intro h1 { font-size: 42px; }
+  main[data-screen="upload"] > .how { grid-column: 1; grid-row: 3; }
+  main[data-screen="upload"] > .dropzone { grid-column: 2; grid-row: 2; padding: 56px 40px; }
+  main[data-screen="upload"] > [data-action="sample"] { grid-column: 2; grid-row: 3; }
+
+  /* Options: form left, preview right (stays in view while the form scrolls). */
+  main[data-screen="options"] { grid-template-columns: minmax(320px, 380px) minmax(0, 1fr); grid-auto-rows: min-content; }
+  main[data-screen="options"] > :not(.topbar):not(.preview) { grid-column: 1; }
+  main[data-screen="options"] > .preview {
+    grid-column: 2; grid-row: 2 / span 4; position: sticky; top: 20px;
+  }
+  main[data-screen="options"] .table-wrap { max-height: calc(100dvh - 150px); min-height: 420px; }
+  main[data-screen="options"] table { font-size: 14px; }
+  main[data-screen="options"] > .action-bar {
+    position: static; margin: 4px 0 0; padding: 0; background: none; border: 0;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+
+  /* Result: summary and download left, next steps right. */
+  main[data-screen="done"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  main[data-screen="done"] > .done { grid-column: 1; grid-row: 2; align-items: flex-start; text-align: left; padding-top: 24px; }
+  main[data-screen="done"] > .card { grid-column: 1; grid-row: 3; }
+  main[data-screen="done"] > .next { grid-column: 2; grid-row: 2; padding-top: 24px; }
+  main[data-screen="done"] > .applied { grid-column: 2; grid-row: 3; }
+  main[data-screen="done"] > .done-foot { justify-content: flex-start; }
+}
+
+@media (min-width: 1440px) {
+  .tool-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
