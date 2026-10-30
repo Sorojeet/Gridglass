@@ -6,9 +6,10 @@
     GET    /files/<id>                     metadata and saved steps
     DELETE /files/<id>                     delete now
     PUT    /files/<id>/sheet               switch Excel sheet {"sheet": "..."} (clears steps)
-    GET    /files/<id>/preview             preview with the saved steps
+    GET    /files/<id>/preview             preview with the saved steps (?limit=&offset= to page)
     POST   /files/<id>/preview             preview a draft {"steps": [...]} without saving
     GET    /files/<id>/columns             column stats after the saved steps
+    GET    /files/<id>/values?column=      distinct values of a column with counts (filter dropdown)
     PUT    /files/<id>/steps               replace all steps {"steps": [...]}
     POST   /files/<id>/steps               append one step {...}
     DELETE /files/<id>/steps               remove all steps
@@ -22,7 +23,8 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request, send_file
 
-from .engine import OPS, GridglassError, IngestError, InvalidStepsError, build, open_source, parse_steps, preview, profile
+from .engine import (OPS, GridglassError, IngestError, InvalidStepsError, build, distinct_values, open_source,
+                     parse_steps, preview, profile)
 from .engine.io import EXPORT_FORMATS, export
 from .limits import from_config, limiter
 from .storage import NotFound, Store
@@ -34,7 +36,7 @@ CATEGORIES = {
     "clean": ["remove_duplicates", "trim", "change_case", "replace_values", "fill_blanks", "remove_blank_rows"],
     "shape": ["remove_columns", "keep_columns", "rename_columns", "filter_rows", "sort_rows", "keep_rows",
               "change_type", "split_column", "add_column"],
-    "summarize": ["group_by", "pivot", "unpivot"],
+    "summarize": ["pivot", "unpivot"],
 }
 MIMETYPES = {
     "csv": "text/csv",
@@ -58,11 +60,25 @@ def _steps_and_frame(file_id: str, raw_steps: list[dict[str, Any]]):
 
 
 def _limit() -> int:
-    cap = _cfg("PREVIEW_ROWS")
+    """Rows per preview: PREVIEW_ROWS by default, at most PAGE_ROWS (one page of the full view)."""
     try:
-        return max(1, min(int(request.args.get("limit", cap)), cap))
+        return max(1, min(int(request.args.get("limit", _cfg("PREVIEW_ROWS"))), _cfg("PAGE_ROWS")))
     except ValueError:
-        return cap
+        return _cfg("PREVIEW_ROWS")
+
+
+def _offset(limit: int) -> int:
+    """Where the page starts. Browsing stops at BROWSE_MAX_ROWS; beyond that people download."""
+    try:
+        offset = max(0, int(request.args.get("offset", 0)))
+    except ValueError:
+        return 0
+    return min(offset, max(0, _cfg("BROWSE_MAX_ROWS") - limit))
+
+
+def _page(lf):
+    limit = _limit()
+    return preview(lf, limit, _offset(limit))
 
 
 def _body() -> dict[str, Any]:
@@ -76,7 +92,7 @@ def _save(file_id: str, raw_steps: list[dict[str, Any]]):
     """Validate the steps against the data, store them, and return the new state with a preview."""
     steps, lf = _steps_and_frame(file_id, raw_steps)
     meta = store().save_steps(file_id, [s.model_dump(mode="json") for s in steps])
-    return jsonify(file=meta, preview=preview(lf, _limit()))
+    return jsonify(file=meta, preview=_page(lf))
 
 
 # ---------------------------------------------------------------------- config & tools
@@ -86,7 +102,8 @@ def client_config():
     """Limits the app shows to users before they upload."""
     c = current_app.config
     return jsonify(max_upload_mb=c["MAX_UPLOAD_MB"], retention_minutes=c["FILE_RETENTION_MINUTES"],
-                   preview_rows=c["PREVIEW_ROWS"], export_formats=sorted(EXPORT_FORMATS))
+                   preview_rows=c["PREVIEW_ROWS"], page_rows=c["PAGE_ROWS"], browse_max_rows=c["BROWSE_MAX_ROWS"],
+                   export_formats=sorted(EXPORT_FORMATS))
 
 
 @bp.get("/tools")
@@ -115,7 +132,7 @@ def upload():
         raise IngestError("Choose a file to upload.")
     meta = store().create(file.stream, file.filename, sheet=request.form.get("sheet") or None)
     lf = open_source(store().source(meta["id"]))
-    return jsonify(file=meta, preview=preview(lf, _limit())), 201
+    return jsonify(file=meta, preview=_page(lf)), 201
 
 
 @bp.get("/files/<file_id>")
@@ -136,7 +153,7 @@ def change_sheet(file_id):
     if not isinstance(sheet, str) or not sheet:
         raise IngestError("Choose a sheet.")
     meta = store().change_sheet(file_id, sheet)
-    return jsonify(file=meta, preview=preview(open_source(store().source(file_id)), _limit()))
+    return jsonify(file=meta, preview=_page(open_source(store().source(file_id))))
 
 
 # ---------------------------------------------------------------------- preview & columns
@@ -144,7 +161,7 @@ def change_sheet(file_id):
 @bp.get("/files/<file_id>/preview")
 def get_preview(file_id):
     _, lf = _steps_and_frame(file_id, store().meta(file_id)["steps"])
-    return jsonify(preview=preview(lf, _limit()))
+    return jsonify(preview=_page(lf))
 
 
 @bp.post("/files/<file_id>/preview")
@@ -152,7 +169,19 @@ def draft_preview(file_id):
     """Live preview while the user adjusts a tool's options. Nothing is saved."""
     raw = _body().get("steps", store().meta(file_id)["steps"])
     _, lf = _steps_and_frame(file_id, raw)
-    return jsonify(preview=preview(lf, _limit()))
+    return jsonify(preview=_page(lf))
+
+
+@bp.get("/files/<file_id>/values")
+def column_values(file_id):
+    """Distinct values of one column (after the saved steps), for the filter's dropdown. ?column=&q=&limit="""
+    column = request.args.get("column", "")
+    try:
+        limit = max(1, min(int(request.args.get("limit", 200)), 500))
+    except ValueError:
+        limit = 200
+    _, lf = _steps_and_frame(file_id, store().meta(file_id)["steps"])
+    return jsonify(distinct_values(lf, column, request.args.get("q") or None, limit))
 
 
 @bp.get("/files/<file_id>/columns")

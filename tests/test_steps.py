@@ -11,8 +11,8 @@ from gridglass.engine import OPS, InvalidStepsError, StepError, build, parse_ste
 # --------------------------------------------------------------------------- validation
 
 def test_every_tool_is_registered():
-    assert len(OPS) == 18
-    assert {"remove_duplicates", "trim", "filter_rows", "group_by", "pivot", "unpivot"} <= set(OPS)
+    assert len(OPS) == 17
+    assert {"remove_duplicates", "trim", "filter_rows", "pivot", "unpivot"} <= set(OPS)
 
 
 @pytest.mark.parametrize("raw, fragment", [
@@ -224,31 +224,57 @@ def test_add_column_math_needs_numbers(orders):
 
 # --------------------------------------------------------------------------- summarize
 
-def test_group_by(orders, apply):
-    out = apply(orders, {"op": "group_by", "by": ["City"], "aggregations": [
-        {"func": "sum", "column": "Amount"}, {"func": "count_rows"}, {"func": "count_distinct", "column": "Order ID"}]})
+SUM_AMOUNT = {"func": "sum", "column": "Amount"}
+
+
+def test_pivot_without_columns_is_a_group_by(orders, apply):
+    out = apply(orders, {"op": "pivot", "rows": ["City"], "values": [
+        SUM_AMOUNT, {"func": "count_rows"}, {"func": "count_distinct", "column": "Order ID"}]})
     pune = out.filter(pl.col("City") == "Pune").row(0, named=True)
-    assert pune["Amount (sum)"] == 240.0 and pune["Rows"] == 3 and pune["Order ID (distinct)"] == 3
+    assert pune["Sum of Amount"] == 240.0 and pune["Count"] == 3 and pune["Distinct Order ID"] == 3
     assert out["City"].to_list() == ["Pune", "Delhi", "Mumbai"]  # first-seen order
 
 
-def test_group_by_defaults_to_row_count(orders, apply):
-    assert apply(orders, {"op": "group_by", "by": ["City"]}).columns == ["City", "Rows"]
+def test_pivot_defaults_to_count(orders, apply):
+    assert apply(orders, {"op": "pivot", "rows": ["City"]}).columns == ["City", "Count"]
 
 
-def test_group_by_sum_on_text_refused(orders):
-    with pytest.raises(StepError, match="number columns"):
-        build(orders, parse_steps([{"op": "group_by", "by": ["City"], "aggregations": [{"func": "sum", "column": "Customer"}]}]))
+def test_pivot_grand_total_row(orders, apply):
+    out = apply(orders, {"op": "pivot", "rows": ["City"], "values": [SUM_AMOUNT], "totals": True})
+    assert out.row(-1) == ("Grand Total", pytest.approx(781.0))
 
 
-def test_pivot(orders, apply):
+def test_pivot_with_columns_and_grand_totals(orders, apply):
     out = apply(orders, {"op": "remove_duplicates"},
-                {"op": "pivot", "rows": ["City"], "columns": "Customer", "values": "Amount", "aggregate": "count"})
-    assert out.columns[0] == "City" and out.height == 3
+                {"op": "pivot", "rows": ["City"], "columns": "Customer", "values": [{"func": "count_rows"}], "totals": True})
+    assert out.columns[0] == "City" and out.columns[-1] == "Grand Total"
+    assert out.height == 4 and out["City"][-1] == "Grand Total"
+    assert out["Grand Total"].to_list() == [3, 1, 1, 5]  # per city, then everything
+
+
+def test_pivot_blank_column_values_are_labelled(orders, apply):
+    out = apply(orders, {"op": "pivot", "rows": ["City"], "columns": "Customer"})
+    assert "(blank)" in out.columns and "null" not in out.columns and "" not in out.columns
+
+
+def test_pivot_multiple_values_name_columns(orders, apply):
+    out = apply(orders, {"op": "pivot", "rows": ["Customer"], "columns": "City",
+                         "values": [SUM_AMOUNT, {"func": "count_rows"}]})
+    assert "Sum of Amount · Pune" in out.columns and "Count · Delhi" in out.columns
+
+
+def test_pivot_sum_on_text_refused(orders):
+    with pytest.raises(StepError, match="number columns"):
+        build(orders, parse_steps([{"op": "pivot", "rows": ["City"], "values": [{"func": "sum", "column": "Customer"}]}]))
+
+
+def test_pivot_same_column_in_rows_and_columns(orders):
+    with pytest.raises(StepError, match="both Rows and Columns"):
+        build(orders, parse_steps([{"op": "pivot", "rows": ["City"], "columns": "City"}]))
 
 
 def test_pivot_then_lazy_again(orders, apply):
-    out = apply(orders, {"op": "pivot", "rows": ["Customer"], "columns": "City", "values": "Amount"},
+    out = apply(orders, {"op": "pivot", "rows": ["Customer"], "columns": "City", "values": [SUM_AMOUNT]},
                 {"op": "fill_blanks", "method": "value", "value": 0, "columns": ["Delhi"]})
     assert set(out.columns) == {"Customer", "Pune", "Delhi", "Mumbai"}
     assert 0.0 in out["Delhi"].to_list()
@@ -260,7 +286,12 @@ def test_pivot_too_many_columns_guard(monkeypatch):
     monkeypatch.setattr(Pivot, "max_columns", 3)
     lf = pl.LazyFrame({"r": ["a"] * 5, "c": list("vwxyz"), "v": [1] * 5})
     with pytest.raises(StepError, match="too many columns"):
-        build(lf, parse_steps([{"op": "pivot", "rows": ["r"], "columns": "c", "values": "v"}]))
+        build(lf, parse_steps([{"op": "pivot", "rows": ["r"], "columns": "c"}]))
+
+
+def test_group_by_is_gone():
+    with pytest.raises(InvalidStepsError, match="Unknown tool 'group_by'"):
+        parse_steps([{"op": "group_by", "by": ["City"]}])
 
 
 def test_unpivot_mixed_types(orders, apply):
@@ -279,7 +310,7 @@ def test_realistic_recipe(orders, apply):
         {"op": "fill_blanks", "columns": ["Customer"], "value": "Unknown"},
         {"op": "change_case", "columns": ["Customer"], "case": "title"},
         {"op": "filter_rows", "conditions": [{"column": "Amount", "operator": "greater_or_equal", "value": 50}]},
-        {"op": "group_by", "by": ["City"], "aggregations": [{"func": "sum", "column": "Amount", "name": "Total"}]},
+        {"op": "pivot", "rows": ["City"], "values": [{"func": "sum", "column": "Amount", "name": "Total"}]},
         {"op": "sort_rows", "by": [{"column": "Total", "descending": True}]},
     )
     assert out.to_dicts() == [{"City": "Delhi", "Total": 250.5}, {"City": "Pune", "Total": 240.0}]

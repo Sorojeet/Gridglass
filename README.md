@@ -25,7 +25,7 @@ gridglass/
   __init__.py        Flask app factory (API arrives in Phase 4)
   config.py          limits: 50 MB uploads, 200-row previews, 1-hour retention …
   engine/
-    steps.py         the 18 tools + parse_steps() validation
+    steps.py         the 17 tools + parse_steps() validation
     pipeline.py      build(), run(), preview(), profile()
     io.py            ingest (CSV/TSV/XLSX/XLS/JSON/NDJSON → Parquet), export (CSV/XLSX/JSON/PDF)
     pdf.py           table-style PDF export (ReportLab)
@@ -38,9 +38,9 @@ tests/               pytest suite
 
 | Clean | Shape | Summarize |
 |---|---|---|
-| `remove_duplicates` | `remove_columns` | `group_by` |
-| `trim` | `keep_columns` (choose and reorder) | `pivot` |
-| `change_case` | `rename_columns` | `unpivot` |
+| `remove_duplicates` | `remove_columns` | `pivot`: Excel-style Rows, optional Columns, several Values, Grand Total. With no Columns it works as a group-by. |
+| `trim` | `keep_columns` (choose and reorder) | `unpivot` |
+| `change_case` | `rename_columns` | |
 | `replace_values` | `filter_rows` (13 operators, all/any) | |
 | `fill_blanks` (value, down, up) | `sort_rows` | |
 | `remove_blank_rows` | `keep_rows` (top/bottom) | |
@@ -76,9 +76,10 @@ Security:
 | POST | `/files` | upload (multipart `file`, optional `sheet`) → metadata and preview |
 | GET / DELETE | `/files/<id>` | metadata and saved steps / delete now |
 | PUT | `/files/<id>/sheet` | switch Excel sheet (clears steps) |
-| GET | `/files/<id>/preview` | preview with the saved steps (`?limit=`, max 200) |
+| GET | `/files/<id>/preview` | preview with the saved steps. `?limit=&offset=`: 200 rows by default, pages of up to 1,000, browsing up to 10,000 rows |
 | POST | `/files/<id>/preview` | live preview of draft `{"steps": [...]}`; nothing saved |
 | GET | `/files/<id>/columns` | column stats: type, blanks, distinct values, examples |
+| GET | `/files/<id>/values?column=&q=` | a column's distinct values with counts (filter dropdown) |
 | PUT / POST / DELETE | `/files/<id>/steps` | replace all / append one / clear |
 | DELETE | `/files/<id>/steps/<n>` | remove one step (undo) |
 | GET | `/files/<id>/export?format=` | download as `csv`, `xlsx`, `json` or `pdf` |

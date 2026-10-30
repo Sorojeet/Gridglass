@@ -12,7 +12,7 @@ from playwright.sync_api import expect
 ALL_OPS = [
     "remove_duplicates", "trim", "change_case", "replace_values", "fill_blanks", "remove_blank_rows",
     "filter_rows", "sort_rows", "remove_columns", "keep_columns", "rename_columns", "keep_rows",
-    "change_type", "split_column", "add_column", "group_by", "pivot", "unpivot", "convert",
+    "change_type", "split_column", "add_column", "pivot", "unpivot", "convert",
 ]
 SAMPLE_ROWS = 45  # the built-in sample: 40 orders + 5 exact duplicates
 
@@ -47,7 +47,7 @@ def test_home_lists_every_tool_and_searches(phone):
     expect(page.locator(".empty")).to_contain_text("No tool matches")
     page.fill("#q", "")
     page.click('[data-cat="summarize"]')
-    expect(page.locator(".tool-card")).to_have_count(3)
+    expect(page.locator(".tool-card")).to_have_count(2)
     expect(page.locator('[data-cat="summarize"]')).to_have_attribute("aria-pressed", "true")
 
 
@@ -255,27 +255,41 @@ def test_change_type_and_sort(phone):
     assert amounts == sorted(amounts, reverse=True)
 
 
-def test_group_by_and_pivot(phone):
-    page = phone.upload_sample("group_by")
-    page.click('[data-col-none="by"]')
-    page.click('[data-col="City"]')
-    page.select_option("#a0f", "sum")
-    page.select_option("#a0c", "Amount")
-    apply(page)
-    expect(page.locator(".done h1")).to_have_text("Grouped into 5 rows")
-    rows = result_json(page)
-    assert {"City", "Amount (sum)"} == set(rows[0])
-
-    page.click('[data-undo="0"]')
-    page.goto(phone.base + "/#/tool/pivot")
-    page.wait_for_selector("#opts")
+def test_pivot_works_like_group_by(phone):
+    page = phone.upload_sample("pivot")
     page.click('[data-col-none="rows"]')
-    page.click('[data-col="Customer"]')
-    page.select_option("#f-pcol", "City")
-    page.select_option("#f-values", "Amount")
+    page.click('[data-field="rows"] [data-col="City"]')
+    expect(page.locator("#f-pcol")).to_have_value("")          # no Columns field: a plain group-by
+    expect(page.locator("#a0c")).to_have_value("Amount")       # sum of the first number column by default
+    apply(page)
+    expect(page.locator(".done h1")).to_have_text("Pivot table ready — 6 rows")  # 5 cities + Grand Total
+    rows = result_json(page)
+    assert list(rows[0]) == ["City", "Sum of Amount"]
+    assert rows[-1]["City"] == "Grand Total"
+    assert abs(rows[-1]["Sum of Amount"] - sum(r["Sum of Amount"] for r in rows[:-1])) < 1e-6
+
+
+def test_pivot_with_columns_and_two_values(phone):
+    page = phone.upload_sample("pivot")
+    page.click('[data-col-none="rows"]')
+    page.click('[data-field="rows"] [data-col="City"]')
+    page.select_option("#f-pcol", "Order date")
+    page.click('[data-add="aggs"]')
+    page.select_option("#a1f", "count_rows")
+    page.locator("#opts .toggle").click()                       # Grand Total off
     apply(page)
     rows = result_json(page)
-    assert {"Pune", "Delhi", "Mumbai"} <= set(rows[0])
+    cols = list(rows[0])
+    assert cols[0] == "City" and any(c.startswith("Sum of Amount · ") for c in cols)
+    assert any(c.startswith("Count · ") for c in cols) and not any("Grand Total" in c for c in cols)
+    assert len(rows) == 5
+
+
+def test_pivot_hint_when_columns_also_in_rows(phone):
+    page = phone.upload_sample("pivot")
+    page.select_option("#f-pcol", "Customer")                   # Customer is already the default Rows field
+    expect(page.locator("#pv-note")).to_contain_text("isn’t already in Rows")
+    expect(page.locator("#apply")).to_be_disabled()
 
 
 def test_keep_rows_and_unpivot(phone):
@@ -396,3 +410,118 @@ def test_fonts_are_self_hosted_and_nothing_external_loads(make_phone):
     assert page.evaluate("document.fonts.check('700 16px Manrope')")
     assert page.evaluate("getComputedStyle(document.body).fontFamily").startswith("Manrope")
     assert external == []
+
+
+
+# ----------------------------------------------------------------------------- filter value dropdown
+
+def test_filter_value_dropdown_pick_and_type(phone):
+    page = phone.upload_sample("filter_rows")
+    page.select_option("#c0col", "City")
+    page.click("#c0v")
+    options = page.locator("#c0list [role=option]")
+    expect(options).to_have_count(5)                            # the 5 cities, with counts
+    expect(options.first).to_contain_text("Bengaluru")          # sorted A→Z, like Excel
+    page.locator("#c0list [role=option]", has_text="Pune").click()
+    expect(page.locator("#c0v")).to_have_value("Pune")
+    expect(page.locator("#c0list")).to_be_hidden()
+    expect(page.locator("#pv-badge")).to_contain_text("fewer rows")
+
+    page.fill("#c0v", "del")                                    # typing narrows the list
+    expect(options).to_have_count(1)
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("Enter")
+    expect(page.locator("#c0v")).to_have_value("Delhi")
+    apply(page)
+    assert {r["City"] for r in result_json(page)} == {"Delhi"}
+
+
+def test_filter_dropdown_builds_a_list(phone):
+    page = phone.upload_sample("filter_rows")
+    page.select_option("#c0col", "City")
+    page.select_option("#c0op", "in_list")
+    page.click("#c0v")
+    page.locator("#c0list [role=option]", has_text="Pune").click()
+    page.locator("#c0list [role=option]", has_text="Chennai").click()
+    expect(page.locator("#c0v")).to_have_value("Pune, Chennai, ")
+    expect(page.locator("#c0list [role=option]")).to_have_count(3)   # already-picked values drop out
+    apply(page)
+    assert {r["City"] for r in result_json(page)} == {"Pune", "Chennai"}
+
+
+def test_filter_typed_value_still_works(phone):
+    page = phone.upload_sample("filter_rows")
+    page.select_option("#c0col", "Amount")
+    page.select_option("#c0op", "greater_than")
+    page.fill("#c0v", "700")                                    # a value that isn't in the list
+    page.keyboard.press("Escape")
+    apply(page)
+    assert all(r["Amount"] > 700 for r in result_json(page))
+
+
+# ----------------------------------------------------------------------------- show all rows
+
+def _numbers_csv(tmp_path, n):
+    f = tmp_path / f"n{n}.csv"
+    f.write_text("n,label\n" + "".join(f"{i},row {i}\n" for i in range(n)))
+    return str(f)
+
+
+def test_show_all_rows_in_pages_of_1000(phone, tmp_path):
+    page = phone.open("/#/tool/sort_rows")
+    page.set_input_files("#file", _numbers_csv(tmp_path, 2500))
+    page.wait_for_selector("#pv table")
+    rows = page.locator("#pv tbody tr")
+    expect(rows).to_have_count(50)                              # quick preview on a phone
+    page.click('[data-page="all"]')
+    expect(rows).to_have_count(1000)
+    expect(page.locator(".pager-text")).to_have_text("Rows 1–1,000 of 2,500 · page 1 of 3")
+    expect(page.locator('[data-page="prev"]')).to_be_disabled()
+    page.click('[data-page="next"]')
+    expect(page.locator("#pv tbody tr").first.locator("td").first).to_have_text("1000")
+    page.click('[data-page="next"]')
+    expect(rows).to_have_count(500)
+    expect(page.locator('[data-page="next"]')).to_be_disabled()
+    page.select_option("#s0o", "desc")                         # changing options goes back to page 1
+    expect(page.locator(".pager-text")).to_contain_text("Rows 1–1,000")
+    expect(page.locator("#pv tbody tr").first.locator("td").first).to_have_text("2499")
+    page.click('[data-page="less"]')
+    expect(rows).to_have_count(50)
+
+
+def test_big_files_offer_download_instead(phone, tmp_path):
+    page = phone.open("/#/tool/sort_rows")
+    page.set_input_files("#file", _numbers_csv(tmp_path, 12000))
+    page.wait_for_selector("#pv table")
+    expect(page.locator('[data-page="all"]')).to_have_count(0)
+    expect(page.locator("#pv-note")).to_contain_text("Download the file to see every row")
+
+
+# ----------------------------------------------------------------------------- back to the editor
+
+def test_edit_options_after_apply(phone):
+    page = phone.upload_sample("filter_rows")
+    page.select_option("#c0col", "City")
+    page.fill("#c0v", "Pune")
+    apply(page)
+    expect(page.locator(".step-list li")).to_have_count(1)
+    page.click('.done [data-action="edit"]')
+    expect(page.locator("#c0v")).to_have_value("Pune")          # options come back as they were
+    expect(page.locator(".file-chip")).not_to_contain_text("step applied")  # the step is out while editing
+    page.fill("#c0v", "Delhi")
+    apply(page)
+    expect(page.locator(".step-list li")).to_have_count(1)      # replaced, not added twice
+    assert {r["City"] for r in result_json(page)} == {"Delhi"}
+
+
+def test_edit_from_top_bar_keeps_earlier_steps(phone):
+    page = phone.upload_sample("trim")
+    apply(page)
+    page.goto(phone.base + "/#/tool/remove_duplicates")
+    page.wait_for_selector("#opts")
+    apply(page)
+    page.click('.topbar [data-action="edit"]')
+    expect(page.locator("h1, .topbar-title").first).to_contain_text("Remove duplicates")
+    expect(page.locator(".file-chip")).to_contain_text("1 step applied")   # trim is still there
+    apply(page)
+    expect(page.locator(".step-list li")).to_have_count(2)

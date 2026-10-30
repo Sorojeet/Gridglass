@@ -1,5 +1,5 @@
 // Offline shell: the app loads instantly and works as an installed app. Data (/api) always comes from the network.
-const CACHE = 'gridglass-v3';
+const CACHE = 'gridglass-v4';
 const SHELL = ['/', '/static/css/app.css', '/static/js/app.js', '/static/js/tools.js', '/static/js/theme.js',
   '/static/icon.svg', '/static/manifest.webmanifest', '/static/fonts/manrope-latin-wght-normal.woff2'];
 

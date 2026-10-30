@@ -43,15 +43,44 @@ def collect(lf: pl.LazyFrame) -> pl.DataFrame:
         raise GridglassError(f"Couldn't process the file: {_short(exc)}") from None
 
 
-def preview(lf: pl.LazyFrame, limit: int = 200) -> dict[str, Any]:
-    """First `limit` rows plus the total row count, JSON-ready for the grid."""
-    head = collect(lf.head(limit))
+def preview(lf: pl.LazyFrame, limit: int = 200, offset: int = 0) -> dict[str, Any]:
+    """A page of rows (`offset`, `limit`) plus the total row count, JSON-ready for the grid."""
+    page = collect(lf.slice(offset, limit))
     total = collect(lf.select(pl.len())).item()
     return {
-        "columns": [{"name": n, "type": friendly_dtype(t)} for n, t in head.schema.items()],
-        "rows": [[_cell(v) for v in row] for row in head.iter_rows()],
+        "columns": [{"name": n, "type": friendly_dtype(t)} for n, t in page.schema.items()],
+        "rows": [[_cell(v) for v in row] for row in page.iter_rows()],
+        "offset": offset,
         "total_rows": total,
-        "truncated": total > head.height,
+        "truncated": total > page.height,
+    }
+
+
+def distinct_values(lf: pl.LazyFrame, column: str, query: str | None = None, limit: int = 200) -> dict[str, Any]:
+    """The values in a column with how often each appears — for the filter's value dropdown.
+
+    Sorted A→Z like Excel's filter list. When there are more than `limit`, the most common ones are kept.
+    """
+    schema = lf.collect_schema()
+    if column not in schema:
+        raise GridglassError(f"Column not found: '{column}'.")
+    v = pl.col("v")
+    base = lf.select(pl.col(column).alias("v")).filter(v.is_not_null())
+    if schema[column] == pl.String:
+        base = base.filter(v.str.strip_chars() != "")
+    if query:
+        base = base.filter(v.cast(pl.String).str.to_lowercase().str.contains(query.lower(), literal=True))
+    counts = base.group_by("v").agg(pl.len().alias("n"))
+    distinct = collect(counts.select(pl.len())).item()
+    if distinct > limit:
+        counts = counts.sort(["n", "v"], descending=[True, False]).head(limit)
+    top = collect(counts.sort("v"))
+    return {
+        "column": column,
+        "type": friendly_dtype(schema[column]),
+        "values": [{"value": _cell(val), "count": n} for val, n in top.iter_rows()],
+        "distinct": distinct,
+        "truncated": distinct > limit,
     }
 
 

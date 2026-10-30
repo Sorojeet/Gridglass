@@ -21,7 +21,7 @@
   --glass-border: rgba(255, 255, 255, 0.8); --hl: rgba(255, 255, 255, 0.95);
   --shadow: rgba(15, 23, 42, 0.08); --track: rgba(255, 255, 255, 0.4); --seg-on: rgba(255, 255, 255, 0.95);
   --line: rgba(15, 23, 42, 0.08); --thead: rgba(255, 255, 255, 0.6); --bar: rgba(255, 255, 255, 0.55);
-  --solid: rgba(11, 18, 32, 0.88); --on-solid: #FFFFFF;
+  --solid: rgba(11, 18, 32, 0.88); --on-solid: #FFFFFF; --menu: #FFFFFF;
   --chip-clean: #E6F4F1; --ink-clean: #0F766E; --chip-shape: #E8EEFC; --ink-shape: #1D4ED8;
   --chip-summarize: #FDF1E3; --ink-summarize: #B45309; --chip-convert: #EEF0F3; --ink-convert: #334155;
   --warn-bg: #FDEBDD; --warn-ink: #9A3412; --error-bg: #FDECEC; --error-ink: #B42318;
@@ -40,7 +40,7 @@
   --glass-border: rgba(255, 255, 255, 0.12); --hl: rgba(255, 255, 255, 0.14);
   --shadow: rgba(0, 0, 0, 0.45); --track: rgba(255, 255, 255, 0.06); --seg-on: rgba(255, 255, 255, 0.16);
   --line: rgba(255, 255, 255, 0.08); --thead: rgba(255, 255, 255, 0.06); --bar: rgba(12, 18, 28, 0.62);
-  --solid: rgba(238, 242, 247, 0.92); --on-solid: #0B1220;
+  --solid: rgba(238, 242, 247, 0.92); --on-solid: #0B1220; --menu: #151C29;
   --chip-clean: rgba(45, 212, 191, 0.16); --ink-clean: #5EEAD4; --chip-shape: rgba(96, 165, 250, 0.18); --ink-shape: #93C5FD;
   --chip-summarize: rgba(251, 146, 60, 0.18); --ink-summarize: #FDBA74; --chip-convert: rgba(148, 163, 184, 0.18); --ink-convert: #CBD5E1;
   --warn-bg: rgba(251, 146, 60, 0.18); --warn-ink: #FDBA74; --error-bg: rgba(248, 113, 113, 0.16); --error-ink: #FCA5A5;
@@ -261,6 +261,38 @@ select.input {
 .rename-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 10px; align-items: center; }
 .rename-row label { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ----------------------------------------------------------------- value dropdown (combobox) */
+.combo { position: relative; }
+.combo .input { padding-right: 46px; }
+.combo-btn {
+  position: absolute; right: 2px; top: 2px; width: 44px; height: 44px; border: 0; border-radius: 10px;
+  background: transparent; color: var(--muted); display: flex; align-items: center; justify-content: center;
+}
+.combo-btn:hover { color: var(--ink); }
+.combo-list {
+  position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 6px); margin: 0; padding: 6px;
+  list-style: none; max-height: 280px; overflow-y: auto; border-radius: 14px; background: var(--menu);
+  -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: 0 18px 40px var(--shadow), 0 0 0 1px var(--line);
+}
+.combo-list[hidden] { display: none; }
+.combo-list [role="option"] {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px;
+  padding: 8px 12px; border-radius: 10px; cursor: pointer; font-size: 15px;
+}
+.combo-list [role="option"] span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combo-list [role="option"] small { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.combo-list [role="option"]:hover, .combo-list [role="option"][aria-selected="true"] { background: var(--track); }
+.combo-list [role="option"][aria-selected="true"] { outline: 2px solid var(--accent-ring); }
+.combo-more { padding: 10px 12px; font-size: 13px; color: var(--muted); }
+.row-card:focus-within { position: relative; z-index: 6; } /* keep an open dropdown above the cards below it */
+
+/* ----------------------------------------------------------------- preview pager */
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.pager:empty { display: none; }
+.pager .btn-sm { align-self: auto; }
+.pager-text { font-size: 13px; font-weight: 600; color: var(--ink2); font-variant-numeric: tabular-nums; }
+.done .btn-sm { align-self: center; margin-top: 4px; }
+
 /* ----------------------------------------------------------------- preview table */
 .preview { display: flex; flex-direction: column; gap: 10px; }
 .preview-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -372,6 +404,7 @@ td.null { background: repeating-linear-gradient(135deg, transparent 0 6px, var(-
   main[data-screen="done"] > .next { grid-column: 2; grid-row: 2; padding-top: 24px; }
   main[data-screen="done"] > .applied { grid-column: 2; grid-row: 3; }
   main[data-screen="done"] > .done-foot { justify-content: flex-start; }
+  main[data-screen="done"] .done .btn-sm { align-self: flex-start; }
 }
 
 @media (min-width: 1440px) {

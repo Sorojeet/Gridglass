@@ -311,35 +311,30 @@ export const TOOLS = [
           : d.mode === 'math' && d.rightKind === 'column' && !d.right_column ? 'Choose the second column.' : null),
   },
   {
-    op: 'group_by', cat: 'summarize', icon: 'group', label: 'Group by',
-    desc: 'Sum, count or average by group', keywords: 'summary total subtotal aggregate',
-    intro: 'Collapse rows into one per group — total sales per city, orders per customer.',
-    verb: 'Group rows',
-    fields: [
-      { key: 'by', type: 'columns', label: 'One row for each', default: (cols) => [first(cols, 'text')].filter(Boolean) },
-      { key: 'aggs', type: 'aggs', label: 'Calculate', default: (cols) => [{ func: 'count_rows', column: first(cols, 'decimal') }] },
-    ],
-    build: (d) => ({
-      by: d.by,
-      aggregations: d.aggs.map((a) => (a.func === 'count_rows' ? { func: 'count_rows' } : { func: a.func, column: a.column })),
-    }),
-    done: (b, a) => `Grouped into ${plural(a, 'row')}`,
-  },
-  {
     op: 'pivot', cat: 'summarize', icon: 'pivot', label: 'Pivot table',
-    desc: 'Turn rows into a summary grid', keywords: 'crosstab matrix summary',
-    intro: 'Like an Excel pivot table: pick the row labels, the column labels and what fills the grid.',
+    desc: 'Group, total and cross-tab, like Excel', keywords: 'group by summary total subtotal aggregate crosstab matrix sum count average',
+    intro: 'Like an Excel pivot table: pick the Rows and what to calculate. Add a Columns field to spread the totals across columns.',
     verb: 'Make pivot table',
     fields: [
       { key: 'rows', type: 'columns', label: 'Rows', default: (cols) => [first(cols, 'text')].filter(Boolean) },
-      { key: 'pcol', type: 'column', label: 'Columns', default: (cols) => cols.filter((c) => c.type === 'text')[1]?.name ?? '' },
-      { key: 'values', type: 'column', label: 'Values', default: (cols) => first(cols, 'decimal') || first(cols, 'integer') },
-      { key: 'aggregate', type: 'select', label: 'Summarize by', default: 'sum',
-        options: [['sum', 'Sum'], ['average', 'Average'], ['count', 'Count'], ['min', 'Smallest'], ['max', 'Largest'], ['first', 'First']] },
+      { key: 'pcol', type: 'column', label: 'Columns (optional)', optional: true,
+        emptyLabel: 'None — one row per group', default: '' },
+      { key: 'aggs', type: 'aggs', label: 'Values', addLabel: 'Add value',
+        default: (cols) => {
+          const numeric = first(cols, 'decimal') || first(cols, 'integer');
+          return [numeric ? { func: 'sum', column: numeric } : { func: 'count_rows', column: '' }];
+        } },
+      { key: 'totals', type: 'toggle', label: 'Show Grand Total', default: true },
     ],
-    build: (d) => ({ rows: d.rows, columns: d.pcol, values: d.values, aggregate: d.aggregate }),
-    ready: (d) => (!d.pcol || !d.values ? 'Choose a column for the pivot columns and one for the values.' : null),
-    done: () => 'Pivot table ready',
+    build: (d) => ({
+      rows: d.rows,
+      columns: d.pcol || undefined,
+      values: d.aggs.map((a) => (a.func === 'count_rows' ? { func: 'count_rows' } : { func: a.func, column: a.column })),
+      totals: d.totals,
+    }),
+    ready: (d) => (d.aggs.some((a) => a.func !== 'count_rows' && !a.column) ? 'Choose a column for each value.'
+      : d.pcol && d.rows.includes(d.pcol) ? 'Pick a Columns field that isn’t already in Rows.' : null),
+    done: (b, a) => `Pivot table ready — ${plural(a, 'row')}`,
   },
   {
     op: 'unpivot', cat: 'summarize', icon: 'unpivot', label: 'Unpivot columns',
@@ -367,7 +362,7 @@ export const TOOL = Object.fromEntries(TOOLS.map((t) => [t.op, t]));
 
 export const FORMATS = [['xlsx', 'Excel (.xlsx)'], ['csv', 'CSV (.csv)'], ['json', 'JSON (.json)'], ['pdf', 'PDF (.pdf)']];
 
-export const SUGGEST = ['trim', 'remove_duplicates', 'filter_rows', 'sort_rows', 'group_by', 'pivot', 'change_type', 'convert'];
+export const SUGGEST = ['trim', 'remove_duplicates', 'filter_rows', 'sort_rows', 'pivot', 'change_type', 'convert'];
 
 export function defaults(tool, cols) {
   const d = {};
@@ -385,7 +380,7 @@ export function incomplete(tool, d) {
     if (f.type === 'columns' && (f.optional ? Array.isArray(picked) && !picked.length : !(picked || []).length)) {
       return 'Choose at least one column.';
     }
-    if (f.type === 'column' && !d[f.key]) return `Choose a column for “${f.label}”.`;
+    if (f.type === 'column' && !f.optional && !d[f.key]) return `Choose a column for “${f.label}”.`;
   }
   return null;
 }

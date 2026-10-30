@@ -38,12 +38,12 @@ def file_id(client):
 
 def test_healthz(client):
     body = client.get("/healthz").get_json()
-    assert body["status"] == "ok" and body["tools"] == 18
+    assert body["status"] == "ok" and body["tools"] == 17
 
 
 def test_tools_list(client):
     body = client.get("/api/v1/tools").get_json()
-    assert len(body["tools"]) == 18 and body["export_formats"] == ["csv", "json", "pdf", "xlsx"]
+    assert len(body["tools"]) == 17 and body["export_formats"] == ["csv", "json", "pdf", "xlsx"]
     trim = next(t for t in body["tools"] if t["op"] == "trim")
     assert trim["category"] == "clean" and trim["label"] == "Trim spaces"
     assert "collapse_spaces" in trim["schema"]["properties"]
@@ -124,7 +124,7 @@ def test_steps_are_stored_with_defaults(client, file_id):
 
 def test_replace_steps(client, file_id):
     r = client.put(f"/api/v1/files/{file_id}/steps", json={"steps": [
-        {"op": "group_by", "by": ["City"], "aggregations": [{"func": "sum", "column": "Amount", "name": "Total"}]}]})
+        {"op": "pivot", "rows": ["City"], "values": [{"func": "sum", "column": "Amount", "name": "Total"}]}]})
     assert r.get_json()["preview"]["rows"] == [["Pune", 180.0], ["Delhi", 501.0]]
 
 
@@ -268,7 +268,7 @@ def test_index_and_static(client):
 
 def test_service_worker_at_root(client):
     r = client.get("/sw.js")
-    assert r.status_code == 200 and b"gridglass-v3" in r.data and r.headers["Cache-Control"] == "no-cache"
+    assert r.status_code == 200 and b"gridglass-v4" in r.data and r.headers["Cache-Control"] == "no-cache"
     r.close()
 
 
@@ -306,3 +306,51 @@ def test_hsts_only_over_https(tmp_path):
     r = c.get("/", headers={"X-Forwarded-Proto": "https"})
     assert r.headers["Strict-Transport-Security"].startswith("max-age=")
     assert "camera=()" in r.headers["Permissions-Policy"]
+
+
+# --------------------------------------------------------------------------- values & paging
+
+def test_column_values_for_dropdown(client, file_id):
+    body = client.get(f"/api/v1/files/{file_id}/values?column=City").get_json()
+    assert body["values"] == [{"value": "Delhi", "count": 2}, {"value": "Pune", "count": 2}]
+    assert body["distinct"] == 2 and body["truncated"] is False and body["type"] == "text"
+
+
+def test_column_values_search_and_limit(client, file_id):
+    body = client.get(f"/api/v1/files/{file_id}/values?column=Name&q=AV").get_json()
+    assert [v["value"] for v in body["values"]] == ["Ravi"]
+    body = client.get(f"/api/v1/files/{file_id}/values?column=Name&limit=1").get_json()
+    assert body["truncated"] is True and body["values"] == [{"value": "Ravi", "count": 2}]  # most common kept
+
+
+def test_column_values_follow_steps(client, file_id):
+    client.post(f"/api/v1/files/{file_id}/steps", json={"op": "trim"})
+    names = [v["value"] for v in client.get(f"/api/v1/files/{file_id}/values?column=Name").get_json()["values"]]
+    assert "Asha" in names and "  Asha " not in names
+
+
+def test_column_values_unknown_column(client, file_id):
+    r = client.get(f"/api/v1/files/{file_id}/values?column=Nope")
+    assert r.status_code == 422 and "not found" in r.get_json()["error"]["message"]
+
+
+def test_preview_pages(client):
+    rows = b"n\n" + b"".join(f"{i}\n".encode() for i in range(2500))
+    fid = upload(client, rows, "big.csv").get_json()["file"]["id"]
+    p = client.get(f"/api/v1/files/{fid}/preview?limit=1000&offset=1000").get_json()["preview"]
+    assert p["offset"] == 1000 and len(p["rows"]) == 1000 and p["rows"][0] == [1000] and p["total_rows"] == 2500
+    p = client.get(f"/api/v1/files/{fid}/preview?limit=1000&offset=2000").get_json()["preview"]
+    assert len(p["rows"]) == 500
+    p = client.get(f"/api/v1/files/{fid}/preview?limit=5000").get_json()["preview"]
+    assert len(p["rows"]) == 1000  # one page at most
+    p = client.post(f"/api/v1/files/{fid}/preview?limit=1000&offset=1000",
+                    json={"steps": [{"op": "sort_rows", "by": [{"column": "n", "descending": True}]}]}).get_json()["preview"]
+    assert p["rows"][0] == [1499]
+
+
+def test_preview_offset_stops_at_browse_limit(client, app):
+    app.config["BROWSE_MAX_ROWS"] = 1500
+    rows = b"n\n" + b"".join(f"{i}\n".encode() for i in range(3000))
+    fid = upload(client, rows, "big.csv").get_json()["file"]["id"]
+    p = client.get(f"/api/v1/files/{fid}/preview?limit=1000&offset=2000").get_json()["preview"]
+    assert p["offset"] == 500  # clamped: browsing ends at row 1,500

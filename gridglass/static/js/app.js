@@ -4,7 +4,8 @@ import {
 
 const API = '/api/v1';
 const desktop = window.matchMedia('(min-width: 1024px)');
-const previewRows = () => (desktop.matches ? 200 : 50); // the big desktop preview shows more rows
+// Quick preview: 50 rows on phones, 200 on desktop. "Show all rows" pages through up to 10k, 1,000 at a time.
+const previewRows = () => (state.browse.all ? config.page_rows : desktop.matches ? 200 : 50);
 const $ = (s, el = document) => el.querySelector(s);
 const view = $('#view');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -12,7 +13,7 @@ const num = (x) => Number(x).toLocaleString('en-IN');
 const plural = (k, w) => `${num(k)} ${w}${k === 1 ? '' : 's'}`;
 const ui = (name, cls) => icon(UI[name], cls);
 
-const config = { max_upload_mb: 50, retention_minutes: 60 };
+const config = { max_upload_mb: 50, retention_minutes: 60, page_rows: 1000, browse_max_rows: 10000 };
 const state = {
   file: null,      // server metadata of the current upload (id, filename, steps …)
   cols: [],        // column stats after the saved steps
@@ -22,6 +23,9 @@ const state = {
   before: 0,       // rows before the step being designed
   result: null,    // { before, after } after applying
   previewOk: false,
+  browse: { all: false, page: 0 }, // paged "show all rows" mode in the preview
+  values: {},      // column -> distinct values for the filter dropdown
+  lastEdit: null,  // { tool, draft, index } of the step just applied, so it can be edited again
 };
 
 // ============================================================================ API
@@ -87,6 +91,7 @@ function toast(message, kind = 'info') {
 }
 
 function remember(file) {
+  if (file?.id !== state.file?.id || file?.steps.length !== state.file?.steps.length) state.values = {};
   state.file = file;
   try {
     if (file) sessionStorage.setItem('gg.file', file.id); else sessionStorage.removeItem('gg.file');
@@ -125,8 +130,10 @@ function route() {
   firstRoute = false;
 }
 
-function topbar({ back, title, close } = {}) {
-  const left = back
+function topbar({ back, title, close, edit } = {}) {
+  const left = edit
+    ? `<button class="icon-btn" type="button" data-action="edit" aria-label="Back to the editor">${ui('back')}</button><span class="topbar-title">${esc(title)}</span>`
+    : back
     ? `<a class="icon-btn" href="${back}" aria-label="Back">${ui('back')}</a><span class="topbar-title">${esc(title)}</span>`
     : close
       ? `<span class="topbar-title">${esc(title || '')}</span>`
@@ -315,6 +322,7 @@ async function enterOptions() {
   }
   state.before = state.cols[0]?.rows ?? state.file.rows;
   state.draft = defaults(state.tool, state.cols);
+  state.browse = { all: false, page: 0 };
   renderOptions();
 }
 
@@ -332,6 +340,7 @@ function renderOptions() {
     <section class="preview" aria-labelledby="pv-title">
       <div class="preview-head"><h2 id="pv-title">Preview</h2><span class="pill" id="pv-badge" aria-live="polite"></span></div>
       <div class="table-wrap glass" id="pv" tabindex="0" aria-label="Preview table"><div class="skeleton"></div></div>
+      <div class="pager" id="pv-pager"></div>
       <p class="hint" id="pv-note"></p>
     </section>
     <div class="action-bar">
@@ -341,6 +350,7 @@ function renderOptions() {
     </div>`;
   $('[data-action="newfile"]').addEventListener('click', newFile);
   $('#sheet')?.addEventListener('change', (e) => changeSheet(e.target.value));
+  $('#pv-pager').addEventListener('click', onPager);
   if (t.convert) {
     $('[data-action="download"]').addEventListener('click', (e) => download($('#fmt').value, e.currentTarget));
     showPreview(state.file.steps);
@@ -351,6 +361,13 @@ function renderOptions() {
   form.addEventListener('input', onFormInput);
   form.addEventListener('change', onFormInput);
   form.addEventListener('click', onFormClick);
+  form.addEventListener('mousedown', (e) => { if (e.target.closest('.combo-list')) e.preventDefault(); }); // keep focus in the box
+  form.addEventListener('focusin', (e) => { if (e.target.getAttribute('role') === 'combobox') comboOpen(e.target); });
+  form.addEventListener('focusout', (e) => {
+    const combo = e.target.closest('.combo');
+    if (combo) setTimeout(() => { if (!combo.contains(document.activeElement)) comboClose($('[role="combobox"]', combo)); }, 120);
+  });
+  form.addEventListener('keydown', onComboKey);
   form.addEventListener('submit', (e) => e.preventDefault());
   $('#apply').addEventListener('click', apply);
   schedulePreview(0);
@@ -392,7 +409,9 @@ const FIELD = {
       <div class="row-links"><button type="button" class="btn-link" data-col-all="${f.key}">Select all</button>
       <button type="button" class="btn-link" data-col-none="${f.key}">Clear</button></div>`;
   },
-  column: (f, v) => `<select class="input" id="f-${f.key}" data-key="${f.key}">${colOptions(f.filter, v)}</select>`,
+  column: (f, v) => `<select class="input" id="f-${f.key}" data-key="${f.key}">${f.optional
+    ? `<option value="" ${v ? '' : 'selected'}>${esc(f.emptyLabel || 'None')}</option>${colsFor(f.filter).map((c) => opt(c.name, c.name, v)).join('')}`
+    : colOptions(f.filter, v)}</select>`,
   select: (f, v) => `<select class="input" id="f-${f.key}" data-key="${f.key}">${f.options.map(([o, l]) => opt(o, l, v)).join('')}</select>`,
   choice: (f, v) => seg(f.key, f.options, v, f.label),
   text: (f, v) => `<input class="input" id="f-${f.key}" data-key="${f.key}" value="${esc(v)}" placeholder="${esc(f.placeholder || '')}">`,
@@ -403,12 +422,19 @@ const FIELD = {
     return `${rows.map((c, i) => `<div class="row-card glass">
       <div class="row-grid">
         <label class="sr-only" for="c${i}col">Column</label>
-        <select class="input" id="c${i}col" data-list="conditions" data-i="${i}" data-prop="column">${colOptions(null, c.column)}</select>
+        <select class="input" id="c${i}col" data-list="conditions" data-i="${i}" data-prop="column" data-rerender>${colOptions(null, c.column)}</select>
         <label class="sr-only" for="c${i}op">Condition</label>
         <select class="input" id="c${i}op" data-list="conditions" data-i="${i}" data-prop="operator" data-rerender>${OPERATORS.map(([o, l]) => opt(o, l, c.operator)).join('')}</select>
         ${NO_VALUE_OPS.has(c.operator) ? '' : `<label class="sr-only" for="c${i}v">Value</label>
-        <input class="input" id="c${i}v" data-list="conditions" data-i="${i}" data-prop="value" value="${esc(c.value)}"
-          placeholder="${c.operator === 'in_list' ? 'Pune, Delhi, Mumbai' : 'Value'}">`}
+        <div class="combo">
+          <input class="input" id="c${i}v" data-list="conditions" data-i="${i}" data-prop="value" value="${esc(c.value)}"
+            role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="c${i}list" autocomplete="off"
+            data-values-for="${esc(c.column)}" data-multi="${c.operator === 'in_list'}"
+            placeholder="${c.operator === 'in_list' ? 'Pick or type: Pune, Delhi…' : 'Pick or type a value'}">
+          <button type="button" class="combo-btn" data-combo-toggle="c${i}v" aria-label="Show values for ${esc(c.column)}" tabindex="-1">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+          <ul class="combo-list glass" id="c${i}list" role="listbox" aria-label="Values in ${esc(c.column)}" hidden></ul>
+        </div>`}
       </div>
       ${rows.length > 1 ? `<button type="button" class="icon-btn small" data-remove="conditions" data-i="${i}" aria-label="Remove condition ${i + 1}">${ui('trash')}</button>` : ''}
     </div>`).join('')}
@@ -430,7 +456,7 @@ const FIELD = {
         ${a.func === 'count_rows' ? '<span class="hint inline">in each group</span>' : `<label class="sr-only" for="a${i}c">Column</label>
         <select class="input" id="a${i}c" data-list="aggs" data-i="${i}" data-prop="column">${colOptions(['sum', 'average', 'median'].includes(a.func) ? 'number' : null, a.column)}</select>`}
       </div>${rows.length > 1 ? `<button type="button" class="icon-btn small" data-remove="aggs" data-i="${i}" aria-label="Remove calculation ${i + 1}">${ui('trash')}</button>` : ''}</div>`).join('')}
-      <button type="button" class="btn btn-secondary btn-sm" data-add="aggs">${ui('plus')} Add calculation</button>`;
+      <button type="button" class="btn btn-secondary btn-sm" data-add="aggs">${ui('plus')} ${esc(f.addLabel || 'Add calculation')}</button>`;
   },
   types(f, rows) {
     return `${rows.map((r, i) => `<div class="row-card glass"><div class="row-grid two">
@@ -481,12 +507,20 @@ function onFormInput(e) {
   } else if (el.dataset.rename !== undefined) {
     d.mapping[el.dataset.rename] = el.value;
   } else return;
+  if (e.type === 'input' && el.getAttribute('role') === 'combobox') comboRefresh(el);
   if (e.type === 'input' || el.tagName === 'SELECT' || el.type === 'checkbox') schedulePreview();
 }
 
 function onFormClick(e) {
+  const pick = e.target.closest('.combo-list [role="option"]');
+  if (pick) { comboChoose(pick); return; }
   const b = e.target.closest('button');
   if (!b) return;
+  if (b.dataset.comboToggle) {
+    const input = $(`#${b.dataset.comboToggle}`);
+    if (input.getAttribute('aria-expanded') === 'true') comboClose(input); else { input.focus(); comboOpen(input); }
+    return;
+  }
   const d = state.draft;
   if (b.dataset.seg) {
     const key = b.dataset.seg;
@@ -516,6 +550,116 @@ function onFormClick(e) {
   schedulePreview();
 }
 
+// ---------------------------------------------------------------------------- value dropdown (combobox)
+// The filter's value box: tap for the column's real values (with counts), or type anything.
+
+async function loadValues(column, q = '') {
+  const key = q ? `${column}\u0000${q.toLowerCase()}` : column;
+  if (!state.values[key]) {
+    const qs = new URLSearchParams({ column, limit: '200', ...(q ? { q } : {}) });
+    state.values[key] = api(`/files/${state.file.id}/values?${qs}`).catch(() => ({ values: [], truncated: false }));
+  }
+  return state.values[key];
+}
+
+const comboToken = (input) => (input.dataset.multi === 'true' ? input.value.split(',').pop() : input.value).trim().toLowerCase();
+
+let comboSearch;
+async function comboOpen(input) {
+  const column = input.dataset.valuesFor;
+  if (!column) return;
+  delete input.dataset.chosen; // opening on purpose shows the list again
+  const data = await loadValues(column);
+  if (document.activeElement !== input && input.getAttribute('aria-expanded') !== 'true') return;
+  comboRender(input, data);
+}
+
+async function comboRefresh(input) {
+  if (!input.dataset.valuesFor) return;
+  const data = await loadValues(input.dataset.valuesFor);
+  comboRender(input, data);
+  const token = comboToken(input);
+  if (data.truncated && token) { // more values on the server than we have here: ask for matches
+    clearTimeout(comboSearch);
+    comboSearch = setTimeout(async () => {
+      const more = await loadValues(input.dataset.valuesFor, token);
+      if (comboToken(input) === token) comboRender(input, more);
+    }, 250);
+  }
+}
+
+function comboRender(input, data) {
+  const list = $(`#${input.getAttribute('aria-controls')}`);
+  if (!list) return;
+  if (input.dataset.chosen !== undefined && input.dataset.chosen === input.value) { comboClose(input); return; } // just picked
+  delete input.dataset.chosen;
+  const token = comboToken(input);
+  const taken = input.dataset.multi === 'true'
+    ? new Set(input.value.split(',').slice(0, -1).map((v) => v.trim().toLowerCase())) : new Set();
+  const matches = data.values
+    .filter((v) => !taken.has(String(v.value).toLowerCase()))
+    .filter((v) => !token || String(v.value).toLowerCase().includes(token))
+    .slice(0, 100);
+  if (input.dataset.multi !== 'true' && matches.length === 1 && String(matches[0].value).toLowerCase() === token) {
+    comboClose(input); // what you typed is exactly the only match: nothing left to pick
+    return;
+  }
+  list.innerHTML = matches.length
+    ? matches.map((v, k) => `<li role="option" id="${list.id}-${k}" data-value="${esc(v.value)}" aria-selected="false">
+        <span>${esc(v.value)}</span><small>${num(v.count)}</small></li>`).join('')
+      + (data.truncated && !token ? `<li class="combo-more" aria-hidden="true">Type to search all ${num(data.distinct)} values</li>` : '')
+    : `<li class="combo-more" aria-hidden="true">${token ? 'No match — your typed value will be used' : 'No values'}</li>`;
+  list.hidden = false;
+  input.setAttribute('aria-expanded', 'true');
+  input.removeAttribute('aria-activedescendant');
+}
+
+function comboClose(input) {
+  if (!input) return;
+  const list = $(`#${input.getAttribute('aria-controls')}`);
+  if (list) list.hidden = true;
+  input.setAttribute('aria-expanded', 'false');
+  input.removeAttribute('aria-activedescendant');
+}
+
+function comboChoose(li) {
+  const input = li.closest('.combo').querySelector('[role="combobox"]');
+  const value = li.dataset.value;
+  if (input.dataset.multi === 'true') {
+    const parts = input.value.split(',').slice(0, -1).map((v) => v.trim()).filter(Boolean);
+    input.value = `${[...parts, value].join(', ')}, `;
+  } else {
+    input.value = value;
+    input.dataset.chosen = value; // keep the list shut until the user types again
+  }
+  input.dispatchEvent(new Event('input', { bubbles: true })); // updates the draft and the preview
+  if (input.dataset.multi === 'true') input.focus(); else comboClose(input);
+}
+
+function onComboKey(e) {
+  const input = e.target;
+  if (input.getAttribute('role') !== 'combobox') return;
+  const list = $(`#${input.getAttribute('aria-controls')}`);
+  const options = [...list.querySelectorAll('[role="option"]')];
+  const current = options.findIndex((o) => o.getAttribute('aria-selected') === 'true');
+  const move = (k) => {
+    options.forEach((o, j) => o.setAttribute('aria-selected', String(j === k)));
+    if (options[k]) { input.setAttribute('aria-activedescendant', options[k].id); options[k].scrollIntoView({ block: 'nearest' }); }
+  };
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (list.hidden) comboOpen(input); else move(Math.min(current + 1, options.length - 1));
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    move(Math.max(current - 1, 0));
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (current >= 0) comboChoose(options[current]); else comboClose(input);
+  } else if (e.key === 'Escape') {
+    comboClose(input);
+  }
+}
+
 // ---------------------------------------------------------------------------- preview
 
 let previewTimer;
@@ -526,6 +670,7 @@ function schedulePreview(delay = 350) {
   const btn = $('#apply');
   if (btn) btn.disabled = true;
   clearTimeout(previewTimer);
+  state.browse.page = 0; // options changed: back to the first page
   previewTimer = setTimeout(() => {
     const hint = incomplete(state.tool, state.draft);
     if (hint) { showPreview(state.file.steps, null, hint); return; } // show the data as it is, plus what's missing
@@ -534,15 +679,24 @@ function schedulePreview(delay = 350) {
   }, delay);
 }
 
+let lastPreview = null; // what's on screen, so the pager can ask for another page of it
+
 async function showPreview(steps, step, hint = null) {
+  lastPreview = { steps, step, hint };
   const seq = ++previewSeq;
   const box = $('#pv');
   const badge = $('#pv-badge');
   const note = $('#pv-note');
   box.classList.add('loading');
   try {
-    const { preview } = await api(`/files/${state.file.id}/preview?limit=${previewRows()}`, { method: 'POST', body: { steps } });
+    const offset = state.browse.all ? state.browse.page * config.page_rows : 0;
+    const { preview } = await api(`/files/${state.file.id}/preview?limit=${previewRows()}&offset=${offset}`, { method: 'POST', body: { steps } });
     if (seq !== previewSeq) return;
+    if (state.browse.all && preview.total_rows > config.browse_max_rows) { // grew past the limit: back to quick view
+      state.browse = { all: false, page: 0 };
+      showPreview(steps, step, hint);
+      return;
+    }
     box.classList.remove('loading', 'error');
     box.innerHTML = table(preview);
     const diff = preview.total_rows - state.before;
@@ -553,9 +707,11 @@ async function showPreview(steps, step, hint = null) {
     note.classList.toggle('needs', Boolean(hint));
     note.textContent = [
       hint || '',
-      preview.truncated ? `Showing the first ${num(preview.rows.length)} of ${num(preview.total_rows)} rows.` : '',
+      preview.truncated && !state.browse.all ? `Showing the first ${num(preview.rows.length)} of ${num(preview.total_rows)} rows.` : '',
+      !state.browse.all && preview.total_rows > config.browse_max_rows ? 'Download the file to see every row.' : '',
       colDiff ? `${colDiff > 0 ? '+' : '−'}${plural(Math.abs(colDiff), 'column')}.` : '',
     ].filter(Boolean).join(' ');
+    renderPager(preview);
     state.previewOk = !hint;
     const btn = $('#apply');
     if (btn) btn.disabled = Boolean(hint);
@@ -565,8 +721,39 @@ async function showPreview(steps, step, hint = null) {
     box.classList.add('error');
     badge.textContent = '';
     note.textContent = '';
+    $('#pv-pager').innerHTML = '';
     box.innerHTML = `<p class="form-error">${ui('alert')}<span>${esc(friendly(err))}</span></p>`;
   }
+}
+
+function renderPager(pv) {
+  const el = $('#pv-pager');
+  const total = pv.total_rows;
+  if (!state.browse.all) {
+    el.innerHTML = pv.truncated && total <= config.browse_max_rows
+      ? `<button type="button" class="btn btn-secondary btn-sm" data-page="all">Show all ${num(total)} rows</button>` : '';
+    return;
+  }
+  const pages = Math.max(1, Math.ceil(total / config.page_rows));
+  const p = state.browse.page;
+  const from = total ? p * config.page_rows + 1 : 0;
+  const to = Math.min(total, (p + 1) * config.page_rows);
+  el.innerHTML = `
+    <button type="button" class="btn btn-secondary btn-sm" data-page="prev" ${p === 0 ? 'disabled' : ''} aria-label="Previous page">‹ Prev</button>
+    <span class="pager-text" aria-live="polite">Rows ${num(from)}–${num(to)} of ${num(total)}${pages > 1 ? ` · page ${p + 1} of ${pages}` : ''}</span>
+    <button type="button" class="btn btn-secondary btn-sm" data-page="next" ${p >= pages - 1 ? 'disabled' : ''} aria-label="Next page">Next ›</button>
+    <button type="button" class="btn-link" data-page="less">Quick view</button>`;
+}
+
+function onPager(e) {
+  const b = e.target.closest('[data-page]');
+  if (!b || !lastPreview) return;
+  const action = b.dataset.page;
+  if (action === 'all') state.browse = { all: true, page: 0 };
+  else if (action === 'less') state.browse = { all: false, page: 0 };
+  else state.browse.page += action === 'next' ? 1 : -1;
+  $('#pv').scrollTop = 0;
+  showPreview(lastPreview.steps, lastPreview.step, lastPreview.hint);
 }
 
 function friendly(err) {
@@ -591,6 +778,7 @@ async function apply() {
   try {
     const res = await api(`/files/${state.file.id}/steps`, { method: 'POST', body: toStep(state.tool, state.draft) });
     remember(res.file);
+    state.lastEdit = { tool: state.tool, draft: structuredClone(state.draft), index: res.file.steps.length - 1 };
     state.result = { before: state.before, after: res.preview.total_rows };
     renderDone();
   } catch (err) {
@@ -608,11 +796,13 @@ function renderDone() {
   const title = t.done ? t.done(before, after) : `${t.label} done`;
   const suggestions = SUGGEST.filter((op) => op !== t.op).slice(0, 6);
   const steps = state.file.steps;
-  view.innerHTML = `${topbar({ close: '#/' })}
+  const canEdit = state.lastEdit?.tool === t;
+  view.innerHTML = `${topbar(canEdit ? { edit: true, title: `Edit ${t.label}`, close: '#/' } : { close: '#/' })}
     <section class="done">
       <span class="done-icon">${ui('check')}</span>
       <h1>${esc(title)}</h1>
       <p>${before === after ? plural(after, 'row') : `${num(before)} rows → ${num(after)} rows`}</p>
+      ${canEdit ? `<button type="button" class="btn btn-secondary btn-sm" data-action="edit">${icon('rename')} Edit options</button>` : ''}
     </section>
     <section class="card glass">
       <div class="field"><label class="field-label" for="fmt">Download as</label>${formatSelect()}</div>
@@ -636,6 +826,7 @@ function renderDone() {
   $('[data-action="download"]').addEventListener('click', (e) => download($('#fmt').value, e.currentTarget));
   $('[data-action="share"]')?.addEventListener('click', (e) => share($('#fmt').value, e.currentTarget));
   $('[data-action="startover"]').addEventListener('click', startOver);
+  view.querySelectorAll('[data-action="edit"]').forEach((b) => b.addEventListener('click', editLast));
   view.querySelectorAll('[data-undo]').forEach((b) => b.addEventListener('click', () => undo(Number(b.dataset.undo))));
 }
 
@@ -643,9 +834,33 @@ async function undo(i) {
   try {
     const res = await api(`/files/${state.file.id}/steps/${i}`, { method: 'DELETE' });
     remember(res.file);
+    if (state.lastEdit) { // keep pointing at the right step (or none, if that's the one removed)
+      if (i === state.lastEdit.index) state.lastEdit.index = -1;
+      else if (i < state.lastEdit.index) state.lastEdit.index -= 1;
+    }
     state.result = { ...state.result, after: res.preview.total_rows };
     renderDone();
     toast('Step removed.');
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+/** Back to the editor with the options as they were. The step is taken out and comes back when applied again. */
+async function editLast() {
+  const le = state.lastEdit;
+  if (!le) return;
+  try {
+    if (le.index >= 0 && state.file.steps[le.index]?.op === le.tool.op) {
+      remember((await api(`/files/${state.file.id}/steps/${le.index}`, { method: 'DELETE' })).file);
+    }
+    state.tool = le.tool;
+    state.cols = (await api(`/files/${state.file.id}/columns`)).columns;
+    state.before = state.cols[0]?.rows ?? state.file.rows;
+    state.draft = le.draft;
+    state.lastEdit = null;
+    state.browse = { all: false, page: 0 };
+    renderOptions();
+    window.scrollTo(0, 0);
+    view.focus({ preventScroll: true });
   } catch (err) { toast(err.message, 'error'); }
 }
 

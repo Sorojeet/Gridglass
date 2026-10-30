@@ -20,7 +20,9 @@ class Config:
     CLEANUP_INTERVAL_SECONDS = _int("CLEANUP_INTERVAL_SECONDS", 300)  # 0 = off (use `flask purge` from cron)
 
     # Engine limits
-    PREVIEW_ROWS = _int("PREVIEW_ROWS", 200)
+    PREVIEW_ROWS = _int("PREVIEW_ROWS", 200)           # rows in a preview when the app doesn't ask for more
+    PAGE_ROWS = _int("PAGE_ROWS", 1000)                # rows per page when browsing everything
+    BROWSE_MAX_ROWS = _int("BROWSE_MAX_ROWS", 10_000)  # beyond this, download the file to see it all
     MAX_STEPS = _int("MAX_STEPS", 200)
     MAX_PIVOT_COLUMNS = _int("MAX_PIVOT_COLUMNS", 200)
     MAX_PDF_ROWS = _int("MAX_PDF_ROWS", 10_000)

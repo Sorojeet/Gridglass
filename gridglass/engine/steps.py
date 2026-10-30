@@ -477,9 +477,10 @@ class AddColumn(Step):
 
 # --------------------------------------------------------------------------- summarize
 
-_AGG_LABEL = {
-    "sum": "sum", "average": "average", "min": "min", "max": "max", "median": "median",
-    "count": "count", "count_distinct": "distinct", "first": "first", "last": "last",
+_AGG_TITLE = {  # Excel-style names: "Sum of Amount"
+    "sum": "Sum of {c}", "average": "Average of {c}", "min": "Min of {c}", "max": "Max of {c}",
+    "median": "Median of {c}", "count": "Count of {c}", "count_distinct": "Distinct {c}",
+    "first": "First {c}", "last": "Last {c}",
 }
 
 
@@ -499,7 +500,7 @@ class Aggregation(BaseModel):
     def output_name(self) -> str:
         if self.name:
             return self.name
-        return "Rows" if self.func == "count_rows" else f"{self.column} ({_AGG_LABEL[self.func]})"
+        return "Count" if self.func == "count_rows" else _AGG_TITLE[self.func].format(c=self.column)
 
     def expr(self) -> pl.Expr:
         if self.func == "count_rows":
@@ -512,48 +513,84 @@ class Aggregation(BaseModel):
         return e.alias(self.output_name())
 
 
-class GroupBy(Step):
-    label: ClassVar[str] = "Group by"
-    op: Literal["group_by"]
-    by: Cols
-    aggregations: Annotated[list[Aggregation], Field(max_length=50)] = []
-
-    def apply(self, lf, schema):
-        aggs = list(self.aggregations) or [Aggregation(func="count_rows")]
-        need(schema, self.by + [a.column for a in aggs if a.column])
-        need_numeric(schema, [a.column for a in aggs if a.func in ("sum", "average", "median")], "Sum, average and median")
-        names = [a.output_name() for a in aggs]
-        no_clash(self.by, names)
-        return lf.group_by(self.by, maintain_order=True).agg([a.expr() for a in aggs])
-
-
 class Pivot(Step):
-    """Turn the distinct values of one column into new columns."""
+    """Summarize like an Excel pivot table: Rows, an optional Columns field, and one or more Values.
+
+    Without Columns it's a group-by: one row per group with the totals you ask for.
+    With Columns, each distinct value of that column becomes its own column.
+    """
 
     label: ClassVar[str] = "Pivot table"
     op: Literal["pivot"]
-    rows: Cols                 # stays as row labels (Excel: Rows)
-    columns: Col               # its values become new columns (Excel: Columns)
-    values: Col                # what fills the grid (Excel: Values)
-    aggregate: Literal["sum", "average", "count", "min", "max", "first"] = "sum"
+    rows: Cols                                                        # Excel: Rows
+    columns: Col | None = None                                        # Excel: Columns (optional)
+    values: Annotated[list[Aggregation], Field(max_length=20)] = []   # Excel: Values (default: count)
+    totals: bool = False                                              # Excel: Grand Total row
     max_columns: ClassVar[int] = MAX_PIVOT_COLUMNS
+    TOTAL_LABEL: ClassVar[str] = "Grand Total"
+    BLANK: ClassVar[str] = "(blank)"
+    SEP: ClassVar[str] = " · "
 
     def apply(self, lf, schema):
-        need(schema, self.rows + [self.columns, self.values])
-        if self.columns in self.rows or self.values in self.rows or self.columns == self.values:
-            raise ColumnError("Rows, columns and values must be different columns.")
-        if self.aggregate in ("sum", "average"):
-            need_numeric(schema, [self.values], "Sum and average")
-        df = lf.collect()  # pivot needs the data to know its output columns
-        n = df.get_column(self.columns).n_unique()
-        if n > self.max_columns:
+        aggs = list(self.values) or [Aggregation(func="count_rows")]
+        keys = self.rows + ([self.columns] if self.columns else [])
+        need(schema, keys + [a.column for a in aggs if a.column])
+        if len(set(self.rows)) != len(self.rows):
+            raise ColumnError("Each column can only be used once in Rows.")
+        if self.columns and self.columns in self.rows:
+            raise ColumnError(f"'{self.columns}' can't be in both Rows and Columns.")
+        need_numeric(schema, [a.column for a in aggs if a.func in ("sum", "average", "median")],
+                     "Sum, average and median")
+        names = [a.output_name() for a in aggs]
+        dupes = sorted({x for x in names if names.count(x) > 1})
+        if dupes:
+            raise ColumnError(f"The same value is listed twice: {_q(dupes)}.")
+        no_clash(keys, names)
+        exprs = [a.expr() for a in aggs]
+
+        if not self.columns:  # group-by
+            out = lf.group_by(self.rows, maintain_order=True).agg(exprs)
+            if self.totals:
+                out = self._with_total(out, lf.select(exprs))
+            return out
+
+        # Pivot: aggregate per (rows, column value), then spread the column values out.
+        # Column values become headers, so blanks get Excel's "(blank)" label instead of "null".
+        c = pl.col(self.columns).cast(pl.String)
+        lf = lf.with_columns(pl.when(c.is_null() | (c.str.strip_chars() == "")).then(pl.lit(self.BLANK))
+                             .otherwise(c).alias(self.columns))
+        long = lf.group_by(keys, maintain_order=True).agg(exprs).collect()
+        n = long.get_column(self.columns).n_unique()
+        if n * len(aggs) > self.max_columns:
             raise ColumnError(
                 f"'{self.columns}' has {n:,} different values — that would make too many columns "
                 f"(limit {self.max_columns}). Pick a column with fewer distinct values, or filter first."
             )
-        agg = {"average": "mean", "count": "len"}.get(self.aggregate, self.aggregate)
-        out = df.pivot(on=self.columns, index=self.rows, values=self.values, aggregate_function=agg)
-        return out.lazy()
+        wide = long.pivot(on=self.columns, index=self.rows, values=names,
+                          aggregate_function="first", separator=self.SEP)
+        if not self.totals:
+            return wide.lazy()
+
+        # Excel adds a Grand Total column (per row) and a Grand Total row (per column).
+        total_name = (lambda n: self.TOTAL_LABEL) if len(names) == 1 else (lambda n: f"{n}{self.SEP}{self.TOTAL_LABEL}")
+        row_totals = (lf.group_by(self.rows, maintain_order=True).agg(exprs)
+                      .rename({n: total_name(n) for n in names}).collect())
+        wide = wide.join(row_totals, on=self.rows, how="left", nulls_equal=True, maintain_order="left")
+        tmp = "__gridglass_total__"
+        bottom = (lf.group_by(self.columns, maintain_order=True).agg(exprs)
+                  .with_columns(pl.lit(tmp).alias(tmp)).collect()
+                  .pivot(on=self.columns, index=tmp, values=names, aggregate_function="first", separator=self.SEP)
+                  .drop(tmp))
+        corner = lf.select(exprs).rename({n: total_name(n) for n in names}).collect()
+        return self._with_total(wide.lazy(), pl.concat([bottom, corner], how="horizontal").lazy())
+
+    def _with_total(self, out: pl.LazyFrame, total: pl.LazyFrame) -> pl.LazyFrame:
+        """Append a Grand Total row; the first Rows column holds the label, so it becomes text."""
+        order = out.collect_schema().names()
+        first = self.rows[0]
+        out = out.with_columns(pl.col(first).cast(pl.String))
+        total = total.with_columns(pl.lit(self.TOTAL_LABEL).alias(first))
+        return pl.concat([out, total], how="diagonal_relaxed").select(order)
 
 
 class Unpivot(Step):
@@ -582,7 +619,7 @@ class Unpivot(Step):
 STEP_MODELS: tuple[type[Step], ...] = (
     RemoveDuplicates, Trim, ChangeCase, ReplaceValues, FillBlanks, RemoveBlankRows,
     RemoveColumns, KeepColumns, RenameColumns, FilterRows, SortRows, KeepRows,
-    ChangeType, SplitColumn, AddColumn, GroupBy, Pivot, Unpivot,
+    ChangeType, SplitColumn, AddColumn, Pivot, Unpivot,
 )
 
 AnyStep = Annotated[Union[STEP_MODELS], Field(discriminator="op")]
