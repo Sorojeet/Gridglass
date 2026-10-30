@@ -61,10 +61,51 @@ def test_no_sideways_scrolling(make_phone, device):
         assert overflow <= 0, f"{device} {path} scrolls sideways by {overflow}px"
 
 
-def test_desktop_uses_three_columns(make_phone):
-    page = make_phone("Desktop Chrome").open("/")
+def test_desktop_home_uses_wide_grid(make_phone):
+    page = make_phone("Desktop Chrome").open("/")  # 1280 px wide
     cols = page.evaluate("getComputedStyle(document.querySelector('.tool-grid')).gridTemplateColumns.split(' ').length")
-    assert cols == 3
+    assert cols == 4
+    assert page.locator("main").bounding_box()["width"] > 1100
+
+
+def _box(page, sel):
+    return page.locator(sel).first.bounding_box()
+
+
+def test_desktop_options_side_by_side(make_phone):
+    phone = make_phone("Desktop Chrome")
+    page = phone.upload_sample("filter_rows")
+    form, preview, apply_btn = _box(page, "#opts"), _box(page, ".preview"), _box(page, "#apply")
+    assert preview["x"] > form["x"] + form["width"] - 1          # preview sits to the right of the options
+    assert abs(preview["y"] - _box(page, ".file-chip")["y"]) < 40  # and starts at the top
+    assert apply_btn["x"] < preview["x"]                          # apply button stays with the options
+    assert preview["width"] > 700
+    page.select_option("#c0col", "City")
+    page.fill("#c0v", "Pune")
+    page.wait_for_selector("#pv-badge:not(:empty)")
+    rows = page.locator("#pv tbody tr").count()
+    assert rows > 0
+    apply(page)
+    done, nxt = _box(page, ".done"), _box(page, ".next")
+    assert nxt["x"] > done["x"] + done["width"] - 1                # result: next steps on the right
+
+
+def test_desktop_preview_shows_more_rows(make_phone):
+    phone = make_phone("Desktop Chrome")
+    page = phone.upload_sample("sort_rows")
+    expect(page.locator("#pv tbody tr")).to_have_count(45)       # whole sample (phones show 45 too; cap is 50 vs 200)
+
+
+def test_desktop_upload_side_by_side(make_phone):
+    page = make_phone("Desktop Chrome").open("/#/tool/trim")
+    intro, drop = _box(page, ".intro"), _box(page, ".dropzone")
+    assert drop["x"] > intro["x"] + intro["width"] - 1
+
+
+def test_phone_layout_unchanged(phone):
+    page = phone.upload_sample("filter_rows")
+    form, preview = _box(page, "#opts"), _box(page, ".preview")
+    assert preview["y"] > form["y"] + form["height"] - 1          # stacked: preview below the options
 
 
 # ----------------------------------------------------------------------------- every tool
