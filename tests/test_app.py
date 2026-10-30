@@ -268,7 +268,7 @@ def test_index_and_static(client):
 
 def test_service_worker_at_root(client):
     r = client.get("/sw.js")
-    assert r.status_code == 200 and b"gridglass-v2" in r.data and r.headers["Cache-Control"] == "no-cache"
+    assert r.status_code == 200 and b"gridglass-v3" in r.data and r.headers["Cache-Control"] == "no-cache"
     r.close()
 
 
