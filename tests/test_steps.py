@@ -11,8 +11,8 @@ from gridglass.engine import OPS, InvalidStepsError, StepError, build, parse_ste
 # --------------------------------------------------------------------------- validation
 
 def test_every_tool_is_registered():
-    assert len(OPS) == 17
-    assert {"remove_duplicates", "trim", "filter_rows", "pivot", "unpivot"} <= set(OPS)
+    assert len(OPS) == 18
+    assert {"remove_duplicates", "trim", "filter_rows", "merge", "pivot", "unpivot"} <= set(OPS)
 
 
 @pytest.mark.parametrize("raw, fragment", [
@@ -314,3 +314,84 @@ def test_realistic_recipe(orders, apply):
         {"op": "sort_rows", "by": [{"column": "Total", "descending": True}]},
     )
     assert out.to_dicts() == [{"City": "Delhi", "Total": 250.5}, {"City": "Pune", "Total": 240.0}]
+
+
+
+# --------------------------------------------------------------------------- merge (VLOOKUP and joins)
+
+OTHER = "R" * 22
+REGIONS = pl.LazyFrame({
+    "Town": ["Pune", "Delhi", "Delhi", "Chennai"],
+    "Region": ["West", "North", "North again", "South"],
+    "Pin": ["411", "110", "110x", "600"],
+})
+
+
+def merge(lf, resolve=lambda _id: REGIONS, **kw):
+    step = {"op": "merge", "other": OTHER, "keys": [{"left": "City", "right": "Town"}], **kw}
+    return build(lf, parse_steps([step]), resolve=resolve).collect()
+
+
+@pytest.mark.parametrize("how, rows", [("left", 6), ("inner", 5), ("right", 6), ("full", 7), ("anti", 1), ("semi", 5)])
+def test_every_join(orders, how, rows):
+    out = merge(orders, how=how)
+    assert out.height == rows
+    assert out.columns[:6] == orders.collect_schema().names()  # this file's columns keep their order
+    if how in ("anti", "semi"):
+        assert out.columns == orders.collect_schema().names()  # no columns brought in
+    else:
+        assert {"Region", "Pin"} <= set(out.columns) and "Town" not in out.columns
+
+
+def test_vlookup_uses_first_match(orders):
+    out = merge(orders)
+    delhi = out.filter(pl.col("City") == "Delhi")["Region"].unique().to_list()
+    assert delhi == ["North"] and out.height == 6  # no extra rows from the repeated Delhi key
+
+
+def test_all_matches_can_multiply_rows(orders):
+    out = merge(orders, first_match=False)
+    assert out.filter(pl.col("City") == "Delhi").height == 4  # 2 orders x 2 matches
+
+
+def test_full_join_keeps_keys_from_both_sides(orders):
+    out = merge(orders, how="full")
+    assert "Chennai" in out["City"].to_list() and "Mumbai" in out["City"].to_list()
+
+
+def test_choose_columns_and_name_clash(orders):
+    clash = pl.LazyFrame({"Town": ["Pune"], "Amount": [1.0]})
+    out = merge(orders, resolve=lambda _id: clash, columns=["Amount"])
+    assert "Amount (2)" in out.columns and out.filter(pl.col("City") == "Pune")["Amount (2)"][0] == 1.0
+
+
+def test_key_types_are_aligned(orders):
+    ids = pl.LazyFrame({"Code": ["1", "2", "x"], "Status": ["new", "paid", "?"]})
+    step = {"op": "merge", "other": OTHER, "keys": [{"left": "Order ID", "right": "Code"}]}
+    out = build(orders, parse_steps([step]), resolve=lambda _id: ids).collect()
+    assert out.filter(pl.col("Order ID") == 2)["Status"].to_list() == ["paid", "paid"]
+    assert out["Order ID"].dtype == pl.Int64  # this file's column keeps its type
+
+
+def test_two_keys(orders):
+    other = pl.LazyFrame({"City": ["Pune", "Pune"], "Order ID": [1, 3], "Note": ["a", "b"]})
+    step = {"op": "merge", "other": OTHER, "keys": [{"left": "City", "right": "City"}, {"left": "Order ID", "right": "Order ID"}]}
+    out = build(orders, parse_steps([step]), resolve=lambda _id: other).collect()
+    assert out.filter(pl.col("Note").is_not_null())["Order ID"].to_list() == [1, 3]
+
+
+def test_missing_second_file_column(orders):
+    with pytest.raises(StepError, match="Not in the second file: 'Nope'"):
+        merge(orders, columns=["Nope"])
+
+
+def test_second_file_gone(orders):
+    def gone(_id):
+        raise FileNotFoundError
+    with pytest.raises(StepError, match="expired or was removed"):
+        merge(orders, resolve=gone)
+
+
+def test_bad_other_id_rejected():
+    with pytest.raises(InvalidStepsError, match="other"):
+        parse_steps([{"op": "merge", "other": "../etc", "keys": [{"left": "a", "right": "b"}]}])

@@ -5,25 +5,32 @@ import math
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import polars as pl
 
 from .dtypes import friendly_dtype
 from .errors import ColumnError, GridglassError, StepError
-from .steps import Step, parse_steps
+from .steps import SOURCES, Step, parse_steps
 
 
-def build(lf: pl.LazyFrame, steps: list[Step]) -> pl.LazyFrame:
-    """Apply each step in order. Errors name the step that failed so the UI can point at it."""
-    for i, step in enumerate(steps):
-        try:
-            schema = lf.collect_schema()
-            lf = step.apply(lf, schema)
-        except ColumnError as exc:
-            raise StepError(str(exc), step_index=i, op=step.op) from None
-        except pl.exceptions.PolarsError as exc:
-            raise StepError(f"{step.label} couldn't run on this data: {_short(exc)}", step_index=i, op=step.op) from None
+def build(lf: pl.LazyFrame, steps: list[Step], resolve: Callable[[str], pl.LazyFrame] | None = None) -> pl.LazyFrame:
+    """Apply each step in order. Errors name the step that failed so the UI can point at it.
+
+    `resolve` turns another upload's id into its data, for steps that combine files (Merge).
+    """
+    token = SOURCES.set(resolve)
+    try:
+        for i, step in enumerate(steps):
+            try:
+                schema = lf.collect_schema()
+                lf = step.apply(lf, schema)
+            except ColumnError as exc:
+                raise StepError(str(exc), step_index=i, op=step.op) from None
+            except pl.exceptions.PolarsError as exc:
+                raise StepError(f"{step.label} couldn't run on this data: {_short(exc)}", step_index=i, op=step.op) from None
+    finally:
+        SOURCES.reset(token)
     return lf
 
 

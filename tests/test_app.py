@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -38,12 +39,12 @@ def file_id(client):
 
 def test_healthz(client):
     body = client.get("/healthz").get_json()
-    assert body["status"] == "ok" and body["tools"] == 17
+    assert body["status"] == "ok" and body["tools"] == 18
 
 
 def test_tools_list(client):
     body = client.get("/api/v1/tools").get_json()
-    assert len(body["tools"]) == 17 and body["export_formats"] == ["csv", "json", "pdf", "xlsx"]
+    assert len(body["tools"]) == 18 and body["export_formats"] == ["csv", "json", "pdf", "xlsx"]
     trim = next(t for t in body["tools"] if t["op"] == "trim")
     assert trim["category"] == "clean" and trim["label"] == "Trim spaces"
     assert "collapse_spaces" in trim["schema"]["properties"]
@@ -268,7 +269,7 @@ def test_index_and_static(client):
 
 def test_service_worker_at_root(client):
     r = client.get("/sw.js")
-    assert r.status_code == 200 and b"gridglass-v4" in r.data and r.headers["Cache-Control"] == "no-cache"
+    assert r.status_code == 200 and b"gridglass-v5" in r.data and r.headers["Cache-Control"] == "no-cache"
     r.close()
 
 
@@ -354,3 +355,43 @@ def test_preview_offset_stops_at_browse_limit(client, app):
     fid = upload(client, rows, "big.csv").get_json()["file"]["id"]
     p = client.get(f"/api/v1/files/{fid}/preview?limit=1000&offset=2000").get_json()["preview"]
     assert p["offset"] == 500  # clamped: browsing ends at row 1,500
+
+
+
+# --------------------------------------------------------------------------- merge across uploads
+
+REGIONS_CSV = b"Town,Region\nPune,West\nDelhi,North\nChennai,South\n"
+
+
+def test_merge_two_uploads(client, file_id):
+    other = upload(client, REGIONS_CSV, "regions.csv").get_json()["file"]["id"]
+    step = {"op": "merge", "other": other, "other_name": "regions.csv", "keys": [{"left": "City", "right": "Town"}]}
+    r = client.post(f"/api/v1/files/{file_id}/steps", json=step)
+    assert r.status_code == 200
+    body = r.get_json()
+    assert [c["name"] for c in body["preview"]["columns"]] == ["Name", "City", "Amount", "Region"]
+    assert body["preview"]["rows"][0][3] == "West"
+    r = client.post(f"/api/v1/files/{file_id}/preview", json={"steps": [{**step, "how": "full"}]})
+    assert r.get_json()["preview"]["total_rows"] == 5  # 4 orders + Chennai
+
+
+def test_merge_with_deleted_second_file(client, file_id):
+    other = upload(client, REGIONS_CSV, "regions.csv").get_json()["file"]["id"]
+    client.delete(f"/api/v1/files/{other}")
+    r = client.post(f"/api/v1/files/{file_id}/steps", json={"op": "merge", "other": other, "keys": [{"left": "City", "right": "Town"}]})
+    assert r.status_code == 422 and "upload it again" in r.get_json()["error"]["message"]
+
+
+def test_export_split_by(client, file_id):
+    import fastexcel
+
+    r = client.get(f"/api/v1/files/{file_id}/export?format=xlsx&split_by=City")
+    path = Path(__file__).parent / "_split.xlsx"
+    try:
+        path.write_bytes(r.data)
+        assert fastexcel.read_excel(str(path)).sheet_names == ["Delhi", "Pune"]
+    finally:
+        path.unlink(missing_ok=True)
+        r.close()
+    r = client.get(f"/api/v1/files/{file_id}/export?format=csv&split_by=City")
+    assert r.status_code == 422

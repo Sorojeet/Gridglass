@@ -14,7 +14,8 @@
     POST   /files/<id>/steps               append one step {...}
     DELETE /files/<id>/steps               remove all steps
     DELETE /files/<id>/steps/<n>           remove step n (undo)
-    GET    /files/<id>/export?format=csv   download the result (csv | xlsx | json | pdf)
+    GET    /files/<id>/export?format=csv   download the result (csv | xlsx | json | pdf);
+                                           &split_by=<column>: one Excel sheet / PDF page per value
 """
 from __future__ import annotations
 
@@ -36,6 +37,7 @@ CATEGORIES = {
     "clean": ["remove_duplicates", "trim", "change_case", "replace_values", "fill_blanks", "remove_blank_rows"],
     "shape": ["remove_columns", "keep_columns", "rename_columns", "filter_rows", "sort_rows", "keep_rows",
               "change_type", "split_column", "add_column"],
+    "combine": ["merge"],
     "summarize": ["pivot", "unpivot"],
 }
 MIMETYPES = {
@@ -56,7 +58,13 @@ def _cfg(key: str):
 
 def _steps_and_frame(file_id: str, raw_steps: list[dict[str, Any]]):
     steps = parse_steps(raw_steps, max_steps=_cfg("MAX_STEPS"))
-    return steps, build(open_source(store().source(file_id)), steps)
+    st = store()
+
+    def resolve(other_id: str):  # a second upload used by Merge; must still exist (not expired)
+        st.meta(other_id)
+        return open_source(st.source(other_id))
+
+    return steps, build(open_source(st.source(file_id)), steps, resolve=resolve)
 
 
 def _limit() -> int:
@@ -228,7 +236,8 @@ def download(file_id):
     _, lf = _steps_and_frame(file_id, meta["steps"])
     stem = Path(meta["filename"]).stem or "data"
     dest = store().export_path(file_id, fmt if fmt in EXPORT_FORMATS else "out")
-    export(lf, fmt, dest, title=stem, max_pdf_rows=_cfg("MAX_PDF_ROWS"))
+    split_by = request.args.get("split_by") or None
+    export(lf, fmt, dest, title=stem, max_pdf_rows=_cfg("MAX_PDF_ROWS"), split_by=split_by)
     fh = open(dest, "rb")
     try:
         dest.unlink()  # the open handle keeps the data readable; nothing is left on disk

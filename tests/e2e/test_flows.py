@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import polars as pl
@@ -12,7 +13,7 @@ from playwright.sync_api import expect
 ALL_OPS = [
     "remove_duplicates", "trim", "change_case", "replace_values", "fill_blanks", "remove_blank_rows",
     "filter_rows", "sort_rows", "remove_columns", "keep_columns", "rename_columns", "keep_rows",
-    "change_type", "split_column", "add_column", "pivot", "unpivot", "convert",
+    "change_type", "split_column", "add_column", "merge", "pivot", "unpivot", "convert",
 ]
 SAMPLE_ROWS = 45  # the built-in sample: 40 orders + 5 exact duplicates
 
@@ -525,3 +526,177 @@ def test_edit_from_top_bar_keeps_earlier_steps(phone):
     expect(page.locator(".file-chip")).to_contain_text("1 step applied")   # trim is still there
     apply(page)
     expect(page.locator(".step-list li")).to_have_count(2)
+
+
+
+# ----------------------------------------------------------------------------- merge (VLOOKUP + joins)
+
+def _merge_with_sample(phone):
+    page = phone.upload_sample("merge")
+    expect(page.locator("#pv-note")).to_contain_text("Add the second file")
+    page.click('[data-action="sample2"]')
+    expect(page.locator(".file-chip.second")).to_contain_text("city-regions.csv")
+    expect(page.locator(".file-chip.second")).to_contain_text("6 rows")
+    expect(page.locator("#k0l")).to_have_value("City")          # same-named column matched automatically
+    expect(page.locator("#k0r")).to_have_value("City")
+    return page
+
+
+def test_merge_like_vlookup(phone):
+    page = _merge_with_sample(phone)
+    expect(page.locator("#pv thead")).to_contain_text("Region")
+    apply(page)
+    expect(page.locator(".done h1")).to_have_text("Merged — 45 rows")
+    rows = result_json(page)
+    pune = next(r for r in rows if r["City"] == "Pune")
+    assert pune["Region"] == "West" and pune["State"] == "Maharashtra"
+
+
+@pytest.mark.parametrize("how, rows", [("inner", 45), ("full", 46), ("right", 46), ("anti", 0), ("semi", 45)])
+def test_merge_join_types(phone, how, rows):
+    page = _merge_with_sample(phone)
+    page.select_option("#f-how", how)
+    expect(page.locator("#apply")).to_be_enabled()
+    apply(page)
+    expect(page.locator(".done p")).to_contain_text(f"{rows} rows")
+
+
+def test_merge_choose_columns_and_own_file(phone, tmp_path):
+    other = tmp_path / "towns.csv"
+    other.write_text("Town,Zone,Code\nPune,W,1\nDelhi,N,2\n")
+    page = phone.upload_sample("merge")
+    page.set_input_files("#file2", str(other))
+    expect(page.locator(".file-chip.second")).to_contain_text("towns.csv")
+    page.select_option("#k0l", "City")
+    page.select_option("#k0r", "Town")
+    page.click('[data-seg="columns__mode"][data-val="some"]')
+    page.click('[data-field="columns"] [data-col="Zone"]')
+    apply(page)
+    rows = result_json(page)
+    assert "Zone" in rows[0] and "Code" not in rows[0] and "Town" not in rows[0]
+    assert {r["Zone"] for r in rows if r["City"] == "Delhi"} == {"N"}
+
+
+def test_merge_change_second_file_and_edit(phone):
+    page = _merge_with_sample(phone)
+    page.click('[data-action="other-change"]')
+    expect(page.locator("#drop2")).to_be_visible()
+    page.click('[data-action="sample2"]')
+    expect(page.locator(".file-chip.second")).to_be_visible()
+    apply(page)
+    page.click('.done [data-action="edit"]')
+    expect(page.locator(".file-chip.second")).to_contain_text("city-regions.csv")  # second file comes back
+    page.select_option("#f-how", "inner")
+    apply(page)
+    expect(page.locator(".step-list li")).to_have_count(1)
+
+
+# ----------------------------------------------------------------------------- report filter pages
+
+def test_split_download_into_excel_sheets(phone):
+    import fastexcel
+
+    page = phone.upload_sample("trim")
+    apply(page)
+    page.select_option("#fmt", "xlsx")
+    expect(page.locator("#split option", has_text="City — 5 pages")).to_have_count(1)
+    page.select_option("#split", "City")
+    with page.expect_download() as dl:
+        page.click('[data-action="download"]')
+    assert fastexcel.read_excel(dl.value.path()).sheet_names == ["Bengaluru", "Chennai", "Delhi", "Mumbai", "Pune"]
+
+
+def test_split_download_pdf_pages_and_csv_hides_split(phone):
+    page = phone.upload_sample("convert")
+    page.select_option("#fmt", "csv")
+    expect(page.locator("#split-field")).to_be_hidden()
+    page.select_option("#fmt", "pdf")
+    expect(page.locator("#split-field")).to_be_visible()
+    page.select_option("#split", "City")
+    with page.expect_download() as dl:
+        page.click('[data-action="download"]')
+    raw = Path(dl.value.path()).read_bytes()
+    assert len(re.findall(rb"/Type\s*/Page[^s]", raw)) == 5
+
+
+# ----------------------------------------------------------------------------- pivot charts
+
+def _pivot_by_city(phone, device=None):
+    page = phone.upload_sample("pivot")
+    page.click('[data-col-none="rows"]')
+    page.click('[data-field="rows"] [data-col="City"]')
+    page.wait_for_selector("#pv-badge:not(:empty)")
+    return page
+
+
+def test_pivot_chart_types(phone):
+    page = _pivot_by_city(phone)
+    page.click("#tab-chart")
+    expect(page.locator("#tab-chart")).to_have_attribute("aria-selected", "true")
+    expect(page.locator("#pv")).to_be_hidden()
+    expect(page.locator("#chart svg rect.grow-y")).to_have_count(5)    # 5 cities, Grand Total left out
+    page.click('[data-seg="charttype"][data-val="bar"]')
+    expect(page.locator("#chart svg rect.grow-x")).to_have_count(5)
+    page.click('[data-seg="charttype"][data-val="line"]')
+    expect(page.locator("#chart svg polyline")).to_have_count(1)
+    page.click('[data-seg="charttype"][data-val="pie"]')
+    expect(page.locator("#chart svg path")).to_have_count(5)
+    page.click("#tab-table")
+    expect(page.locator("#pv")).to_be_visible()
+
+
+def test_pivot_chart_downloads(phone):
+    page = _pivot_by_city(phone)
+    page.click("#tab-chart")
+    with page.expect_download() as dl:
+        page.click('[data-chart-save="png"]')
+    assert dl.value.suggested_filename.endswith("-column-chart.png")
+    assert Path(dl.value.path()).read_bytes().startswith(b"\x89PNG")
+    with page.expect_download() as dl:
+        page.click('[data-chart-save="svg"]')
+    assert b"<svg" in Path(dl.value.path()).read_bytes()[:200]
+
+
+def test_chart_with_columns_has_one_series_per_column(phone):
+    page = _pivot_by_city(phone)
+    page.select_option("#f-pcol", "Customer")
+    page.click("#tab-chart")
+    expect(page.locator("#chart svg rect.grow-y")).to_have_count(30)  # 5 cities x 6 customers; totals left out
+
+
+def test_make_a_chart_from_result(phone):
+    page = _pivot_by_city(phone)
+    apply(page)
+    page.click('[data-action="chart"]')
+    expect(page.locator("#tab-chart")).to_have_attribute("aria-selected", "true")
+    expect(page.locator("#chart svg rect.grow-y")).to_have_count(5)
+
+
+def test_chart_follows_theme(make_phone):
+    phone = make_phone(color_scheme="light")
+    page = _pivot_by_city(phone)
+    page.click("#tab-chart")
+    light = page.locator("#chart svg rect.grow-y").first.get_attribute("fill")
+    page.click('[data-action="theme"]')
+    expect(page.locator("#chart svg rect.grow-y").first).not_to_have_attribute("fill", light)
+
+
+# ----------------------------------------------------------------------------- motion
+
+def test_animations_play_and_respect_reduced_motion(make_phone):
+    page = make_phone().open("/")
+    assert page.evaluate("getComputedStyle(document.querySelector('.tool-card')).animationName") == "card-in"
+    calm = make_phone(reduced_motion="reduce").open("/")
+    assert calm.evaluate("getComputedStyle(document.querySelector('.tool-card')).animationName") == "none"
+
+
+def test_dropdown_stays_above_preview(phone):
+    page = phone.upload_sample("filter_rows")
+    page.select_option("#c0col", "City")
+    page.click("#c0v")
+    last = page.locator("#c0list [role=option]").last
+    expect(last).to_be_visible()
+    box = last.bounding_box()
+    on_top = page.evaluate("([x, y]) => document.elementFromPoint(x, y)?.closest('[role=option]') !== null",
+                           [box["x"] + box["width"] / 2, box["y"] + box["height"] / 2])
+    assert on_top

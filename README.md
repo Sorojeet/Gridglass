@@ -25,7 +25,7 @@ gridglass/
   __init__.py        Flask app factory (API arrives in Phase 4)
   config.py          limits: 50 MB uploads, 200-row previews, 1-hour retention …
   engine/
-    steps.py         the 17 tools + parse_steps() validation
+    steps.py         the 18 tools + parse_steps() validation
     pipeline.py      build(), run(), preview(), profile()
     io.py            ingest (CSV/TSV/XLSX/XLS/JSON/NDJSON → Parquet), export (CSV/XLSX/JSON/PDF)
     pdf.py           table-style PDF export (ReportLab)
@@ -48,7 +48,16 @@ tests/               pytest suite
 | | `split_column` | |
 | | `add_column` (constant, combine, math) | |
 
+**Combine:** `merge` brings in columns from a second upload by matching keys, like VLOOKUP. It has every join: lookup/left, inner, full outer, right, anti (no match) and semi (has a match).
+- It can match on up to 5 key columns.
+- "First match only" mimics VLOOKUP when keys repeat.
+- The second file's keys are converted to this file's types, and its key columns take this file's names.
+
 Conversion is not a step. Import any supported format and export as CSV (with a BOM so Excel reads it correctly), Excel, JSON or PDF.
+
+**Report filter pages:** `export?split_by=<column>` writes one Excel sheet, or one PDF page, per value (A→Z, blanks last, up to 200), like Excel's "Show Report Filter Pages".
+
+**Charts:** the pivot preview has Table / Chart tabs, with column, bar, line and pie charts drawn as SVG by `static/js/chart.js`, which has no dependencies. Charts download as SVG or PNG and follow the light/dark theme.
 
 ## Frontend
 
@@ -61,7 +70,8 @@ There is no build step. The frontend is plain HTML, CSS and JavaScript modules i
   - upload (progress bar, sample file)
   - options (live preview, debounced 350 ms)
   - result (download, share, keep working, undo steps)
-- `css/app.css` holds the liquid glass styles. Light and dark mode are token sets. There are solid fallbacks for browsers without `backdrop-filter` and for "reduce transparency". It also respects reduced motion.
+- `css/app.css` holds the liquid glass styles. Light and dark mode are token sets. There are solid fallbacks for browsers without `backdrop-filter` and for "reduce transparency".
+- Motion: screens rise in, tool cards cascade, the result tick pops in and chart bars grow. All of it is off for "reduce motion", and entry animations leave no lasting layers.
 - `sw.js` and `manifest.webmanifest` make it an installable PWA with an offline shell. `/api` is never cached.
 
 Security:

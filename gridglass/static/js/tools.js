@@ -4,6 +4,7 @@
 export const CATS = {
   clean: 'Clean',
   shape: 'Shape',
+  combine: 'Combine',
   summarize: 'Summarize',
   convert: 'Convert',
 };
@@ -28,6 +29,7 @@ const P = {
   pivot: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9.5h16M9.5 4v16"/>',
   unpivot: '<path d="M6 4v16h14M10 8h8M10 12h8M10 16h8"/>',
   convert: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
+  merge: '<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/>',
 };
 
 export const icon = (name, cls = '') =>
@@ -70,6 +72,15 @@ export const AGG_FUNCS = [
 export const TYPES = [
   ['text', 'Text'], ['integer', 'Whole number'], ['decimal', 'Decimal number'],
   ['boolean', 'True / false'], ['date', 'Date'], ['datetime', 'Date & time'],
+];
+
+export const JOINS = [
+  ['left', 'All rows here + matches (VLOOKUP)'],
+  ['inner', 'Only rows that match in both'],
+  ['full', 'All rows from both files'],
+  ['right', 'All rows from the second file'],
+  ['anti', 'Only rows with no match'],
+  ['semi', 'Only rows that have a match (no new columns)'],
 ];
 
 const DELIMS = [[',', 'Comma ,'], [' ', 'Space'], [';', 'Semicolon ;'], ['-', 'Dash -'], ['/', 'Slash /'],
@@ -311,6 +322,28 @@ export const TOOLS = [
           : d.mode === 'math' && d.rightKind === 'column' && !d.right_column ? 'Choose the second column.' : null),
   },
   {
+    op: 'merge', cat: 'combine', icon: 'merge', label: 'Merge files (VLOOKUP)',
+    desc: 'Look up columns from a second file', keywords: 'vlookup xlookup lookup join merge combine match two files left inner outer full anti',
+    intro: 'Bring columns from a second file by matching a column in both, like VLOOKUP, or combine them with any kind of join.',
+    verb: 'Merge',
+    fields: [
+      { key: 'other', type: 'otherfile', label: 'Second file', default: '' },
+      { key: 'keys', type: 'joinkeys', label: 'Match rows where', default: () => [], show: (d) => !!d.other },
+      { key: 'how', type: 'select', label: 'Keep', default: 'left', show: (d) => !!d.other, options: JOINS },
+      { key: 'columns', type: 'columns', source: 'other', label: 'Columns to bring in', optional: true,
+        allLabel: 'All columns', default: null, show: (d) => !!d.other && !['anti', 'semi'].includes(d.how) },
+      { key: 'first_match', type: 'toggle', label: 'If a match appears more than once, use the first one (like VLOOKUP)',
+        default: true, show: (d) => !!d.other && !['anti', 'semi'].includes(d.how) },
+    ],
+    build: (d) => ({
+      other: d.other, other_name: d.other_name || undefined, keys: d.keys, how: d.how, columns: d.columns,
+      first_match: d.first_match,
+    }),
+    ready: (d) => (!d.other ? 'Add the second file to merge with.'
+      : !d.keys.length || d.keys.some((k) => !k.left || !k.right) ? 'Choose the matching columns in both files.' : null),
+    done: (b, a) => `Merged — ${plural(a, 'row')}`,
+  },
+  {
     op: 'pivot', cat: 'summarize', icon: 'pivot', label: 'Pivot table',
     desc: 'Group, total and cross-tab, like Excel', keywords: 'group by summary total subtotal aggregate crosstab matrix sum count average',
     intro: 'Like an Excel pivot table: pick the Rows and what to calculate. Add a Columns field to spread the totals across columns.',
@@ -362,7 +395,7 @@ export const TOOL = Object.fromEntries(TOOLS.map((t) => [t.op, t]));
 
 export const FORMATS = [['xlsx', 'Excel (.xlsx)'], ['csv', 'CSV (.csv)'], ['json', 'JSON (.json)'], ['pdf', 'PDF (.pdf)']];
 
-export const SUGGEST = ['trim', 'remove_duplicates', 'filter_rows', 'sort_rows', 'pivot', 'change_type', 'convert'];
+export const SUGGEST = ['merge', 'filter_rows', 'pivot', 'remove_duplicates', 'sort_rows', 'trim', 'convert'];
 
 export function defaults(tool, cols) {
   const d = {};

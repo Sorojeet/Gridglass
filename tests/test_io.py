@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import polars as pl
 import pytest
@@ -154,3 +155,44 @@ def test_export_pdf_prints_rupee_and_hindi(tmp_path):
     raw = out.read_bytes()
     assert REGULAR == "GridglassSans" and CAN_SHAPE
     assert b"+NotoSans-Regular" in raw and b"+NotoSans-Bold" in raw  # bundled font embedded (subset)
+
+
+# --------------------------------------------------------------------------- split into pages (report filter pages)
+
+def test_split_to_excel_sheets(tmp_path, result):
+    import fastexcel
+
+    out = export(result, "xlsx", tmp_path / "s.xlsx", split_by="City")
+    book = fastexcel.read_excel(str(out))
+    assert book.sheet_names == ["Delhi", "Mumbai", "Pune"]  # A→Z, one sheet per value
+    pune = pl.read_excel(out, sheet_name="Pune", engine="calamine")
+    assert pune.height == 3 and set(pune["City"]) == {"Pune"}
+
+
+def test_split_to_pdf_pages(tmp_path, result):
+    out = export(result, "pdf", tmp_path / "s.pdf", split_by="City", title="Orders")
+    pages = re.findall(rb"/Type\s*/Page[^s]", out.read_bytes())
+    assert len(pages) == 3  # Delhi, Mumbai, Pune: one page each
+
+
+def test_split_blank_values_get_a_sheet(tmp_path, result):
+    import fastexcel
+
+    out = export(result, "xlsx", tmp_path / "b.xlsx", split_by="Customer")
+    assert "(blank)" in fastexcel.read_excel(str(out)).sheet_names
+
+
+def test_split_limits(tmp_path, result):
+    with pytest.raises(ExportError, match="Excel and PDF"):
+        export(result, "csv", tmp_path / "x.csv", split_by="City")
+    with pytest.raises(ExportError, match="too many pages"):
+        export(result, "xlsx", tmp_path / "x.xlsx", split_by="Order ID", max_pages=2)
+    with pytest.raises(ExportError, match="not found"):
+        export(result, "pdf", tmp_path / "x.pdf", split_by="Nope")
+
+
+def test_sheet_names_are_safe():
+    from gridglass.engine.io import sheet_names
+
+    names = sheet_names(["Pune", "pune", "a/b:c*?[x]", "x" * 40, "x" * 40, ""])
+    assert names == ["Pune", "pune (2)", "a_b_c___x_", "x" * 31, "x" * 27 + " (2)", "Sheet"]

@@ -18,7 +18,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import LongTable, Paragraph, SimpleDocTemplate, Spacer, TableStyle
+from reportlab.platypus import LongTable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, TableStyle
 
 FONT_DIR = Path(__file__).parent / "fonts"
 COMPLEX = re.compile(r"[\u0900-\u0DFF]")  # Devanagari … Sinhala: needs shaping
@@ -64,16 +64,51 @@ def _fmt(v) -> str:
 
 
 def write_pdf(df: pl.DataFrame, dest: str | Path, *, title: str = "Gridglass export") -> Path:
-    if df.width > MAX_PDF_COLUMNS:
+    """One table, header repeated on every page."""
+    return write_pdf_sections([(title, df)], dest, title=title, first_is_title=True)
+
+
+def write_pdf_sections(sections: list[tuple[str, pl.DataFrame]], dest: str | Path, *, title: str = "Gridglass export",
+                       first_is_title: bool = False) -> Path:
+    """Several tables, each starting on a new page with its own heading (Excel: Show Report Filter Pages)."""
+    width = max(df.width for _, df in sections)
+    if width > MAX_PDF_COLUMNS:
         from .errors import ExportError
 
-        raise ExportError(f"PDF export fits at most {MAX_PDF_COLUMNS} columns; this has {df.width}. "
+        raise ExportError(f"PDF export fits at most {MAX_PDF_COLUMNS} columns; this has {width}. "
                           "Remove some columns first, or export as Excel.")
-    page = landscape(A4) if df.width > 6 else A4
+    page = landscape(A4) if width > 6 else A4
     margin = 12 * mm
     usable = page[0] - 2 * margin
-    font_size = 9 if df.width <= 6 else 8 if df.width <= 10 else 7 if df.width <= 16 else 6
+    title_style = ParagraphStyle("t", fontName=BOLD, fontSize=13, leading=17, shaping=int(CAN_SHAPE))
+    sub_style = ParagraphStyle("s", fontName=REGULAR, fontSize=8, textColor=colors.HexColor("#5B6573"),
+                               shaping=int(CAN_SHAPE))
 
+    story = []
+    for n, (heading, df) in enumerate(sections):
+        if n:
+            story.append(PageBreak())
+        sub = f"{df.height:,} rows · {df.width} columns" + ("" if first_is_title else f" · {title}")
+        story += [Paragraph(_escape(heading), title_style), Paragraph(_escape(sub), sub_style),
+                  Spacer(1, 4 * mm), _table(df, usable)]
+
+    def footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont(REGULAR, 7)
+        canvas.setFillColor(colors.HexColor("#5B6573"))
+        canvas.drawString(margin, 7 * mm, "Made with Gridglass")
+        canvas.drawRightString(page[0] - margin, 7 * mm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    dest = Path(dest)
+    doc = SimpleDocTemplate(str(dest), pagesize=page, leftMargin=margin, rightMargin=margin,
+                            topMargin=margin, bottomMargin=14 * mm, title=title, creator="Gridglass")
+    doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    return dest
+
+
+def _table(df: pl.DataFrame, usable: float) -> LongTable:
+    font_size = 9 if df.width <= 6 else 8 if df.width <= 10 else 7 if df.width <= 16 else 6
     header_style = ParagraphStyle("h", fontName=BOLD, fontSize=font_size, textColor=colors.white,
                                   leading=font_size * 1.25, shaping=int(CAN_SHAPE))
     cell_style = ParagraphStyle("c", fontName=REGULAR, fontSize=font_size, leading=font_size * 1.3,
@@ -106,32 +141,9 @@ def write_pdf(df: pl.DataFrame, dest: str | Path, *, title: str = "Gridglass exp
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, ZEBRA]),
     ] + [("ALIGN", (i, 1), (i, -1), "RIGHT") for i in numeric]
-
     table = LongTable(data, colWidths=widths, repeatRows=1)
     table.setStyle(TableStyle(style))
-
-    title_style = ParagraphStyle("t", fontName=BOLD, fontSize=13, leading=17, shaping=int(CAN_SHAPE))
-    sub_style = ParagraphStyle("s", fontName=REGULAR, fontSize=8, textColor=colors.HexColor("#5B6573"))
-
-    def footer(canvas, doc):
-        canvas.saveState()
-        canvas.setFont(REGULAR, 7)
-        canvas.setFillColor(colors.HexColor("#5B6573"))
-        canvas.drawString(margin, 7 * mm, "Made with Gridglass")
-        canvas.drawRightString(page[0] - margin, 7 * mm, f"Page {doc.page}")
-        canvas.restoreState()
-
-    dest = Path(dest)
-    doc = SimpleDocTemplate(str(dest), pagesize=page, leftMargin=margin, rightMargin=margin,
-                            topMargin=margin, bottomMargin=14 * mm, title=title, creator="Gridglass")
-    story = [
-        Paragraph(_escape(title), title_style),
-        Paragraph(f"{df.height:,} rows · {df.width} columns", sub_style),
-        Spacer(1, 4 * mm),
-        table,
-    ]
-    doc.build(story, onFirstPage=footer, onLaterPages=footer)
-    return dest
+    return table
 
 
 def _escape(text: str) -> str:

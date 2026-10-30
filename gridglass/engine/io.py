@@ -16,6 +16,7 @@ from .errors import ExportError, IngestError
 INPUT_FORMATS = {"csv", "tsv", "xlsx", "xls", "json", "ndjson"}
 EXPORT_FORMATS = {"csv", "xlsx", "json", "pdf"}
 EXCEL_MAX_ROWS = 1_048_575  # plus one header row
+MAX_SPLIT_PAGES = 200       # sheets/pages when splitting by a column
 _EXT_ALIASES = {"txt": "csv", "jsonl": "ndjson", "xlsm": "xlsx"}
 _SAMPLE = 64 * 1024
 _DUPLICATED = re.compile(r"^(.*)_duplicated_\d+$")
@@ -176,33 +177,88 @@ def _clean_headers(names: list[str]) -> dict[str, str]:
 # --------------------------------------------------------------------------- export
 
 def export(lf: pl.LazyFrame, fmt: str, dest: str | Path, *, title: str = "Gridglass export",
-           max_pdf_rows: int = 10_000) -> Path:
+           max_pdf_rows: int = 10_000, split_by: str | None = None, max_pages: int = MAX_SPLIT_PAGES) -> Path:
+    """Write the result as CSV, Excel, JSON or PDF.
+
+    `split_by` makes one Excel sheet, or one PDF page, per value of that column — like Excel's
+    "Show Report Filter Pages".
+    """
     fmt = fmt.lower()
     if fmt not in EXPORT_FORMATS:
         raise ExportError(f"Can't export as {fmt}. Choose CSV, Excel, JSON or PDF.")
+    if split_by and fmt not in ("xlsx", "pdf"):
+        raise ExportError("Splitting into pages works for Excel and PDF.")
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
         if fmt == "csv":
             lf.collect().write_csv(dest, include_bom=True)  # BOM: Excel then opens UTF-8 correctly
-        elif fmt == "json":
+            return dest
+        if fmt == "json":
             lf.collect().write_json(dest)
-        elif fmt == "xlsx":
-            df = lf.collect()
-            if df.height > EXCEL_MAX_ROWS:
-                raise ExportError(f"Excel allows at most {EXCEL_MAX_ROWS:,} rows; this has {df.height:,}. Export as CSV instead.")
-            df.write_excel(dest, worksheet="Data", autofit=True, freeze_panes=(1, 0),
-                           header_format={"bold": True})
+            return dest
+        df = lf.collect()
+        if fmt == "xlsx" and df.height > EXCEL_MAX_ROWS:
+            raise ExportError(f"Excel allows at most {EXCEL_MAX_ROWS:,} rows; this has {df.height:,}. Export as CSV instead.")
+        if fmt == "pdf" and df.height > max_pdf_rows:
+            raise ExportError(f"PDF export is limited to {max_pdf_rows:,} rows; this has {df.height:,}. "
+                              "Filter it down first, or export as Excel or CSV.")
+        parts = _split(df, split_by, max_pages) if split_by else None
+        if fmt == "xlsx":
+            _write_xlsx(dest, parts or [("Data", df)])
         else:
-            from .pdf import write_pdf
+            from .pdf import write_pdf, write_pdf_sections
 
-            df = lf.collect()
-            if df.height > max_pdf_rows:
-                raise ExportError(f"PDF export is limited to {max_pdf_rows:,} rows; this has {df.height:,}. "
-                                  "Filter it down first, or export as Excel or CSV.")
-            write_pdf(df, dest, title=title)
+            if parts:
+                write_pdf_sections([(f"{split_by}: {label}", part) for label, part in parts], dest, title=title)
+            else:
+                write_pdf(df, dest, title=title)
     except ExportError:
         raise
     except pl.exceptions.PolarsError as exc:
         raise ExportError(f"Export failed: {str(exc).splitlines()[0][:160]}") from exc
     return dest
+
+
+def _split(df: pl.DataFrame, column: str, max_pages: int) -> list[tuple[str, pl.DataFrame]]:
+    """One (label, rows) pair per distinct value of `column`, sorted A→Z with blanks last."""
+    if column not in df.columns:
+        raise ExportError(f"Column not found: '{column}'.")
+    n = df.get_column(column).n_unique()
+    if n > max_pages:
+        raise ExportError(f"'{column}' has {n:,} different values — too many pages (limit {max_pages}). "
+                          "Pick a column with fewer values.")
+    keys = df.get_column(column).unique().sort(nulls_last=True).to_list()
+    out = []
+    for key in keys:
+        part = df.filter(pl.col(column).is_null() if key is None else pl.col(column) == key)
+        label = "(blank)" if key is None or (isinstance(key, str) and not key.strip()) else str(key)
+        out.append((label, part))
+    return out
+
+
+_BAD_SHEET_CHARS = re.compile(r"[\[\]:*?/\\]")
+
+
+def sheet_names(labels: list[str]) -> list[str]:
+    r"""Excel sheet names: no []:*?/\, at most 31 characters, unique (case-insensitive), never empty."""
+    used: set[str] = set()
+    names = []
+    for label in labels:
+        base = _BAD_SHEET_CHARS.sub("_", label).strip("' ")[:31] or "Sheet"
+        name, k = base, 2
+        while name.lower() in used:
+            tail = f" ({k})"
+            name, k = base[: 31 - len(tail)] + tail, k + 1
+        used.add(name.lower())
+        names.append(name)
+    return names
+
+
+def _write_xlsx(dest: Path, parts: list[tuple[str, pl.DataFrame]]) -> None:
+    import xlsxwriter
+
+    with xlsxwriter.Workbook(dest) as wb:
+        for name, (_, part) in zip(sheet_names([label for label, _ in parts]), parts):
+            part.write_excel(workbook=wb, worksheet=name, autofit=True, freeze_panes=(1, 0),
+                             header_format={"bold": True})

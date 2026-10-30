@@ -8,7 +8,8 @@ the pipeline collects — except `pivot`, whose output columns depend on the dat
 from __future__ import annotations
 
 import re
-from typing import Annotated, Any, ClassVar, Literal, Union, get_args
+from contextvars import ContextVar
+from typing import Annotated, Any, Callable, ClassVar, Literal, Union, get_args
 
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, model_validator
@@ -17,6 +18,11 @@ from .errors import ColumnError
 from .dtypes import clean_number, coerce, friendly_dtype, is_text
 
 Col = Annotated[str, StringConstraints(min_length=1, max_length=255)]
+FileId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{22}$")]
+
+#: While steps are being applied, this resolves another upload's id to its data (used by Merge).
+#: The pipeline sets it; steps never touch storage directly.
+SOURCES: ContextVar[Callable[[str], pl.LazyFrame] | None] = ContextVar("gridglass_sources", default=None)
 Cols = Annotated[list[Col], Field(min_length=1, max_length=2000)]
 Scalar = Union[bool, int, float, str, None]
 
@@ -475,6 +481,63 @@ class AddColumn(Step):
         return lf.with_columns(res.alias(self.name))
 
 
+class JoinKey(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    left: Col    # column in this file
+    right: Col   # matching column in the second file
+
+
+class Merge(Step):
+    """Bring in columns from a second file by matching keys (VLOOKUP), with every kind of join."""
+
+    label: ClassVar[str] = "Merge files"
+    op: Literal["merge"]
+    other: FileId                                     # the second upload
+    other_name: Annotated[str, StringConstraints(max_length=255)] | None = None  # for display only
+    keys: Annotated[list[JoinKey], Field(min_length=1, max_length=5)]
+    how: Literal["left", "inner", "right", "full", "anti", "semi"] = "left"
+    columns: list[Col] | None = None                  # second-file columns to bring; None = all
+    first_match: bool = True                          # repeated keys in the second file: use the first (VLOOKUP)
+    suffix: Annotated[str, StringConstraints(min_length=1, max_length=20)] = " (2)"
+
+    ORDER: ClassVar[dict[str, str]] = {"left": "left", "inner": "left", "semi": "left", "anti": "left",
+                                       "right": "right", "full": "left_right"}
+
+    def apply(self, lf, schema):
+        resolve = SOURCES.get()
+        try:
+            right = resolve(self.other) if resolve else None
+        except Exception:
+            right = None
+        if right is None:
+            raise ColumnError("The second file has expired or was removed. Please upload it again.")
+        rschema = right.collect_schema()
+        lefts, rights = [k.left for k in self.keys], [k.right for k in self.keys]
+        need(schema, lefts)
+        missing = [c for c in rights + (self.columns or []) if c not in rschema]
+        if missing:
+            raise ColumnError(f"Not in the second file: {_q(missing)}.")
+
+        bring = [] if self.how in ("anti", "semi") else (
+            self.columns if self.columns is not None else [c for c in rschema.names() if c not in rights])
+        right = right.select(list(dict.fromkeys(rights + bring)))
+        # Keys must have the same type to match: convert the second file's keys to this file's types.
+        right = right.with_columns([
+            (pl.col(r).cast(pl.String) if is_text(schema[l]) else pl.col(r).cast(schema[l], strict=False)).alias(r)
+            for l, r in zip(lefts, rights) if rschema[r] != schema[l]
+        ])
+        if self.first_match and self.how not in ("anti", "semi"):
+            right = right.unique(subset=rights, keep="first", maintain_order=True)
+        # Give the second file's keys this file's names, so every join type shows one key column named as here.
+        clash = {c: f"{c}{self.suffix}" for c in bring if c in lefts and c not in rights}
+        right = right.rename(clash).rename({r: l for l, r in zip(lefts, rights) if r != l})
+        out = lf.join(right, on=lefts, how=self.how, suffix=self.suffix,
+                      coalesce=True, maintain_order=self.ORDER[self.how])
+        names = out.collect_schema().names()  # keep this file's column order, new columns after
+        first = [c for c in schema.names() if c in names]
+        return out.select(first + [c for c in names if c not in first])
+
+
 # --------------------------------------------------------------------------- summarize
 
 _AGG_TITLE = {  # Excel-style names: "Sum of Amount"
@@ -619,7 +682,7 @@ class Unpivot(Step):
 STEP_MODELS: tuple[type[Step], ...] = (
     RemoveDuplicates, Trim, ChangeCase, ReplaceValues, FillBlanks, RemoveBlankRows,
     RemoveColumns, KeepColumns, RenameColumns, FilterRows, SortRows, KeepRows,
-    ChangeType, SplitColumn, AddColumn, Pivot, Unpivot,
+    ChangeType, SplitColumn, AddColumn, Merge, Pivot, Unpivot,
 )
 
 AnyStep = Annotated[Union[STEP_MODELS], Field(discriminator="op")]

@@ -1,6 +1,7 @@
 import {
-  AGG_FUNCS, CATS, FORMATS, NO_VALUE_OPS, OPERATORS, SUGGEST, TOOL, TOOLS, TYPES, UI, defaults, icon, incomplete, toStep,
+  AGG_FUNCS, CATS, FORMATS, JOINS, NO_VALUE_OPS, OPERATORS, SUGGEST, TOOL, TOOLS, TYPES, UI, defaults, icon, incomplete, toStep,
 } from './tools.js';
+import { MAX_CATEGORIES, chartData, chartSVG, saveChart, themeColors } from './chart.js';
 
 const API = '/api/v1';
 const desktop = window.matchMedia('(min-width: 1024px)');
@@ -26,7 +27,13 @@ const state = {
   browse: { all: false, page: 0 }, // paged "show all rows" mode in the preview
   values: {},      // column -> distinct values for the filter dropdown
   lastEdit: null,  // { tool, draft, index } of the step just applied, so it can be edited again
+  other: null,     // Merge: metadata of the second file
+  otherCols: [],   // Merge: its columns
+  view: 'table',   // Pivot preview: table | chart
+  chartType: 'column',
+  pvData: null,    // the preview on screen, for the chart
 };
+const ACCEPT = '.csv,.tsv,.txt,.xlsx,.xlsm,.xls,.json,.jsonl,.ndjson';
 
 // ============================================================================ API
 
@@ -78,6 +85,7 @@ function setTheme(theme, save = true) {
   $('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#070B12' : '#EEF3F6');
   document.querySelectorAll('[data-action="theme"]').forEach((b) =>
     b.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'));
+  if (state.view === 'chart' && $('#chart')) requestAnimationFrame(renderChart);
 }
 
 let toastTimer;
@@ -323,6 +331,9 @@ async function enterOptions() {
   state.before = state.cols[0]?.rows ?? state.file.rows;
   state.draft = defaults(state.tool, state.cols);
   state.browse = { all: false, page: 0 };
+  state.other = null;
+  state.otherCols = [];
+  state.view = 'table';
   renderOptions();
 }
 
@@ -330,17 +341,31 @@ function renderOptions() {
   const t = state.tool;
   state.stage = 'options';
   view.dataset.screen = 'options';
-  const action = t.convert
-    ? `<div class="field"><label class="field-label" for="fmt">Save as</label>${formatSelect()}</div>`
-    : '';
+  const action = t.convert ? downloadFields(state.cols, 'Save as') : '';
+  const pivot = t.op === 'pivot';
+  const chart = pivot && state.view === 'chart';
   view.innerHTML = `${topbar({ back: '#/', title: t.label })}
     ${fileChip()}
     ${t.convert ? '' : `<form id="opts" class="form" novalidate autocomplete="off"></form>`}
     ${action}
     <section class="preview" aria-labelledby="pv-title">
-      <div class="preview-head"><h2 id="pv-title">Preview</h2><span class="pill" id="pv-badge" aria-live="polite"></span></div>
-      <div class="table-wrap glass" id="pv" tabindex="0" aria-label="Preview table"><div class="skeleton"></div></div>
-      <div class="pager" id="pv-pager"></div>
+      <div class="preview-head"><h2 id="pv-title">Preview</h2>
+        ${pivot ? `<div class="tabs" role="tablist" aria-label="Show the result as">
+          <button type="button" role="tab" id="tab-table" aria-controls="pv" aria-selected="${!chart}" tabindex="${chart ? -1 : 0}">Table</button>
+          <button type="button" role="tab" id="tab-chart" aria-controls="chart-panel" aria-selected="${chart}" tabindex="${chart ? 0 : -1}">Chart</button>
+        </div>` : ''}
+        <span class="pill" id="pv-badge" aria-live="polite"></span></div>
+      <div class="table-wrap glass" id="pv" tabindex="0" aria-label="Preview table" ${pivot ? 'role="tabpanel" aria-labelledby="tab-table"' : ''} ${chart ? 'hidden' : ''}><div class="skeleton"></div></div>
+      ${pivot ? `<div class="chart-panel glass" id="chart-panel" role="tabpanel" aria-labelledby="tab-chart" ${chart ? '' : 'hidden'}>
+        ${seg('charttype', [['column', 'Column'], ['bar', 'Bar'], ['line', 'Line'], ['pie', 'Pie']], state.chartType, 'Chart type')}
+        <div class="chart" id="chart"></div>
+        <p class="hint" id="chart-note"></p>
+        <div class="chart-actions">
+          <button type="button" class="btn btn-secondary btn-sm" data-chart-save="png">${ui('download')} PNG</button>
+          <button type="button" class="btn btn-secondary btn-sm" data-chart-save="svg">${ui('download')} SVG</button>
+        </div>
+      </div>` : ''}
+      <div class="pager" id="pv-pager" ${chart ? 'hidden' : ''}></div>
       <p class="hint" id="pv-note"></p>
     </section>
     <div class="action-bar">
@@ -351,8 +376,9 @@ function renderOptions() {
   $('[data-action="newfile"]').addEventListener('click', newFile);
   $('#sheet')?.addEventListener('change', (e) => changeSheet(e.target.value));
   $('#pv-pager').addEventListener('click', onPager);
+  if (pivot) wireChart();
   if (t.convert) {
-    $('[data-action="download"]').addEventListener('click', (e) => download($('#fmt').value, e.currentTarget));
+    wireDownload();
     showPreview(state.file.steps);
     return;
   }
@@ -373,6 +399,31 @@ function renderOptions() {
   schedulePreview(0);
 }
 
+const splitOptions = (cols) => `<option value="">Don't split</option>${(cols || [])
+  .filter((c) => c.distinct >= 1 && c.distinct <= 200)
+  .map((c) => `<option value="${esc(c.name)}">${esc(c.name)} — ${plural(c.distinct, 'page')}</option>`).join('')}`;
+
+/** Format picker plus "Split into pages by" (Excel: Show Report Filter Pages), shown for Excel and PDF. */
+function downloadFields(cols, label = 'Download as') {
+  return `<div class="field"><label class="field-label" for="fmt">${label}</label>${formatSelect()}</div>
+    <div class="field" id="split-field">
+      <label class="field-label" for="split">Split into pages by</label>
+      <select id="split" class="input">${splitOptions(cols)}</select>
+      <p class="hint">One Excel sheet or one PDF page for each value — like Excel's “Show Report Filter Pages”.</p>
+    </div>`;
+}
+
+function wireDownload() {
+  const fmt = $('#fmt');
+  const field = $('#split-field');
+  const sync = () => { field.hidden = !['xlsx', 'pdf'].includes(fmt.value); };
+  fmt.addEventListener('change', sync);
+  sync();
+  const split = () => (field.hidden ? '' : $('#split').value);
+  $('[data-action="download"]').addEventListener('click', (e) => download(fmt.value, e.currentTarget, split()));
+  $('[data-action="share"]')?.addEventListener('click', (e) => share(fmt.value, e.currentTarget, split()));
+}
+
 function formatSelect() {
   const ext = (state.file.filename.split('.').pop() || '').toLowerCase();
   const pick = ['csv', 'json'].includes(ext) ? 'xlsx' : 'csv';
@@ -381,12 +432,12 @@ function formatSelect() {
 
 // ---------------------------------------------------------------------------- form
 
-const colsFor = (filter) => state.cols.filter((c) => !filter
+const colsFor = (filter, source) => (source === 'other' ? state.otherCols : state.cols).filter((c) => !filter
   || (filter === 'text' ? c.type === 'text' : filter === 'number' ? ['integer', 'decimal'].includes(c.type) : true));
 
 const opt = (v, l, sel) => `<option value="${esc(v)}" ${v === sel ? 'selected' : ''}>${esc(l)}</option>`;
-const colOptions = (filter, sel, placeholder = 'Choose a column') =>
-  `<option value="" ${sel ? '' : 'selected'} disabled>${placeholder}</option>${colsFor(filter).map((c) => opt(c.name, c.name, sel)).join('')}`;
+const colOptions = (filter, sel, placeholder = 'Choose a column', source) =>
+  `<option value="" ${sel ? '' : 'selected'} disabled>${placeholder}</option>${colsFor(filter, source).map((c) => opt(c.name, c.name, sel)).join('')}`;
 
 function seg(key, options, value, label) {
   return `<div class="seg" role="group" aria-label="${esc(label)}">${options.map(([v, l]) =>
@@ -396,7 +447,7 @@ function seg(key, options, value, label) {
 const FIELD = {
   columns(f, v) {
     const all = f.optional && v === null;
-    const cols = colsFor(f.filter);
+    const cols = colsFor(f.filter, f.source);
     const mode = f.optional ? seg(`${f.key}__mode`, [['all', f.allLabel || 'All columns'], ['some', f.someLabel || 'Choose columns']], all ? 'all' : 'some', f.label) : '';
     if (all) return mode;
     if (!cols.length) return `${mode}<p class="hint">No ${f.filter || ''} columns in this file.</p>`;
@@ -467,6 +518,39 @@ const FIELD = {
       </div>${rows.length > 1 ? `<button type="button" class="icon-btn small" data-remove="types" data-i="${i}" aria-label="Remove ${i + 1}">${ui('trash')}</button>` : ''}</div>`).join('')}
       <button type="button" class="btn btn-secondary btn-sm" data-add="types">${ui('plus')} Another column</button>`;
   },
+  otherfile(f, id) {
+    if (!id) {
+      return `<div class="mini-drop glass" id="drop2">
+        <span class="drop-icon small">${ui('upload')}</span>
+        <span class="mini-drop-text"><strong>Add the file to look values up in</strong><small>CSV, Excel or JSON · up to ${config.max_upload_mb} MB</small></span>
+        <label class="btn btn-secondary btn-sm" for="file2">Choose second file</label>
+        <input id="file2" class="sr-only" type="file" accept="${ACCEPT}">
+        <button type="button" class="btn-link" data-action="sample2">Try a sample lookup file</button>
+        <div class="progress" id="progress2" hidden><div class="bar"><span id="bar2"></span></div><p id="ptext2" aria-live="polite">Uploading…</p></div>
+      </div>`;
+    }
+    const o = state.other;
+    const sheets = o?.sheets?.length > 1
+      ? `<label class="sr-only" for="sheet2">Sheet in the second file</label><select id="sheet2" class="input input-sm">${o.sheets.map((s) =>
+        `<option ${s === o.sheet ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>` : '';
+    return `<div class="file-chip glass second">
+      <span class="file-icon combine">${icon('merge')}</span>
+      <span class="file-text"><strong>${esc(o?.filename || state.draft.other_name || 'Second file')}</strong>
+        <small>${o ? `${plural(o.rows, 'row')} · ${plural(state.otherCols.length, 'column')}` : 'Loading…'}</small></span>
+      ${sheets}
+      <button class="btn-link" type="button" data-action="other-change">Change</button>
+    </div>`;
+  },
+  joinkeys(f, rows) {
+    return `${rows.map((k, i) => `<div class="row-card glass"><div class="row-grid two join">
+        <label class="sr-only" for="k${i}l">Column in this file</label>
+        <select class="input" id="k${i}l" data-list="keys" data-i="${i}" data-prop="left">${colOptions(null, k.left, 'Column here')}</select>
+        <span class="eq" aria-hidden="true">=</span>
+        <label class="sr-only" for="k${i}r">Matching column in the second file</label>
+        <select class="input" id="k${i}r" data-list="keys" data-i="${i}" data-prop="right">${colOptions(null, k.right, 'In second file', 'other')}</select>
+      </div>${rows.length > 1 ? `<button type="button" class="icon-btn small" data-remove="keys" data-i="${i}" aria-label="Remove match ${i + 1}">${ui('trash')}</button>` : ''}</div>`).join('')}
+      ${rows.length < 5 ? `<button type="button" class="btn btn-secondary btn-sm" data-add="keys">${ui('plus')} Match on another column too</button>` : ''}`;
+  },
   rename(f, mapping) {
     return `<div class="rename-list">${state.cols.map((c, i) => `<div class="rename-row">
       <label for="r${i}">${esc(c.name)}</label>
@@ -476,6 +560,7 @@ const FIELD = {
 };
 
 const NEW_ROW = {
+  keys: () => ({ left: state.cols[0]?.name ?? '', right: state.otherCols[0]?.name ?? '' }),
   conditions: () => ({ column: state.cols[0]?.name ?? '', operator: 'equals', value: '' }),
   by: () => ({ column: state.cols[0]?.name ?? '', order: 'asc' }),
   aggs: () => ({ func: 'sum', column: colsFor('number')[0]?.name ?? '' }),
@@ -498,6 +583,8 @@ function renderForm() {
 function onFormInput(e) {
   const el = e.target;
   const d = state.draft;
+  if (el.id === 'file2') { if (e.type === 'change' && el.files[0]) startOtherUpload(el.files[0]); return; }
+  if (el.id === 'sheet2') { if (e.type === 'change') changeOtherSheet(el.value); return; }
   if (el.dataset.key) {
     d[el.dataset.key] = el.type === 'checkbox' ? el.checked : el.value;
     if (e.type === 'change' && (el.tagName === 'SELECT' || el.type === 'checkbox')) renderForm();
@@ -516,6 +603,8 @@ function onFormClick(e) {
   if (pick) { comboChoose(pick); return; }
   const b = e.target.closest('button');
   if (!b) return;
+  if (b.dataset.action === 'sample2') { startOtherUpload(sampleLookupFile()); return; }
+  if (b.dataset.action === 'other-change') { changeOther(); return; }
   if (b.dataset.comboToggle) {
     const input = $(`#${b.dataset.comboToggle}`);
     if (input.getAttribute('aria-expanded') === 'true') comboClose(input); else { input.focus(); comboOpen(input); }
@@ -535,7 +624,7 @@ function onFormClick(e) {
     d[k] = list.includes(c) ? list.filter((x) => x !== c) : [...list, c];
   } else if (b.dataset.colAll) {
     const f = state.tool.fields.find((x) => x.key === b.dataset.colAll);
-    d[f.key] = colsFor(f.filter).map((c) => c.name);
+    d[f.key] = colsFor(f.filter, f.source).map((c) => c.name);
   } else if (b.dataset.colNone) {
     d[b.dataset.colNone] = [];
   } else if (b.dataset.add) {
@@ -548,6 +637,142 @@ function onFormClick(e) {
   renderForm();
   if (focusKey) $(focusKey, $('#opts'))?.focus();
   schedulePreview();
+}
+
+// ---------------------------------------------------------------------------- merge: the second file
+
+async function startOtherUpload(file) {
+  if (file.size > config.max_upload_mb * 1024 * 1024) {
+    toast(`That file is ${(file.size / 1048576).toFixed(1)} MB. The limit is ${config.max_upload_mb} MB.`, 'error');
+    return;
+  }
+  const progress = $('#progress2');
+  progress.hidden = false;
+  try {
+    const res = await uploadFile(file, (p) => {
+      $('#bar2').style.width = `${Math.round(p * 100)}%`;
+      $('#ptext2').textContent = p < 1 ? `Uploading… ${Math.round(p * 100)}%` : 'Reading your file…';
+    });
+    await useOther(res.file);
+  } catch (err) {
+    if ($('#progress2')) $('#progress2').hidden = true;
+    toast(err.message, 'error');
+  }
+}
+
+async function loadOther(id) {
+  try {
+    state.other = (await api(`/files/${id}`)).file;
+    state.otherCols = (await api(`/files/${id}/columns`)).columns;
+    return true;
+  } catch {
+    state.other = null;
+    state.otherCols = [];
+    return false;
+  }
+}
+
+/** Matching columns: a column with the same name in both files if there is one (text first). */
+function defaultKeys() {
+  const byName = new Map(state.otherCols.map((c) => [c.name.toLowerCase(), c.name]));
+  const shared = [...state.cols].sort((a, b) => (a.type === 'text' ? -1 : 0) - (b.type === 'text' ? -1 : 0))
+    .find((c) => byName.has(c.name.toLowerCase()));
+  if (shared) return [{ left: shared.name, right: byName.get(shared.name.toLowerCase()) }];
+  return [{ left: (state.cols.find((c) => c.type === 'text') ?? state.cols[0])?.name ?? '', right: state.otherCols[0]?.name ?? '' }];
+}
+
+async function useOther(meta) {
+  await loadOther(meta.id);
+  Object.assign(state.draft, { other: meta.id, other_name: meta.filename, keys: defaultKeys(), columns: null });
+  renderForm();
+  schedulePreview(0);
+}
+
+async function changeOtherSheet(sheet) {
+  try {
+    const res = await api(`/files/${state.draft.other}/sheet`, { method: 'PUT', body: { sheet } });
+    await useOther(res.file);
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+function changeOther() {
+  const id = state.draft.other;
+  const inUse = state.file.steps.some((s) => s.op === 'merge' && s.other === id);
+  if (id && !inUse) api(`/files/${id}`, { method: 'DELETE' }).catch(() => {}); // privacy: delete right away
+  Object.assign(state.draft, { other: '', other_name: '', keys: [], columns: null });
+  state.other = null;
+  state.otherCols = [];
+  renderForm();
+  schedulePreview(0);
+}
+
+function sampleLookupFile() {
+  const csv = 'City,Region,State\nPune,West,Maharashtra\nMumbai,West,Maharashtra\nDelhi,North,Delhi\n'
+    + 'Bengaluru,South,Karnataka\nChennai,South,Tamil Nadu\nHyderabad,South,Telangana\n';
+  return new File([csv], 'city-regions.csv', { type: 'text/csv' });
+}
+
+// ---------------------------------------------------------------------------- pivot chart
+
+function wireChart() {
+  const tabs = [$('#tab-table'), $('#tab-chart')];
+  const select = (view) => {
+    state.view = view;
+    const chart = view === 'chart';
+    tabs.forEach((t) => {
+      const on = (t.id === 'tab-chart') === chart;
+      t.setAttribute('aria-selected', String(on));
+      t.tabIndex = on ? 0 : -1;
+    });
+    $('#pv').hidden = chart;
+    $('#pv-pager').hidden = chart;
+    $('#chart-panel').hidden = !chart;
+    if (chart) renderChart();
+  };
+  tabs.forEach((t) => t.addEventListener('click', () => select(t.id === 'tab-chart' ? 'chart' : 'table')));
+  $('.tabs').addEventListener('keydown', (e) => { // arrow keys move between tabs
+    if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+    const next = state.view === 'chart' ? tabs[0] : tabs[1];
+    select(next.id === 'tab-chart' ? 'chart' : 'table');
+    next.focus();
+  });
+  $('#chart-panel').addEventListener('click', async (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.seg === 'charttype') {
+      state.chartType = b.dataset.val;
+      $('#chart-panel').querySelectorAll('[data-seg="charttype"]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      renderChart();
+    } else if (b.dataset.chartSave) {
+      const data = state.pvData && chartData(state.pvData);
+      if (!data || data.error) return;
+      const svg = chartSVG(data, state.chartType, themeColors(), { background: true });
+      const stem = state.file.filename.replace(/\.[^.]+$/, '');
+      await withBusy(b, async () => {
+        const { blob, name } = await saveChart(svg, `${stem}-${state.chartType}-chart`, b.dataset.chartSave);
+        saveBlob(blob, name);
+      });
+    }
+  });
+  if (state.view === 'chart') renderChart();
+}
+
+function renderChart() {
+  const el = $('#chart');
+  if (!el) return;
+  const note = $('#chart-note');
+  const data = state.pvData ? chartData(state.pvData) : { error: 'Finish the pivot options to see a chart.' };
+  $('#chart-panel').querySelectorAll('[data-chart-save]').forEach((b) => { b.disabled = Boolean(data.error); });
+  if (data.error) {
+    el.innerHTML = `<p class="empty">${esc(data.error)}</p>`;
+    note.textContent = '';
+    return;
+  }
+  el.innerHTML = chartSVG(data, state.chartType, themeColors());
+  note.textContent = [
+    state.chartType === 'pie' && data.series.length > 1 ? `The pie shows ${data.series[0].name}.` : '',
+    data.truncated ? `Showing the first ${MAX_CATEGORIES} ${data.categoryName} values.` : '',
+  ].filter(Boolean).join(' ');
 }
 
 // ---------------------------------------------------------------------------- value dropdown (combobox)
@@ -699,6 +924,8 @@ async function showPreview(steps, step, hint = null) {
     }
     box.classList.remove('loading', 'error');
     box.innerHTML = table(preview);
+    state.pvData = hint ? null : preview;
+    if (state.view === 'chart') renderChart();
     const diff = preview.total_rows - state.before;
     badge.dataset.kind = diff < 0 ? 'warn' : 'ok';
     badge.textContent = hint ? '' : !step ? plural(preview.total_rows, 'row')
@@ -802,10 +1029,13 @@ function renderDone() {
       <span class="done-icon">${ui('check')}</span>
       <h1>${esc(title)}</h1>
       <p>${before === after ? plural(after, 'row') : `${num(before)} rows → ${num(after)} rows`}</p>
-      ${canEdit ? `<button type="button" class="btn btn-secondary btn-sm" data-action="edit">${icon('rename')} Edit options</button>` : ''}
+      <div class="done-actions">
+        ${canEdit ? `<button type="button" class="btn btn-secondary btn-sm" data-action="edit">${icon('rename')} Edit options</button>` : ''}
+        ${canEdit && t.op === 'pivot' ? `<button type="button" class="btn btn-secondary btn-sm" data-action="chart">${icon('group')} Make a chart</button>` : ''}
+      </div>
     </section>
     <section class="card glass">
-      <div class="field"><label class="field-label" for="fmt">Download as</label>${formatSelect()}</div>
+      ${downloadFields(null)}
       <button class="btn btn-primary btn-lg btn-block" type="button" data-action="download">${ui('download')} Download file</button>
       ${navigator.share ? `<button class="btn btn-secondary btn-block" type="button" data-action="share">${ui('share')} Share</button>` : ''}
     </section>
@@ -823,10 +1053,13 @@ function renderDone() {
         || '<li class="glass empty">No steps — this is your original file.</li>'}</ol>
     </section>
     <footer class="done-foot"><button type="button" class="btn-link" data-action="startover">Start over with a new file</button></footer>`;
-  $('[data-action="download"]').addEventListener('click', (e) => download($('#fmt').value, e.currentTarget));
-  $('[data-action="share"]')?.addEventListener('click', (e) => share($('#fmt').value, e.currentTarget));
+  wireDownload();
+  api(`/files/${state.file.id}/columns`).then(({ columns }) => { // split options follow the result's columns
+    if ($('#split') && state.stage === 'done') $('#split').innerHTML = splitOptions(columns);
+  }).catch(() => {});
   $('[data-action="startover"]').addEventListener('click', startOver);
-  view.querySelectorAll('[data-action="edit"]').forEach((b) => b.addEventListener('click', editLast));
+  view.querySelectorAll('[data-action="edit"]').forEach((b) => b.addEventListener('click', () => { state.view = 'table'; editLast(); }));
+  $('[data-action="chart"]')?.addEventListener('click', () => { state.view = 'chart'; editLast(); });
   view.querySelectorAll('[data-undo]').forEach((b) => b.addEventListener('click', () => undo(Number(b.dataset.undo))));
 }
 
@@ -858,6 +1091,10 @@ async function editLast() {
     state.draft = le.draft;
     state.lastEdit = null;
     state.browse = { all: false, page: 0 };
+    if (le.tool.op === 'merge' && le.draft.other && !(await loadOther(le.draft.other))) {
+      Object.assign(state.draft, { other: '', other_name: '', keys: [] });
+      toast('The second file has expired. Please add it again.', 'error');
+    }
     renderOptions();
     window.scrollTo(0, 0);
     view.focus({ preventScroll: true });
@@ -866,8 +1103,9 @@ async function editLast() {
 
 // ---------------------------------------------------------------------------- download & share
 
-async function fetchExport(fmt) {
-  const res = await fetch(`${API}/files/${state.file.id}/export?format=${encodeURIComponent(fmt)}`).catch(() => null);
+async function fetchExport(fmt, split = '') {
+  const qs = new URLSearchParams({ format: fmt, ...(split ? { split_by: split } : {}) });
+  const res = await fetch(`${API}/files/${state.file.id}/export?${qs}`).catch(() => null);
   if (!res) throw new ApiError({ message: "Can't reach Gridglass. Check your connection." }, 0);
   if (!res.ok) throw new ApiError((await res.json().catch(() => null))?.error, res.status);
   const cd = res.headers.get('Content-Disposition') || '';
@@ -884,22 +1122,26 @@ async function withBusy(btn, fn) {
   }
 }
 
-function download(fmt, btn) {
+function saveBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  toast(`Saved ${name}`);
+}
+
+function download(fmt, btn, split = '') {
   return withBusy(btn, async () => {
-    const { blob, name } = await fetchExport(fmt);
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement('a'), { href: url, download: name });
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 30_000);
-    toast(`Saved ${name}`);
+    const { blob, name } = await fetchExport(fmt, split);
+    saveBlob(blob, name);
   });
 }
 
-function share(fmt, btn) {
+function share(fmt, btn, split = '') {
   return withBusy(btn, async () => {
-    const { blob, name } = await fetchExport(fmt);
+    const { blob, name } = await fetchExport(fmt, split);
     const file = new File([blob], name, { type: blob.type });
     if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: name });
     else toast("This browser can't share files — use Download instead.");
@@ -917,8 +1159,14 @@ async function changeSheet(sheet) {
 }
 
 function forget() {
-  if (state.file) api(`/files/${state.file.id}`, { method: 'DELETE' }).catch(() => {}); // privacy: delete right away
+  if (state.file) { // privacy: delete right away, including any second files used by Merge
+    const ids = new Set([state.file.id, ...state.file.steps.filter((s) => s.op === 'merge').map((s) => s.other)]);
+    if (state.draft?.other) ids.add(state.draft.other);
+    ids.forEach((id) => api(`/files/${id}`, { method: 'DELETE' }).catch(() => {}));
+  }
   remember(null);
+  state.other = null;
+  state.otherCols = [];
 }
 
 function newFile() { forget(); renderUpload(); }
