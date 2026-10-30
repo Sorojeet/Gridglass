@@ -1,0 +1,16 @@
+# Render Blueprint: New → Blueprint → pick this repo. Deploys the Dockerfile with health checks.
+services:
+  - type: web
+    name: gridglass
+    runtime: docker
+    plan: starter            # "free" also works (it sleeps when idle)
+    region: singapore        # closest to India
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: TRUST_PROXY
+        value: "1"
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: MAX_UPLOAD_MB
+        value: "50"
