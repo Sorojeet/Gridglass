@@ -44,7 +44,7 @@ REGULAR, BOLD, CAN_SHAPE = _register_fonts()
 ACCENT = colors.HexColor("#0F766E")
 ZEBRA = colors.HexColor("#F3F6F8")
 GRID = colors.HexColor("#D9E0E6")
-MAX_CELL_CHARS = 60
+MAX_CELL_CHARS = 500  # long text wraps; only extreme cells are shortened
 MAX_PDF_COLUMNS = 40
 
 
@@ -117,43 +117,80 @@ def write_pdf_sections(sections: list[tuple[str, pl.DataFrame]], dest: str | Pat
     return dest
 
 
+PAD = 4  # left/right padding inside each cell, in points
+
+
 def _table(df: pl.DataFrame, usable: float) -> LongTable:
+    """A table that fits the page: columns sized by their real text width, long text wrapped inside its column."""
     font_size = 9 if df.width <= 6 else 8 if df.width <= 10 else 7 if df.width <= 16 else 6
+    shaping = int(CAN_SHAPE)
     header_style = ParagraphStyle("h", fontName=BOLD, fontSize=font_size, textColor=colors.white,
-                                  leading=font_size * 1.25, shaping=int(CAN_SHAPE))
-    cell_style = ParagraphStyle("c", fontName=REGULAR, fontSize=font_size, leading=font_size * 1.3,
-                                shaping=int(CAN_SHAPE))
+                                  leading=font_size * 1.3, shaping=shaping, splitLongWords=1)
+    cell_style = ParagraphStyle("c", fontName=REGULAR, fontSize=font_size, leading=font_size * 1.35,
+                                shaping=shaping, splitLongWords=1)
+    complex_style = ParagraphStyle("cx", parent=cell_style, leading=font_size * 1.6)  # Indic marks need room
+    numeric = [t.is_numeric() for t in df.dtypes]
+    texts = [[_fmt(v) for v in row] for row in df.iter_rows()]
+    widths = _column_widths(df.columns, texts, numeric, usable, font_size)
+
     data = [[Paragraph(_escape(c), header_style) for c in df.columns]]
-    data += [[_fmt(v) for v in row] for row in df.iter_rows()]
-    texts = [row[:] for row in data[1:]]  # plain text, for measuring column widths
-    if CAN_SHAPE:
-        for row in data[1:]:
-            for i, cell in enumerate(row):
-                if COMPLEX.search(cell):
-                    row[i] = Paragraph(_escape(cell), cell_style)
+    for row in texts:
+        out = []
+        for i, cell in enumerate(row):
+            fits = pdfmetrics.stringWidth(cell, REGULAR, font_size) <= widths[i] - 2 * PAD
+            if COMPLEX.search(cell) and CAN_SHAPE:
+                out.append(Paragraph(_escape(cell), complex_style))
+            elif fits or numeric[i]:
+                out.append(cell)  # plain strings are fast; most cells fit on one line
+            else:
+                out.append(Paragraph(_escape(cell), cell_style))  # wraps inside its own column
+        data.append(out)
 
-    # Column widths: share the page by typical content length, within sensible bounds.
-    weights = []
-    for i, name in enumerate(df.columns):
-        sample = [len(r[i]) for r in texts[:200]] or [0]
-        weights.append(min(max(len(name), sum(sample) / len(sample), 4), 30))
-    total = sum(weights)
-    widths = [usable * w / total for w in weights]
-
-    numeric = [i for i, t in enumerate(df.dtypes) if t.is_numeric()]
     style = [
         ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
         ("FONTNAME", (0, 1), (-1, -1), REGULAR),
         ("FONTSIZE", (0, 1), (-1, -1), font_size),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LINEBELOW", (0, 0), (-1, -1), 0.25, GRID),
+        ("LEFTPADDING", (0, 0), (-1, -1), PAD),
+        ("RIGHTPADDING", (0, 0), (-1, -1), PAD),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, ZEBRA]),
-    ] + [("ALIGN", (i, 1), (i, -1), "RIGHT") for i in numeric]
-    table = LongTable(data, colWidths=widths, repeatRows=1)
+    ] + [("ALIGN", (i, 1), (i, -1), "RIGHT") for i, n in enumerate(numeric) if n]
+    table = LongTable(data, colWidths=widths, repeatRows=1, splitByRow=1)
     table.setStyle(TableStyle(style))
     return table
+
+
+def _column_widths(names: list[str], texts: list[list[str]], numeric: list[bool], usable: float,
+                   font_size: float) -> list[float]:
+    """Share the page width between columns using the real width of their text.
+
+    Every column gets at least its longest header word (headers never break mid-word if it can
+    be helped) and numbers keep their full width. The rest goes to the columns with long text,
+    which then wrap.
+    """
+    measure = lambda t, font=REGULAR: pdfmetrics.stringWidth(t, font, font_size) + 2 * PAD
+    sample = texts[:500]
+    natural, minimum = [], []
+    for i, name in enumerate(names):
+        cells = sorted(measure(r[i]) for r in sample) or [0.0]
+        typical = cells[min(len(cells) - 1, int(len(cells) * 0.9))]  # 90th percentile: ignore a few very long cells
+        header_word = max((measure(w, BOLD) for w in str(name).split()), default=0.0)
+        numbers = cells[-1] if numeric[i] else 0.0  # numbers must never wrap
+        minimum.append(max(header_word, numbers, 24.0))
+        natural.append(max(typical, measure(str(name), BOLD), minimum[-1]))
+
+    if sum(natural) <= usable:  # everything fits on one line: spread the spare room evenly
+        spare = (usable - sum(natural)) / len(natural)
+        return [w + spare for w in natural]
+    if sum(minimum) >= usable:  # very many columns: fall back to proportional minimums
+        return [usable * m / sum(minimum) for m in minimum]
+    # Shrink only the part above each column's minimum, in proportion, so long text wraps.
+    extra = [n - m for n, m in zip(natural, minimum)]
+    room = usable - sum(minimum)
+    return [m + room * e / sum(extra) for m, e in zip(minimum, extra)]
 
 
 def _escape(text: str) -> str:

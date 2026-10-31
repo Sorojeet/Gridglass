@@ -300,3 +300,47 @@ def test_pdf_numbers_are_plain(value, text):
     from gridglass.engine.pdf import _fmt
 
     assert _fmt(value) == text
+
+
+# --- PDF: long text wraps inside its own column -------------------------------------------
+
+def _pdf_table(df):
+    from gridglass.engine.pdf import _table
+    from reportlab.lib.pagesizes import A4, landscape
+    usable = landscape(A4)[0] - 2 * 36
+    return _table(df, usable), usable
+
+
+def test_pdf_columns_fit_the_page():
+    df = pl.DataFrame({f"Column {i}": ["word " * 30] for i in range(12)})
+    table, usable = _pdf_table(df)
+    assert sum(table._colWidths) <= usable + 0.5
+
+
+def test_pdf_long_text_wraps_and_short_text_stays_plain():
+    from reportlab.platypus import Paragraph
+    df = pl.DataFrame({
+        "ID": [1, 2],
+        "Address": ["Flat 12, Sunshine Apartments, Near City Mall, Baner Road, Pune, Maharashtra " * 3, "x"],
+        "Email": ["asha.rao.verylongname@example-company-domain.com", "m@x.in"],
+    })
+    table, _ = _pdf_table(df)
+    cells = table._cellvalues
+    assert isinstance(cells[1][1], Paragraph)          # long address wraps
+    assert isinstance(cells[2][1], str)                # short text stays plain
+    assert isinstance(cells[1][2], (Paragraph, str))
+
+
+def test_pdf_headers_are_not_split_mid_word():
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from gridglass.engine.pdf import BOLD
+    df = pl.DataFrame({"ID": [1], "Amount": [125000.5], "Note": ["text " * 80]})
+    table, _ = _pdf_table(df)
+    size = table._cellvalues[0][1].style.fontSize
+    assert table._colWidths[1] >= stringWidth("Amount", BOLD, size)
+    assert table._colWidths[0] >= stringWidth("ID", BOLD, size)
+
+
+def test_pdf_keeps_more_of_long_text(tmp_path):
+    from gridglass.engine.pdf import _fmt
+    assert _fmt("a" * 300) == "a" * 300
