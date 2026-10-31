@@ -13,7 +13,7 @@ class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-change-me")
 
     # Uploads
-    MAX_UPLOAD_MB = _int("MAX_UPLOAD_MB", 50)
+    MAX_UPLOAD_MB = _int("MAX_UPLOAD_MB", 100)
     MAX_CONTENT_LENGTH = MAX_UPLOAD_MB * 1024 * 1024  # Flask rejects bigger requests with 413
     DATA_DIR = Path(os.environ.get("DATA_DIR", "instance/data"))
     FILE_RETENTION_MINUTES = _int("FILE_RETENTION_MINUTES", 60)

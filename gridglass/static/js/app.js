@@ -14,7 +14,7 @@ const num = (x) => Number(x).toLocaleString('en-IN');
 const plural = (k, w) => `${num(k)} ${w}${k === 1 ? '' : 's'}`;
 const ui = (name, cls) => icon(UI[name], cls);
 
-const config = { max_upload_mb: 50, retention_minutes: 60, page_rows: 1000, browse_max_rows: 10000 };
+const config = { max_upload_mb: 100, retention_minutes: 60, page_rows: 1000, browse_max_rows: 10000 };
 const state = {
   file: null,      // server metadata of the current upload (id, filename, steps …)
   cols: [],        // column stats after the saved steps
