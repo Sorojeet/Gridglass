@@ -8,7 +8,7 @@
     PUT    /files/<id>/sheet               switch the sheet of a .xlsx/.xls {"sheet": "..."} (clears steps)
     GET    /files/<id>/preview             preview with the saved steps (?limit=&offset= to page)
     POST   /files/<id>/preview             preview a draft {"steps": [...]} without saving
-    GET    /files/<id>/columns             column stats after the saved steps
+    GET    /files/<id>/columns             column stats after the saved steps (?upto=n: after the first n)
     GET    /files/<id>/values?column=      distinct values of a column with counts (filter dropdown)
     PUT    /files/<id>/steps               replace all steps {"steps": [...]}
     POST   /files/<id>/steps               append one step {...}
@@ -65,6 +65,18 @@ def _steps_and_frame(file_id: str, raw_steps: list[dict[str, Any]]):
         return open_source(st.source(other_id))
 
     return steps, build(open_source(st.source(file_id)), steps, resolve=resolve)
+
+
+def _saved_steps(file_id: str) -> list[dict[str, Any]]:
+    """The saved steps, or only the first `?upto=` of them (how the data looked before a step being edited)."""
+    steps = store().meta(file_id)["steps"]
+    upto = request.args.get("upto")
+    if upto is None or upto == "":
+        return steps
+    try:
+        return steps[: max(0, int(upto))]
+    except ValueError:
+        raise InvalidStepsError("upto must be a number.") from None
 
 
 def _limit() -> int:
@@ -188,13 +200,13 @@ def column_values(file_id):
         limit = max(1, min(int(request.args.get("limit", 200)), 500))
     except ValueError:
         limit = 200
-    _, lf = _steps_and_frame(file_id, store().meta(file_id)["steps"])
+    _, lf = _steps_and_frame(file_id, _saved_steps(file_id))
     return jsonify(distinct_values(lf, column, request.args.get("q") or None, limit))
 
 
 @bp.get("/files/<file_id>/columns")
 def columns(file_id):
-    _, lf = _steps_and_frame(file_id, store().meta(file_id)["steps"])
+    _, lf = _steps_and_frame(file_id, _saved_steps(file_id))
     return jsonify(columns=profile(lf))
 
 

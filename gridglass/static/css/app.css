@@ -293,7 +293,7 @@ select.input {
 .combo-list [role="option"][aria-selected="true"] { outline: 2px solid var(--accent-ring); }
 .combo-more { padding: 10px 12px; font-size: 13px; color: var(--muted); }
 .row-card:focus-within { position: relative; z-index: 6; }
-main > form:focus-within { position: relative; z-index: 7; } /* an open dropdown sits above the preview */ /* keep an open dropdown above the cards below it */
+main > form:focus-within { position: relative; z-index: 7; } /* an open dropdown sits above the preview, but under the sticky button */
 
 /* ----------------------------------------------------------------- preview pager */
 .pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
@@ -321,7 +321,8 @@ td.null { background: repeating-linear-gradient(135deg, transparent 0 6px, var(-
 .form-error { display: flex; gap: 10px; align-items: flex-start; padding: 16px; color: var(--error-ink); font-size: 14px; font-weight: 600; white-space: normal; }
 
 .action-bar {
-  position: sticky; bottom: 0; z-index: 5; margin: 0 calc(-1 * var(--gutter)) calc(-32px - env(safe-area-inset-bottom));
+  /* Above everything in the page (the form lifts itself to 7 while a dropdown is open), below toasts. */
+  position: sticky; bottom: 0; z-index: 20; margin: 0 calc(-1 * var(--gutter)) calc(-32px - env(safe-area-inset-bottom));
   padding: 14px var(--gutter) calc(16px + env(safe-area-inset-bottom));
   background: var(--bar); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-top: 1px solid var(--glass-border);
 }
@@ -510,3 +511,9 @@ td.null { background: repeating-linear-gradient(135deg, transparent 0 6px, var(-
 @media (min-width: 1024px) {
   main[data-screen="options"] > .preview { grid-row: 2 / span 6; }
 }
+
+/* ----------------------------------------------------------------- back to result / edit steps */
+.working { flex-wrap: wrap; }
+.working .btn-sm { align-self: center; }
+.step-list li .icon-btn + .icon-btn { margin-left: -6px; }
+.combo-list { scroll-margin-bottom: 110px; } /* keep the open list clear of the sticky button */

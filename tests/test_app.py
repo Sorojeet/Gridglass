@@ -269,7 +269,7 @@ def test_index_and_static(client):
 
 def test_service_worker_at_root(client):
     r = client.get("/sw.js")
-    assert r.status_code == 200 and b"gridglass-v6" in r.data and r.headers["Cache-Control"] == "no-cache"
+    assert r.status_code == 200 and b"gridglass-v7" in r.data and r.headers["Cache-Control"] == "no-cache"
     r.close()
 
 
@@ -395,3 +395,16 @@ def test_export_split_by(client, file_id):
         r.close()
     r = client.get(f"/api/v1/files/{file_id}/export?format=csv&split_by=City")
     assert r.status_code == 422
+
+
+
+def test_columns_and_values_before_a_step(client, file_id):
+    client.put(f"/api/v1/files/{file_id}/steps", json={"steps": [
+        {"op": "trim"}, {"op": "remove_columns", "columns": ["Amount"]}]})
+    names = lambda q: [c["name"] for c in client.get(f"/api/v1/files/{file_id}/columns{q}").get_json()["columns"]]
+    assert names("") == ["Name", "City"]
+    assert names("?upto=1") == ["Name", "City", "Amount"]          # as it was before step 2
+    assert names("?upto=0") == ["Name", "City", "Amount"]
+    vals = client.get(f"/api/v1/files/{file_id}/values?column=Name&upto=0").get_json()["values"]
+    assert "  Asha " in [v["value"] for v in vals]                   # before trim
+    assert client.get(f"/api/v1/files/{file_id}/columns?upto=x").status_code == 400

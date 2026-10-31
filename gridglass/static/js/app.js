@@ -1,5 +1,6 @@
 import {
-  AGG_FUNCS, CATS, FORMATS, JOINS, NO_VALUE_OPS, OPERATORS, SUGGEST, TOOL, TOOLS, TYPES, UI, defaults, icon, incomplete, toStep,
+  AGG_FUNCS, CATS, FORMATS, JOINS, NO_VALUE_OPS, OPERATORS, TOOL, TOOLS, TYPES, UI, defaults, icon, incomplete, suggestFor,
+  toDraft, toStep,
 } from './tools.js';
 import { MAX_CATEGORIES, chartData, chartSVG, saveChart, themeColors } from './chart.js';
 
@@ -22,11 +23,12 @@ const state = {
   stage: 'upload', // upload | options | done
   draft: {},
   before: 0,       // rows before the step being designed
-  result: null,    // { before, after } after applying
+  result: null,    // { before, after, op } after applying
   previewOk: false,
   browse: { all: false, page: 0 }, // paged "show all rows" mode in the preview
   values: {},      // column -> distinct values for the filter dropdown
-  lastEdit: null,  // { tool, draft, index } of the step just applied, so it can be edited again
+  editIndex: null, // editing saved step n (null = adding a new step at the end)
+  wantChart: false, // open the pivot editor on its Chart tab
   other: null,     // Merge: metadata of the second file
   otherCols: [],   // Merge: its columns
   view: 'table',   // Pivot preview: table | chart
@@ -127,11 +129,19 @@ async function boot() {
 
 // ============================================================================ routing & shared bits
 
+/** Steps the tool being edited builds on: all of them, or only those before the step being edited. */
+const baseSteps = () => (state.editIndex === null ? state.file.steps : state.file.steps.slice(0, state.editIndex));
+const upto = () => (state.editIndex === null ? '' : `upto=${state.editIndex}`);
+
 let firstRoute = true;
 
 function route() {
-  const m = location.hash.match(/^#\/tool\/([a-z_]+)/);
-  if (m && TOOL[m[1]]) openTool(TOOL[m[1]]);
+  const h = location.hash;
+  const tool = h.match(/^#\/tool\/([a-z_]+)/);
+  const edit = h.match(/^#\/edit\/(\d+)$/);
+  if (h === '#/result' && state.file) showResult();
+  else if (edit && state.file) editStep(Number(edit[1]));
+  else if (tool && TOOL[tool[1]]) openTool(TOOL[tool[1]]);
   else renderHome();
   window.scrollTo(0, 0);
   // Move focus to the new screen for screen readers, but not on first load (keeps "Skip to content" first).
@@ -141,7 +151,7 @@ function route() {
 
 function topbar({ back, title, close, edit } = {}) {
   const left = edit
-    ? `<button class="icon-btn" type="button" data-action="edit" aria-label="Back to the editor">${ui('back')}</button><span class="topbar-title">${esc(title)}</span>`
+    ? `<a class="icon-btn" href="${edit}" aria-label="Back to the editor">${ui('back')}</a><span class="topbar-title">${esc(title)}</span>`
     : back
     ? `<a class="icon-btn" href="${back}" aria-label="Back">${ui('back')}</a><span class="topbar-title">${esc(title)}</span>`
     : close
@@ -163,7 +173,9 @@ function fileChip() {
       `<option ${s === f.sheet ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>` : '';
   return `<div class="file-chip glass">
     <span class="file-icon">${ui('file')}</span>
-    <span class="file-text"><strong>${esc(f.filename)}</strong><small>${plural(state.before, 'row')} · ${plural(state.cols.length, 'column')}${f.steps.length ? ` · ${plural(f.steps.length, 'step')} applied` : ''}</small></span>
+    <span class="file-text"><strong>${esc(f.filename)}</strong><small>${plural(state.before, 'row')} · ${plural(state.cols.length, 'column')}${
+      state.editIndex !== null ? ` · editing step ${state.editIndex + 1} of ${f.steps.length}`
+        : f.steps.length ? ` · ${plural(f.steps.length, 'step')} applied` : ''}</small></span>
     ${sheets}
     <button class="btn-link" type="button" data-action="newfile">Change</button>
   </div>`;
@@ -191,6 +203,7 @@ function renderHome() {
   const working = state.file ? `<div class="working glass">
       <span class="file-icon">${ui('file')}</span>
       <span class="file-text"><strong>${esc(state.file.filename)}</strong><small>${state.file.steps.length ? `${plural(state.file.steps.length, 'step')} applied · ` : ''}pick any tool to keep going</small></span>
+      <a class="btn btn-secondary btn-sm" href="#/result">${ui('download')} Back to result</a>
       <button class="btn-link" type="button" data-action="startover">Clear</button>
     </div>` : '';
   view.dataset.screen = 'home';
@@ -236,6 +249,8 @@ function fillGrid() {
 
 async function openTool(tool) {
   state.tool = tool;
+  state.editIndex = null;
+  state.values = {};
   state.result = null;
   document.title = `${tool.label} — Gridglass`;
   if (state.file) await enterOptions();
@@ -345,7 +360,8 @@ function renderOptions() {
   const action = t.convert ? downloadFields('Save as') : t.splitter ? splitFields() : '';
   const pivot = t.op === 'pivot';
   const chart = pivot && state.view === 'chart';
-  view.innerHTML = `${topbar({ back: '#/', title: t.label })}
+  const editing = state.editIndex !== null;
+  view.innerHTML = `${topbar({ back: editing ? '#/result' : '#/', title: editing ? `Edit: ${t.label}` : t.label })}
     ${fileChip()}
     ${t.convert || t.splitter ? '' : `<form id="opts" class="form" novalidate autocomplete="off"></form>`}
     ${action}
@@ -372,7 +388,7 @@ function renderOptions() {
     <div class="action-bar">
       ${t.convert || t.splitter
         ? `<button class="btn btn-primary btn-lg btn-block" type="button" data-action="download">${ui('download')} Download</button>`
-        : `<button class="btn btn-primary btn-lg btn-block" type="button" id="apply" disabled>${esc(t.verb)}</button>`}
+        : `<button class="btn btn-primary btn-lg btn-block" type="button" id="apply" disabled>${esc(editing ? 'Save changes' : t.verb)}</button>`}
     </div>`;
   $('[data-action="newfile"]').addEventListener('click', newFile);
   $('#sheet')?.addEventListener('change', (e) => changeSheet(e.target.value));
@@ -827,7 +843,7 @@ function renderChart() {
 async function loadValues(column, q = '') {
   const key = q ? `${column}\u0000${q.toLowerCase()}` : column;
   if (!state.values[key]) {
-    const qs = new URLSearchParams({ column, limit: '200', ...(q ? { q } : {}) });
+    const qs = new URLSearchParams({ column, limit: '200', ...(q ? { q } : {}), ...(state.editIndex !== null ? { upto: state.editIndex } : {}) });
     state.values[key] = api(`/files/${state.file.id}/values?${qs}`).catch(() => ({ values: [], truncated: false }));
   }
   return state.values[key];
@@ -840,7 +856,9 @@ async function comboOpen(input) {
   const column = input.dataset.valuesFor;
   if (!column) return;
   delete input.dataset.chosen; // opening on purpose shows the list again
+  const asked = performance.now();
   const data = await loadValues(column);
+  if (Number(input.dataset.closedAt || 0) > asked) return; // closed (Esc, a pick) while the values were loading
   if (document.activeElement !== input && input.getAttribute('aria-expanded') !== 'true') return;
   comboRender(input, data);
 }
@@ -887,6 +905,7 @@ function comboRender(input, data) {
 
 function comboClose(input) {
   if (!input) return;
+  input.dataset.closedAt = String(performance.now());
   const list = $(`#${input.getAttribute('aria-controls')}`);
   if (list) list.hidden = true;
   input.setAttribute('aria-expanded', 'false');
@@ -944,9 +963,9 @@ function schedulePreview(delay = 350) {
   state.browse.page = 0; // options changed: back to the first page
   previewTimer = setTimeout(() => {
     const hint = incomplete(state.tool, state.draft);
-    if (hint) { showPreview(state.file.steps, null, hint); return; } // show the data as it is, plus what's missing
+    if (hint) { showPreview(baseSteps(), null, hint); return; } // show the data as it is, plus what's missing
     const step = toStep(state.tool, state.draft);
-    showPreview([...state.file.steps, step], step);
+    showPreview([...baseSteps(), step], step);
   }, delay);
 }
 
@@ -1048,36 +1067,66 @@ async function apply() {
   const btn = $('#apply');
   btn.disabled = true;
   btn.classList.add('busy');
+  const step = toStep(state.tool, state.draft);
+  const i = state.editIndex;
   try {
-    const res = await api(`/files/${state.file.id}/steps`, { method: 'POST', body: toStep(state.tool, state.draft) });
+    const res = i === null
+      ? await api(`/files/${state.file.id}/steps`, { method: 'POST', body: step })
+      : await api(`/files/${state.file.id}/steps`, {
+        method: 'PUT', body: { steps: [...state.file.steps.slice(0, i), step, ...state.file.steps.slice(i + 1)] },
+      });
     remember(res.file);
-    state.lastEdit = { tool: state.tool, draft: structuredClone(state.draft), index: res.file.steps.length - 1 };
-    state.result = { before: state.before, after: res.preview.total_rows };
-    renderDone();
+    state.result = { before: state.before, after: res.preview.total_rows, op: state.tool.op, edited: i !== null };
+    state.editIndex = null;
+    if (location.hash === '#/result') renderDone(); else location.hash = '#/result';
   } catch (err) {
     btn.classList.remove('busy');
     btn.disabled = false;
-    toast(friendly(err), 'error');
+    const later = err.info?.step_index;
+    if (i !== null && Number.isInteger(later) && later > i) {
+      const name = TOOL[state.file.steps[later]?.op]?.label ?? 'a later step';
+      toast(`This change doesn't fit step ${later + 1} (${name}): ${err.message.replace(/^Step \d+: /, '')} Edit or remove that step first.`, 'error');
+    } else {
+      toast(friendly(err), 'error');
+    }
   }
 }
 
+/** The result page (#/result): works after a reload too, by asking the server for the current row count. */
+async function showResult() {
+  if (!state.result) {
+    try {
+      const { preview } = await api(`/files/${state.file.id}/preview?limit=1`);
+      state.result = { before: state.file.rows, after: preview.total_rows, op: state.file.steps.at(-1)?.op ?? null };
+    } catch (err) {
+      if (err.status === 404) { remember(null); toast('That file has expired. Please upload it again.', 'error'); renderHome(); return; }
+      toast(err.message, 'error');
+      return;
+    }
+  }
+  renderDone();
+}
+
 function renderDone() {
-  const t = state.tool;
-  const { before, after } = state.result;
+  const { before, after, op, edited } = state.result;
+  const t = TOOL[op];
+  state.tool = t ?? null;
   state.stage = 'done';
   view.dataset.screen = 'done';
-  const title = t.done ? t.done(before, after) : `${t.label} done`;
-  const suggestions = SUGGEST.filter((op) => op !== t.op).slice(0, 6);
+  document.title = 'Your result — Gridglass';
+  const title = edited ? 'Changes saved' : t?.done ? t.done(before, after) : t ? `${t.label} done` : 'Your file is ready';
   const steps = state.file.steps;
-  const canEdit = state.lastEdit?.tool === t;
-  view.innerHTML = `${topbar(canEdit ? { edit: true, title: `Edit ${t.label}`, close: '#/' } : { close: '#/' })}
+  const last = steps.length - 1;
+  const lastTool = TOOL[steps[last]?.op];
+  const pencil = icon('rename');
+  view.innerHTML = `${topbar(last >= 0 ? { edit: `#/edit/${last}`, title: `Edit ${lastTool?.label ?? 'last step'}`, close: '#/' } : { close: '#/' })}
     <section class="done">
       <span class="done-icon">${ui('check')}</span>
       <h1>${esc(title)}</h1>
       <p>${before === after ? plural(after, 'row') : `${num(before)} rows → ${num(after)} rows`}</p>
       <div class="done-actions">
-        ${canEdit ? `<button type="button" class="btn btn-secondary btn-sm" data-action="edit">${icon('rename')} Edit options</button>` : ''}
-        ${canEdit && t.op === 'pivot' ? `<button type="button" class="btn btn-secondary btn-sm" data-action="chart">${icon('group')} Make a chart</button>` : ''}
+        ${last >= 0 ? `<a class="btn btn-secondary btn-sm" href="#/edit/${last}">${pencil} Edit options</a>` : ''}
+        ${lastTool?.op === 'pivot' ? `<a class="btn btn-secondary btn-sm" href="#/edit/${last}" data-action="chart">${icon('group')} Make a chart</a>` : ''}
       </div>
     </section>
     <section class="card glass">
@@ -1087,22 +1136,24 @@ function renderDone() {
     </section>
     <section class="next">
       <h2>Keep working on this file</h2>
-      <p class="hint">The result goes straight into the next tool.</p>
-      <div class="chips wrap">${suggestions.map((op) => `<a class="chip" href="#/tool/${op}">${TOOL[op].label}</a>`).join('')}
+      <p class="hint">${t ? `Tools that often come after ${esc(t.label.toLowerCase())}.` : 'The result goes straight into the next tool.'}</p>
+      <div class="chips wrap">${suggestFor(lastTool?.op ?? op).map((x) => `<a class="chip" href="#/tool/${x}">${TOOL[x].label}</a>`).join('')}
         <a class="chip" href="#/">All tools…</a></div>
     </section>
     <section class="applied">
       <h2>Applied steps</h2>
-      <ol class="step-list">${steps.map((s, i) => `<li class="glass"><span class="step-n">${i + 1}</span>
-        <span class="step-name">${esc(TOOL[s.op]?.label || s.op)}</span>
-        <button type="button" class="icon-btn small" data-undo="${i}" aria-label="Undo step ${i + 1}: ${esc(TOOL[s.op]?.label || s.op)}">${ui('trash')}</button></li>`).join('')
-        || '<li class="glass empty">No steps — this is your original file.</li>'}</ol>
+      <ol class="step-list">${steps.map((s, i) => {
+        const label = esc(TOOL[s.op]?.label || s.op);
+        return `<li class="glass"><span class="step-n">${i + 1}</span>
+        <span class="step-name">${label}</span>
+        <a class="icon-btn small" href="#/edit/${i}" aria-label="Edit step ${i + 1}: ${label}">${pencil}</a>
+        <button type="button" class="icon-btn small" data-undo="${i}" aria-label="Remove step ${i + 1}: ${label}">${ui('trash')}</button></li>`;
+      }).join('') || '<li class="glass empty">No steps — this is your original file.</li>'}</ol>
     </section>
     <footer class="done-foot"><button type="button" class="btn-link" data-action="startover">Start over with a new file</button></footer>`;
   wireDownload();
   $('[data-action="startover"]').addEventListener('click', startOver);
-  view.querySelectorAll('[data-action="edit"]').forEach((b) => b.addEventListener('click', () => { state.view = 'table'; editLast(); }));
-  $('[data-action="chart"]')?.addEventListener('click', () => { state.view = 'chart'; editLast(); });
+  $('[data-action="chart"]')?.addEventListener('click', () => { state.wantChart = true; });
   view.querySelectorAll('[data-undo]').forEach((b) => b.addEventListener('click', () => undo(Number(b.dataset.undo))));
 }
 
@@ -1110,38 +1161,40 @@ async function undo(i) {
   try {
     const res = await api(`/files/${state.file.id}/steps/${i}`, { method: 'DELETE' });
     remember(res.file);
-    if (state.lastEdit) { // keep pointing at the right step (or none, if that's the one removed)
-      if (i === state.lastEdit.index) state.lastEdit.index = -1;
-      else if (i < state.lastEdit.index) state.lastEdit.index -= 1;
-    }
-    state.result = { ...state.result, after: res.preview.total_rows };
+    state.result = { ...state.result, after: res.preview.total_rows, edited: false };
     renderDone();
     toast('Step removed.');
   } catch (err) { toast(err.message, 'error'); }
 }
 
-/** Back to the editor with the options as they were. The step is taken out and comes back when applied again. */
-async function editLast() {
-  const le = state.lastEdit;
-  if (!le) return;
+/** Edit saved step i (#/edit/i): its tool opens with the saved options, on the data as it was before that step. */
+async function editStep(i) {
+  const step = state.file.steps[i];
+  const tool = TOOL[step?.op];
+  if (!tool) { location.replace('#/result'); return; }
   try {
-    if (le.index >= 0 && state.file.steps[le.index]?.op === le.tool.op) {
-      remember((await api(`/files/${state.file.id}/steps/${le.index}`, { method: 'DELETE' })).file);
-    }
-    state.tool = le.tool;
-    state.cols = (await api(`/files/${state.file.id}/columns`)).columns;
+    state.tool = tool;
+    state.editIndex = i;
+    state.values = {};
+    state.result = null;
+    state.cols = (await api(`/files/${state.file.id}/columns?${upto()}`)).columns;
     state.before = state.cols[0]?.rows ?? state.file.rows;
-    state.draft = le.draft;
-    state.lastEdit = null;
+    state.draft = toDraft(tool, step, state.cols);
     state.browse = { all: false, page: 0 };
-    if (le.tool.op === 'merge' && le.draft.other && !(await loadOther(le.draft.other))) {
+    state.view = state.wantChart ? 'chart' : 'table';
+    state.wantChart = false;
+    state.other = null;
+    state.otherCols = [];
+    if (tool.op === 'merge' && !(await loadOther(step.other))) {
       Object.assign(state.draft, { other: '', other_name: '', keys: [] });
       toast('The second file has expired. Please add it again.', 'error');
     }
+    document.title = `Edit ${tool.label} — Gridglass`;
     renderOptions();
-    window.scrollTo(0, 0);
-    view.focus({ preventScroll: true });
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) {
+    if (err.status === 404) { remember(null); toast('That file has expired. Please upload it again.', 'error'); renderHome(); return; }
+    toast(err.message, 'error');
+  }
 }
 
 // ---------------------------------------------------------------------------- download & share
@@ -1210,6 +1263,8 @@ function forget() {
   remember(null);
   state.other = null;
   state.otherCols = [];
+  state.result = null;
+  state.editIndex = null;
 }
 
 function newFile() { forget(); renderUpload(); }

@@ -161,7 +161,7 @@ def test_duplicates_by_chosen_columns(phone):
 def test_trim_and_change_case_chain(phone):
     page = phone.upload_sample("trim")
     apply(page)
-    page.click('.next a[href="#/tool/sort_rows"]')  # chain without uploading again
+    page.click('.next a[href="#/tool/change_case"]')  # chain without uploading again (a related suggestion)
     expect(page.locator(".file-chip")).to_contain_text("1 step applied")
     page.goto(phone.base + "/#/tool/change_case")
     page.wait_for_selector("#opts")
@@ -506,9 +506,10 @@ def test_edit_options_after_apply(phone):
     page.fill("#c0v", "Pune")
     apply(page)
     expect(page.locator(".step-list li")).to_have_count(1)
-    page.click('.done [data-action="edit"]')
+    page.click('.done a[href="#/edit/0"]')
     expect(page.locator("#c0v")).to_have_value("Pune")          # options come back as they were
-    expect(page.locator(".file-chip")).not_to_contain_text("step applied")  # the step is out while editing
+    expect(page.locator(".file-chip")).to_contain_text("editing step 1 of 1")
+    expect(page.locator(".file-chip")).to_contain_text("45 rows")  # the data as it was before this step
     page.fill("#c0v", "Delhi")
     apply(page)
     expect(page.locator(".step-list li")).to_have_count(1)      # replaced, not added twice
@@ -521,9 +522,9 @@ def test_edit_from_top_bar_keeps_earlier_steps(phone):
     page.goto(phone.base + "/#/tool/remove_duplicates")
     page.wait_for_selector("#opts")
     apply(page)
-    page.click('.topbar [data-action="edit"]')
+    page.click('.topbar a[aria-label="Back to the editor"]')
     expect(page.locator("h1, .topbar-title").first).to_contain_text("Remove duplicates")
-    expect(page.locator(".file-chip")).to_contain_text("1 step applied")   # trim is still there
+    expect(page.locator(".file-chip")).to_contain_text("editing step 2 of 2")   # trim is still there
     apply(page)
     expect(page.locator(".step-list li")).to_have_count(2)
 
@@ -584,7 +585,7 @@ def test_merge_change_second_file_and_edit(phone):
     page.click('[data-action="sample2"]')
     expect(page.locator(".file-chip.second")).to_be_visible()
     apply(page)
-    page.click('.done [data-action="edit"]')
+    page.click('.done a[href^="#/edit/"]')
     expect(page.locator(".file-chip.second")).to_contain_text("city-regions.csv")  # second file comes back
     page.select_option("#f-how", "inner")
     apply(page)
@@ -720,3 +721,134 @@ def test_dropdown_stays_above_preview(phone):
     on_top = page.evaluate("([x, y]) => document.elementFromPoint(x, y)?.closest('[role=option]') !== null",
                            [box["x"] + box["width"] / 2, box["y"] + box["height"] / 2])
     assert on_top
+
+
+
+# ----------------------------------------------------------------------------- edit any applied step
+
+def test_edit_an_earlier_step_and_later_steps_rerun(phone):
+    page = phone.upload_sample("filter_rows")
+    page.select_option("#c0col", "City")
+    page.fill("#c0v", "Pune")
+    apply(page)
+    page.goto(phone.base + "/#/tool/sort_rows")
+    page.wait_for_selector("#opts")
+    page.select_option("#s0c", "Amount")
+    apply(page)
+    expect(page.locator(".step-list li")).to_have_count(2)
+    page.click('.step-list a[href="#/edit/0"]')                  # edit the first step, the filter
+    expect(page.locator(".topbar-title")).to_have_text("Edit: Filter rows")
+    expect(page.locator("#c0v")).to_have_value("Pune")
+    expect(page.locator("#apply")).to_have_text("Save changes")
+    page.fill("#c0v", "Delhi")
+    page.click("#apply")
+    expect(page.locator(".done h1")).to_have_text("Changes saved")
+    expect(page.locator(".step-list li")).to_have_count(2)      # replaced in place, sort still applied
+    rows = result_json(page)
+    assert {r["City"] for r in rows} == {"Delhi"}
+    assert [r["Amount"] for r in rows] == sorted(r["Amount"] for r in rows)
+
+
+def test_every_tool_can_be_edited_with_its_options(phone):
+    """Each saved step reopens with the options it was saved with."""
+    page = phone.upload_sample("split_column")
+    page.select_option("#f-column", "Customer")
+    page.fill("#f-parts", "3")
+    apply(page)
+    page.goto(phone.base + "/#/tool/change_type")
+    page.wait_for_selector("#opts")
+    page.select_option("#t0c", "Order date")
+    page.select_option("#t0t", "date")
+    apply(page)
+    page.goto(phone.base + "/#/tool/pivot")
+    page.wait_for_selector("#opts")
+    page.click('[data-col-none="rows"]')
+    page.click('[data-field="rows"] [data-col="City"]')
+    page.click('[data-add="aggs"]')
+    page.select_option("#a1f", "count_rows")
+    apply(page)
+    page.click('.step-list a[href="#/edit/0"]')
+    expect(page.locator("#f-column")).to_have_value("Customer")
+    expect(page.locator("#f-parts")).to_have_value("3")
+    page.go_back()
+    page.click('.step-list a[href="#/edit/1"]')
+    expect(page.locator("#t0c")).to_have_value("Order date")
+    expect(page.locator("#t0t")).to_have_value("date")
+    page.go_back()
+    page.click('.step-list a[href="#/edit/2"]')
+    expect(page.locator('[data-field="rows"] [data-col="City"]')).to_have_attribute("aria-pressed", "true")
+    expect(page.locator("#a0f")).to_have_value("sum")
+    expect(page.locator("#a1f")).to_have_value("count_rows")
+
+
+def test_edit_that_breaks_a_later_step_explains_why(phone):
+    page = phone.upload_sample("split_column")
+    page.select_option("#f-column", "Customer")
+    apply(page)
+    page.goto(phone.base + "/#/tool/rename_columns")
+    page.wait_for_selector("#opts")
+    page.locator('input[data-rename="Customer 1"]').fill("First")
+    apply(page)
+    page.click('.step-list a[href="#/edit/0"]')
+    page.select_option("#f-column", "Email")                    # "Customer 1" won't exist any more
+    page.click("#apply")
+    expect(page.locator("#toast")).to_contain_text("doesn't fit step 2 (Rename columns)")
+    expect(page.locator("#apply")).to_be_visible()               # still in the editor, nothing lost
+
+
+# ----------------------------------------------------------------------------- related suggestions
+
+@pytest.mark.parametrize("tool, expected", [
+    ("remove_columns", ["Choose & reorder columns", "Rename columns", "Add column", "Split column"]),
+    ("filter_rows", ["Sort rows", "Pivot table"]),
+])
+def test_suggestions_follow_the_last_tool(phone, tool, expected):
+    page = phone.upload_sample(tool)
+    if tool == "remove_columns":
+        page.click('[data-col="Email"]')
+    else:
+        page.select_option("#c0col", "City")
+        page.fill("#c0v", "Pune")
+    apply(page)
+    chips = page.locator(".next .chip").all_inner_texts()
+    assert chips[: len(expected)] == expected
+
+
+# ----------------------------------------------------------------------------- back to the result
+
+def test_back_returns_to_the_result(phone):
+    page = phone.upload_sample("trim")
+    apply(page)
+    expect(page).to_have_url(re.compile(r"#/result$"))
+    page.click('.next .chip:has-text("All tools")')
+    expect(page.locator(".tool-card").first).to_be_visible()
+    page.go_back()                                               # browser / phone back button
+    expect(page.locator(".done h1")).to_be_visible()
+    page.click('.next .chip:has-text("All tools")')
+    page.click('.working a[href="#/result"]')                    # or the link on the home screen
+    expect(page.locator(".done h1")).to_be_visible()
+
+
+def test_result_page_survives_reload(phone):
+    page = phone.upload_sample("remove_duplicates")
+    apply(page)
+    page.reload()
+    expect(page.locator(".done p")).to_contain_text("40 rows")
+    expect(page.locator(".step-list li")).to_have_count(1)
+
+
+# ----------------------------------------------------------------------------- sticky button stays on top
+
+def test_bottom_button_stays_above_options_while_typing(phone):
+    page = phone.upload_sample("filter_rows")
+    page.select_option("#c0col", "City")
+    page.click("#c0v")                                           # focus inside the form (lifts it)
+    page.keyboard.press("Escape")                                # close the value list
+    page.click('[data-add="conditions"]')
+    page.click('[data-add="conditions"]')
+    page.locator("#c2v").focus()
+    page.evaluate("window.scrollBy(0, -120)")                   # scroll up a little, form under the bar
+    box = page.locator(".action-bar").bounding_box()
+    hit = page.evaluate("([x, y]) => !!document.elementFromPoint(x, y)?.closest('.action-bar')",
+                        [box["x"] + box["width"] / 2, box["y"] + box["height"] / 2])
+    assert hit, "the options form covered the bottom button"
