@@ -392,10 +392,16 @@ def sheet_names(labels: list[str]) -> list[str]:
     return names
 
 
+#: Numbers are written with the spreadsheet's plain "General" style: no thousands commas, no fixed
+#: decimals, no red negatives — they show exactly as in the data and the preview.
+PLAIN_NUMBERS = {dtype: "General" for dtype in (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16,
+                                                pl.UInt32, pl.UInt64, pl.Float32, pl.Float64, pl.Decimal)}
+
+
 def _write_xlsx(dest: Path, parts: list[tuple[str, pl.DataFrame]]) -> None:
     import xlsxwriter
 
     with xlsxwriter.Workbook(dest) as wb:
         for name, (_, part) in zip(sheet_names([label for label, _ in parts]), parts):
             part.write_excel(workbook=wb, worksheet=name, autofit=True, freeze_panes=(1, 0),
-                             header_format={"bold": True})
+                             header_format={"bold": True}, dtype_formats=PLAIN_NUMBERS)

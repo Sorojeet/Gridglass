@@ -48,17 +48,27 @@ MAX_CELL_CHARS = 60
 MAX_PDF_COLUMNS = 40
 
 
+def plain_number(v: float) -> str:
+    """Numbers exactly as in the data and the preview: no thousands commas, no rounding (1250, 125000.5, -0.125)."""
+    if math.isnan(v) or math.isinf(v):
+        return ""
+    if v.is_integer() and abs(v) < 1e15:
+        return str(int(v))
+    text = repr(v)
+    if "e" in text:  # very large or very small: write it out in full rather than as 1e-07
+        text = f"{v:.15f}".rstrip("0").rstrip(".")
+    return text
+
+
 def _fmt(v) -> str:
     if v is None:
         return ""
     if isinstance(v, float):
-        if math.isnan(v) or math.isinf(v):
-            return ""
-        return f"{int(v):,}" if v.is_integer() and abs(v) < 1e15 else f"{v:,.2f}".rstrip("0").rstrip(".")
+        return plain_number(v)
     if isinstance(v, bool):
         return "Yes" if v else "No"
     if isinstance(v, int):
-        return f"{v:,}"
+        return str(v)
     text = v.isoformat(sep=" ") if isinstance(v, datetime) else str(v)
     return text if len(text) <= MAX_CELL_CHARS else text[: MAX_CELL_CHARS - 1] + "…"
 
