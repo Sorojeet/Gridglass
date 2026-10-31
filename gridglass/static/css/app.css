@@ -229,7 +229,7 @@ select.input {
 .progress .bar { height: 8px; border-radius: 99px; background: var(--track); overflow: hidden; }
 .progress .bar span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: inherit; transition: width 0.2s; }
 .how { display: flex; flex-direction: column; gap: 12px; }
-.how h2, .preview h2, .next h2, .applied h2 { font-size: 16px; font-weight: 700; }
+.how h2, .preview h2, .next h2, .applied h2, .pages h2 { font-size: 16px; font-weight: 700; }
 .how ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .how li { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--ink2); }
 .how li span { flex: none; width: 28px; height: 28px; margin-top: -3px; border-radius: 50%; background: var(--solid); color: var(--on-solid); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
@@ -397,7 +397,7 @@ td.null { background: repeating-linear-gradient(135deg, transparent 0 6px, var(-
   main[data-screen="options"] { grid-template-columns: minmax(320px, 380px) minmax(0, 1fr); grid-auto-rows: min-content; }
   main[data-screen="options"] > :not(.topbar):not(.preview) { grid-column: 1; }
   main[data-screen="options"] > .preview {
-    grid-column: 2; grid-row: 2 / span 4; position: sticky; top: 20px;
+    grid-column: 2; grid-row: 2 / span 6; position: sticky; top: 20px;
   }
   main[data-screen="options"] .table-wrap { max-height: calc(100dvh - 150px); min-height: 420px; }
   main[data-screen="options"] table { font-size: 14px; }
@@ -499,3 +499,14 @@ td.null { background: repeating-linear-gradient(135deg, transparent 0 6px, var(-
 @keyframes grow-y { from { transform: scaleY(0); } }
 @keyframes grow-x { from { transform: scaleX(0); } }
 @keyframes drift { to { transform: translate(40px, 30px) scale(1.08); } }
+
+/* ----------------------------------------------------------------- split into pages */
+.pages { display: flex; flex-direction: column; gap: 10px; }
+.page-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
+.page-list li { display: flex; align-items: center; gap: 12px; padding: 6px 14px 6px 8px; border-radius: 12px; min-height: 44px; }
+.page-list li.empty { padding: 12px 14px; color: var(--muted); }
+.page-list .page-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-list small { flex: none; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+@media (min-width: 1024px) {
+  main[data-screen="options"] > .preview { grid-row: 2 / span 6; }
+}

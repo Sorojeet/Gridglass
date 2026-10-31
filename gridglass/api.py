@@ -5,7 +5,7 @@
     POST   /files                          upload (multipart "file", optional "sheet")
     GET    /files/<id>                     metadata and saved steps
     DELETE /files/<id>                     delete now
-    PUT    /files/<id>/sheet               switch Excel sheet {"sheet": "..."} (clears steps)
+    PUT    /files/<id>/sheet               switch the sheet of a .xlsx/.xls {"sheet": "..."} (clears steps)
     GET    /files/<id>/preview             preview with the saved steps (?limit=&offset= to page)
     POST   /files/<id>/preview             preview a draft {"steps": [...]} without saving
     GET    /files/<id>/columns             column stats after the saved steps
@@ -15,7 +15,7 @@
     DELETE /files/<id>/steps               remove all steps
     DELETE /files/<id>/steps/<n>           remove step n (undo)
     GET    /files/<id>/export?format=csv   download the result (csv | xlsx | json | pdf);
-                                           &split_by=<column>: one Excel sheet / PDF page per value
+                                           &split_by=<column>: one sheet (.xlsx) / page (PDF) per value
 """
 from __future__ import annotations
 

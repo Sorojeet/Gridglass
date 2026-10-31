@@ -30,6 +30,7 @@ const P = {
   unpivot: '<path d="M6 4v16h14M10 8h8M10 12h8M10 16h8"/>',
   convert: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
   merge: '<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/>',
+  pages: '<rect x="8" y="3" width="12" height="15" rx="2"/><path d="M5 7v12a2 2 0 0 0 2 2h9"/><path d="M11 8h6M11 12h6"/>',
 };
 
 export const icon = (name, cls = '') =>
@@ -75,7 +76,7 @@ export const TYPES = [
 ];
 
 export const JOINS = [
-  ['left', 'All rows here + matches (VLOOKUP)'],
+  ['left', 'All rows here + matches (lookup)'],
   ['inner', 'Only rows that match in both'],
   ['full', 'All rows from both files'],
   ['right', 'All rows from the second file'],
@@ -322,9 +323,9 @@ export const TOOLS = [
           : d.mode === 'math' && d.rightKind === 'column' && !d.right_column ? 'Choose the second column.' : null),
   },
   {
-    op: 'merge', cat: 'combine', icon: 'merge', label: 'Merge files (VLOOKUP)',
-    desc: 'Look up columns from a second file', keywords: 'vlookup xlookup lookup join merge combine match two files left inner outer full anti',
-    intro: 'Bring columns from a second file by matching a column in both, like VLOOKUP, or combine them with any kind of join.',
+    op: 'merge', cat: 'combine', icon: 'merge', label: 'Merge files (lookup)',
+    desc: 'Look up columns from a second file', keywords: 'lookup look up join merge combine match two files left inner outer full anti',
+    intro: 'Bring columns from a second file by matching a column in both, or combine the two files with any kind of join.',
     verb: 'Merge',
     fields: [
       { key: 'other', type: 'otherfile', label: 'Second file', default: '' },
@@ -332,7 +333,7 @@ export const TOOLS = [
       { key: 'how', type: 'select', label: 'Keep', default: 'left', show: (d) => !!d.other, options: JOINS },
       { key: 'columns', type: 'columns', source: 'other', label: 'Columns to bring in', optional: true,
         allLabel: 'All columns', default: null, show: (d) => !!d.other && !['anti', 'semi'].includes(d.how) },
-      { key: 'first_match', type: 'toggle', label: 'If a match appears more than once, use the first one (like VLOOKUP)',
+      { key: 'first_match', type: 'toggle', label: 'If a match appears more than once, use the first one',
         default: true, show: (d) => !!d.other && !['anti', 'semi'].includes(d.how) },
     ],
     build: (d) => ({
@@ -345,8 +346,8 @@ export const TOOLS = [
   },
   {
     op: 'pivot', cat: 'summarize', icon: 'pivot', label: 'Pivot table',
-    desc: 'Group, total and cross-tab, like Excel', keywords: 'group by summary total subtotal aggregate crosstab matrix sum count average',
-    intro: 'Like an Excel pivot table: pick the Rows and what to calculate. Add a Columns field to spread the totals across columns.',
+    desc: 'Group, total and cross-tab your data', keywords: 'group by summary total subtotal aggregate crosstab matrix sum count average',
+    intro: 'Pick the Rows and what to calculate. Add a Columns field to spread the totals across columns.',
     verb: 'Make pivot table',
     fields: [
       { key: 'rows', type: 'columns', label: 'Rows', default: (cols) => [first(cols, 'text')].filter(Boolean) },
@@ -384,16 +385,24 @@ export const TOOLS = [
   },
   {
     op: 'convert', cat: 'convert', icon: 'convert', label: 'Convert file',
-    desc: 'Excel, CSV, JSON or PDF', keywords: 'export save xlsx csv json pdf excel format change',
+    desc: 'XLSX, CSV, JSON or PDF', keywords: 'export save xlsx csv json pdf spreadsheet format change',
     intro: 'Open a spreadsheet and save it in another format.',
     convert: true,
     fields: [],
   },
+  {
+    op: 'split_pages', cat: 'convert', icon: 'pages', label: 'Split into pages',
+    desc: 'One sheet or page per value', keywords: 'split pages sheets tabs per value break separate report each city',
+    intro: 'Pick a column and get one sheet (or one PDF page) for each of its values — for example, a page per city.',
+    splitter: true,
+    fields: [],
+  },
+
 ];
 
 export const TOOL = Object.fromEntries(TOOLS.map((t) => [t.op, t]));
 
-export const FORMATS = [['xlsx', 'Excel (.xlsx)'], ['csv', 'CSV (.csv)'], ['json', 'JSON (.json)'], ['pdf', 'PDF (.pdf)']];
+export const FORMATS = [['xlsx', 'Spreadsheet (.xlsx)'], ['csv', 'CSV (.csv)'], ['json', 'JSON (.json)'], ['pdf', 'PDF (.pdf)']];
 
 export const SUGGEST = ['merge', 'filter_rows', 'pivot', 'remove_duplicates', 'sort_rows', 'trim', 'convert'];
 

@@ -488,7 +488,7 @@ class JoinKey(BaseModel):
 
 
 class Merge(Step):
-    """Bring in columns from a second file by matching keys (VLOOKUP), with every kind of join."""
+    """Bring in columns from a second file by matching keys (a lookup), with every kind of join."""
 
     label: ClassVar[str] = "Merge files"
     op: Literal["merge"]
@@ -497,7 +497,7 @@ class Merge(Step):
     keys: Annotated[list[JoinKey], Field(min_length=1, max_length=5)]
     how: Literal["left", "inner", "right", "full", "anti", "semi"] = "left"
     columns: list[Col] | None = None                  # second-file columns to bring; None = all
-    first_match: bool = True                          # repeated keys in the second file: use the first (VLOOKUP)
+    first_match: bool = True                          # repeated keys in the second file: use the first
     suffix: Annotated[str, StringConstraints(min_length=1, max_length=20)] = " (2)"
 
     ORDER: ClassVar[dict[str, str]] = {"left": "left", "inner": "left", "semi": "left", "anti": "left",
@@ -540,7 +540,7 @@ class Merge(Step):
 
 # --------------------------------------------------------------------------- summarize
 
-_AGG_TITLE = {  # Excel-style names: "Sum of Amount"
+_AGG_TITLE = {  # readable names: "Sum of Amount"
     "sum": "Sum of {c}", "average": "Average of {c}", "min": "Min of {c}", "max": "Max of {c}",
     "median": "Median of {c}", "count": "Count of {c}", "count_distinct": "Distinct {c}",
     "first": "First {c}", "last": "Last {c}",
@@ -577,7 +577,7 @@ class Aggregation(BaseModel):
 
 
 class Pivot(Step):
-    """Summarize like an Excel pivot table: Rows, an optional Columns field, and one or more Values.
+    """Summarize like a classic pivot table: Rows, an optional Columns field, and one or more Values.
 
     Without Columns it's a group-by: one row per group with the totals you ask for.
     With Columns, each distinct value of that column becomes its own column.
@@ -585,10 +585,10 @@ class Pivot(Step):
 
     label: ClassVar[str] = "Pivot table"
     op: Literal["pivot"]
-    rows: Cols                                                        # Excel: Rows
-    columns: Col | None = None                                        # Excel: Columns (optional)
-    values: Annotated[list[Aggregation], Field(max_length=20)] = []   # Excel: Values (default: count)
-    totals: bool = False                                              # Excel: Grand Total row
+    rows: Cols                                                        # Rows
+    columns: Col | None = None                                        # Columns (optional)
+    values: Annotated[list[Aggregation], Field(max_length=20)] = []   # Values (default: count)
+    totals: bool = False                                              # Grand Total row
     max_columns: ClassVar[int] = MAX_PIVOT_COLUMNS
     TOTAL_LABEL: ClassVar[str] = "Grand Total"
     BLANK: ClassVar[str] = "(blank)"
@@ -618,7 +618,7 @@ class Pivot(Step):
             return out
 
         # Pivot: aggregate per (rows, column value), then spread the column values out.
-        # Column values become headers, so blanks get Excel's "(blank)" label instead of "null".
+        # Column values become headers, so blanks get a "(blank)" label instead of "null".
         c = pl.col(self.columns).cast(pl.String)
         lf = lf.with_columns(pl.when(c.is_null() | (c.str.strip_chars() == "")).then(pl.lit(self.BLANK))
                              .otherwise(c).alias(self.columns))
@@ -634,7 +634,7 @@ class Pivot(Step):
         if not self.totals:
             return wide.lazy()
 
-        # Excel adds a Grand Total column (per row) and a Grand Total row (per column).
+        # Grand totals: a column (per row) and a row (per column).
         total_name = (lambda n: self.TOTAL_LABEL) if len(names) == 1 else (lambda n: f"{n}{self.SEP}{self.TOTAL_LABEL}")
         row_totals = (lf.group_by(self.rows, maintain_order=True).agg(exprs)
                       .rename({n: total_name(n) for n in names}).collect())
@@ -657,7 +657,7 @@ class Pivot(Step):
 
 
 class Unpivot(Step):
-    """Turn columns into rows (Power Query: Unpivot columns)."""
+    """Turn columns into rows (wide table to long table)."""
 
     label: ClassVar[str] = "Unpivot columns"
     op: Literal["unpivot"]

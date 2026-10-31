@@ -13,7 +13,7 @@ from playwright.sync_api import expect
 ALL_OPS = [
     "remove_duplicates", "trim", "change_case", "replace_values", "fill_blanks", "remove_blank_rows",
     "filter_rows", "sort_rows", "remove_columns", "keep_columns", "rename_columns", "keep_rows",
-    "change_type", "split_column", "add_column", "merge", "pivot", "unpivot", "convert",
+    "change_type", "split_column", "add_column", "merge", "pivot", "unpivot", "convert", "split_pages",
 ]
 SAMPLE_ROWS = 45  # the built-in sample: 40 orders + 5 exact duplicates
 
@@ -117,7 +117,7 @@ def test_every_tool_opens_without_errors(phone, op):
     page = phone.upload_sample(op)
     page.wait_for_timeout(500)  # let the debounced draft preview land
     expect(page.locator(".form-error")).to_have_count(0)
-    if op == "convert":
+    if op in ("convert", "split_pages"):
         expect(page.locator('[data-action="download"]')).to_be_enabled()
         return
     ready = page.locator("#apply").is_enabled()
@@ -125,7 +125,7 @@ def test_every_tool_opens_without_errors(phone, op):
     assert ready or hint, f"{op}: neither ready nor showing a hint"
 
 
-@pytest.mark.parametrize("op", [op for op in ALL_OPS if op != "convert"])
+@pytest.mark.parametrize("op", [op for op in ALL_OPS if op not in ("convert", "split_pages")])
 def test_every_form_control_is_labelled(phone, op):
     page = phone.upload_sample(op)
     unlabelled = page.evaluate("""() => [...document.querySelectorAll('#opts input, #opts select, #opts button')]
@@ -591,32 +591,52 @@ def test_merge_change_second_file_and_edit(phone):
     expect(page.locator(".step-list li")).to_have_count(1)
 
 
-# ----------------------------------------------------------------------------- report filter pages
+# ----------------------------------------------------------------------------- split into pages (its own tool)
 
-def test_split_download_into_excel_sheets(phone):
+def test_split_pages_tool_spreadsheet(phone):
     import fastexcel
 
-    page = phone.upload_sample("trim")
-    apply(page)
-    page.select_option("#fmt", "xlsx")
-    expect(page.locator("#split option", has_text="City — 5 pages")).to_have_count(1)
+    page = phone.upload_sample("split_pages")
+    expect(page.locator("#split")).to_have_value("Customer")            # first text column with few values
     page.select_option("#split", "City")
+    expect(page.locator("#page-list li")).to_have_count(5)
+    expect(page.locator("#page-list li").first).to_contain_text("Bengaluru")
+    expect(page.locator("#page-list li").first).to_contain_text("9 rows")
+    expect(page.locator('[data-action="download"]')).to_contain_text("Download 5 sheets")
     with page.expect_download() as dl:
         page.click('[data-action="download"]')
     assert fastexcel.read_excel(dl.value.path()).sheet_names == ["Bengaluru", "Chennai", "Delhi", "Mumbai", "Pune"]
 
 
-def test_split_download_pdf_pages_and_csv_hides_split(phone):
-    page = phone.upload_sample("convert")
-    page.select_option("#fmt", "csv")
-    expect(page.locator("#split-field")).to_be_hidden()
-    page.select_option("#fmt", "pdf")
-    expect(page.locator("#split-field")).to_be_visible()
+def test_split_pages_tool_pdf_and_blanks(phone):
+    page = phone.upload_sample("split_pages")
+    expect(page.locator("#page-list li", has_text="(blank)")).to_have_count(1)  # blank customers get their own page
     page.select_option("#split", "City")
+    page.click('[data-seg="splitfmt"][data-val="pdf"]')
+    expect(page.locator('[data-action="download"]')).to_contain_text("Download 5 pages")
     with page.expect_download() as dl:
         page.click('[data-action="download"]')
-    raw = Path(dl.value.path()).read_bytes()
-    assert len(re.findall(rb"/Type\s*/Page[^s]", raw)) == 5
+    assert len(re.findall(rb"/Type\s*/Page[^s]", Path(dl.value.path()).read_bytes())) == 5
+
+
+def test_split_is_not_on_the_download_card(phone):
+    page = phone.upload_sample("trim")
+    apply(page)
+    expect(page.locator("#split")).to_have_count(0)
+    page.goto(phone.base + "/#/tool/convert")
+    page.wait_for_selector("#pv table")
+    expect(page.locator("#split")).to_have_count(0)
+
+
+def test_no_brand_names_in_the_app(phone):
+    page = phone.open("/")
+    seen = page.evaluate("document.body.innerText")
+    for tool in ALL_OPS:
+        page.goto(f"{phone.base}/#/tool/{tool}")
+        page.wait_for_selector("h1")
+        seen += page.evaluate("document.body.innerText")
+    for word in ("Excel", "VLOOKUP", "XLOOKUP", "Power Query", "Report Filter"):
+        assert word.lower() not in seen.lower(), word
 
 
 # ----------------------------------------------------------------------------- pivot charts

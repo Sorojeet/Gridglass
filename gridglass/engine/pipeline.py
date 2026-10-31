@@ -66,7 +66,7 @@ def preview(lf: pl.LazyFrame, limit: int = 200, offset: int = 0) -> dict[str, An
 def distinct_values(lf: pl.LazyFrame, column: str, query: str | None = None, limit: int = 200) -> dict[str, Any]:
     """The values in a column with how often each appears — for the filter's value dropdown.
 
-    Sorted A→Z like Excel's filter list. When there are more than `limit`, the most common ones are kept.
+    Sorted A→Z. When there are more than `limit`, the most common ones are kept.
     """
     schema = lf.collect_schema()
     if column not in schema:

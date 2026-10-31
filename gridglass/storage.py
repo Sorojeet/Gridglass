@@ -2,7 +2,7 @@
 
     DATA_DIR/<id>/
         meta.json        filename, format, sheets, steps, expiry
-        original.<ext>   the uploaded file (kept so another Excel sheet can be chosen)
+        original.<ext>   the uploaded file (kept so another sheet of a .xlsx/.xls can be chosen)
         source.parquet   the converted data every step reads from
         exports/         short-lived export files, deleted after download
 
@@ -78,7 +78,7 @@ class Store:
                 "expires_at": (created + self.retention).isoformat(),
             }
             if res.format not in ("xlsx", "xls"):
-                original.unlink()  # only Excel needs the original, to switch sheets
+                original.unlink()  # only .xlsx/.xls need the original, to switch sheets
             self._write_meta(path, meta)
             return meta
         except BaseException:
@@ -90,7 +90,7 @@ class Store:
         if meta["format"] not in ("xlsx", "xls"):
             from .engine import IngestError
 
-            raise IngestError("Only Excel files have sheets.")
+            raise IngestError("Only .xlsx and .xls files have sheets.")
         original = next(path.glob("original.*"))
         tmp = path / "source.next.parquet"
         res = ingest(original, meta["filename"], tmp, sheet=sheet)

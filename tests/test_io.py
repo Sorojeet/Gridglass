@@ -79,7 +79,7 @@ def test_json_and_ndjson(tmp_path):
 @pytest.mark.parametrize("name, content, fragment", [
     ("a.pdf", b"%PDF-1.7", "can't open .pdf"),
     ("a.csv", b"", "empty"),
-    ("a.xlsx", b"Name,City\n", "real Excel"),
+    ("a.xlsx", b"Name,City\n", "real .xlsx"),
     ("a.csv", b"PK\x03\x04rest", "binary"),
     ("a.json", b"hello", "valid JSON"),
 ])
@@ -143,7 +143,7 @@ def test_export_pdf_row_limit(tmp_path):
 
 
 def test_parquet_export_is_not_offered(tmp_path, result):
-    with pytest.raises(ExportError, match="CSV, Excel, JSON or PDF"):
+    with pytest.raises(ExportError, match="CSV, XLSX, JSON or PDF"):
         export(result, "parquet", tmp_path / "o.parquet")
 
 
@@ -183,7 +183,7 @@ def test_split_blank_values_get_a_sheet(tmp_path, result):
 
 
 def test_split_limits(tmp_path, result):
-    with pytest.raises(ExportError, match="Excel and PDF"):
+    with pytest.raises(ExportError, match="XLSX and PDF"):
         export(result, "csv", tmp_path / "x.csv", split_by="City")
     with pytest.raises(ExportError, match="too many pages"):
         export(result, "xlsx", tmp_path / "x.xlsx", split_by="Order ID", max_pages=2)

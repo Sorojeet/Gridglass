@@ -201,7 +201,7 @@ def test_export_file_is_cleaned_up(client, app, file_id):
 
 def test_export_unknown_format(client, file_id):
     r = client.get(f"/api/v1/files/{file_id}/export?format=parquet")
-    assert r.status_code == 422 and "CSV, Excel, JSON or PDF" in r.get_json()["error"]["message"]
+    assert r.status_code == 422 and "CSV, XLSX, JSON or PDF" in r.get_json()["error"]["message"]
 
 
 # --------------------------------------------------------------------------- lifecycle
@@ -269,7 +269,7 @@ def test_index_and_static(client):
 
 def test_service_worker_at_root(client):
     r = client.get("/sw.js")
-    assert r.status_code == 200 and b"gridglass-v5" in r.data and r.headers["Cache-Control"] == "no-cache"
+    assert r.status_code == 200 and b"gridglass-v6" in r.data and r.headers["Cache-Control"] == "no-cache"
     r.close()
 
 

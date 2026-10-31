@@ -1,6 +1,6 @@
 # Gridglass
 
-Simple spreadsheet tools for everyone, like ilovepdf but for spreadsheets. Pick a tool, upload a CSV or Excel file, preview the change, and download the result. Gridglass is built for phones first.
+Simple spreadsheet tools for everyone. Pick a tool, upload a CSV or spreadsheet file, preview the change, and download the result. Gridglass is built for phones first.
 
 ## How it works
 
@@ -38,7 +38,7 @@ tests/               pytest suite
 
 | Clean | Shape | Summarize |
 |---|---|---|
-| `remove_duplicates` | `remove_columns` | `pivot`: Excel-style Rows, optional Columns, several Values, Grand Total. With no Columns it works as a group-by. |
+| `remove_duplicates` | `remove_columns` | `pivot`: Rows, optional Columns, several Values, Grand Total. With no Columns it works as a group-by. |
 | `trim` | `keep_columns` (choose and reorder) | `unpivot` |
 | `change_case` | `rename_columns` | |
 | `replace_values` | `filter_rows` (13 operators, all/any) | |
@@ -48,14 +48,14 @@ tests/               pytest suite
 | | `split_column` | |
 | | `add_column` (constant, combine, math) | |
 
-**Combine:** `merge` brings in columns from a second upload by matching keys, like VLOOKUP. It has every join: lookup/left, inner, full outer, right, anti (no match) and semi (has a match).
+**Combine:** `merge` brings in columns from a second upload by matching keys (a lookup). It has every join: lookup/left, inner, full outer, right, anti (no match) and semi (has a match).
 - It can match on up to 5 key columns.
-- "First match only" mimics VLOOKUP when keys repeat.
+- "First match only" keeps one match per key when keys repeat.
 - The second file's keys are converted to this file's types, and its key columns take this file's names.
 
-Conversion is not a step. Import any supported format and export as CSV (with a BOM so Excel reads it correctly), Excel, JSON or PDF.
+Conversion is not a step. Import any supported format and export as CSV (with a BOM so spreadsheet apps read it correctly), XLSX, JSON or PDF.
 
-**Report filter pages:** `export?split_by=<column>` writes one Excel sheet, or one PDF page, per value (A→Z, blanks last, up to 200), like Excel's "Show Report Filter Pages".
+**Split into pages:** a separate tool. It writes one sheet (.xlsx), or one PDF page, per value of a column (A→Z, blanks last, up to 200). It uses `export?split_by=<column>`.
 
 **Charts:** the pivot preview has Table / Chart tabs, with column, bar, line and pie charts drawn as SVG by `static/js/chart.js`, which has no dependencies. Charts download as SVG or PNG and follow the light/dark theme.
 
@@ -85,7 +85,7 @@ Security:
 | GET | `/tools` | every tool with its category, label and option schema (drives the UI forms) |
 | POST | `/files` | upload (multipart `file`, optional `sheet`) → metadata and preview |
 | GET / DELETE | `/files/<id>` | metadata and saved steps / delete now |
-| PUT | `/files/<id>/sheet` | switch Excel sheet (clears steps) |
+| PUT | `/files/<id>/sheet` | switch the sheet of a .xlsx/.xls (clears steps) |
 | GET | `/files/<id>/preview` | preview with the saved steps. `?limit=&offset=`: 200 rows by default, pages of up to 1,000, browsing up to 10,000 rows |
 | POST | `/files/<id>/preview` | live preview of draft `{"steps": [...]}`; nothing saved |
 | GET | `/files/<id>/columns` | column stats: type, blanks, distinct values, examples |
@@ -140,7 +140,7 @@ flask --app gridglass run --debug      # open http://localhost:5000 on your phon
 What the end-to-end tests check:
 - Every tool opens cleanly, and every form control is labelled.
 - Real results are verified by downloading and parsing them.
-- File behaviour: Excel sheets, bad files, size limits, expired files, and reload persistence.
+- File behaviour: workbook sheets, bad files, size limits, expired files, and reload persistence.
 - Display: dark mode, keyboard use, the service worker, and no sideways scrolling on any device.
 - Any JavaScript error fails a test.
 - Screenshots of failures are saved to `test-results/`.
@@ -151,7 +151,7 @@ CI (`.github/workflows/ci.yml`) runs:
 
 ## Design decisions
 
-- **Polars lazy, not pandas.** It is multi-threaded, uses predicate and projection pushdown, and reads Excel quickly through calamine.
+- **Polars lazy, not pandas.** It is multi-threaded, uses predicate and projection pushdown, and reads .xlsx quickly through calamine.
 - **Pivot collects eagerly.** Its output columns depend on the data, so the engine collects at that step, then returns to lazy. It is capped at 200 new columns.
 - **Errors are user-safe.** Each one carries a plain-language message and, for step errors, the index of the step that failed, so the UI can highlight it.
 - **No arbitrary expressions or SQL from users.** Every operation is a typed, whitelisted step.

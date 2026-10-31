@@ -30,6 +30,7 @@ const state = {
   other: null,     // Merge: metadata of the second file
   otherCols: [],   // Merge: its columns
   view: 'table',   // Pivot preview: table | chart
+  split: null,     // Split into pages: { column, format, pages }
   chartType: 'column',
   pvData: null,    // the preview on screen, for the chart
 };
@@ -196,7 +197,7 @@ function renderHome() {
   view.innerHTML = `${topbar()}
     <section class="hero">
       <h1>Every spreadsheet tool you need, one tap away.</h1>
-      <p>Clean, reshape and convert CSV and Excel files on your phone or computer. Free, no sign-up.</p>
+      <p>Clean, reshape and convert CSV and spreadsheet files on your phone or computer. Free, no sign-up.</p>
     </section>
     ${working}
     <div class="search glass">${ui('search')}
@@ -257,7 +258,7 @@ function renderUpload() {
       <span class="drop-icon">${ui('upload')}</span>
       <label class="btn btn-primary btn-lg" for="file">Choose a file</label>
       <input id="file" class="sr-only" type="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.json,.jsonl,.ndjson">
-      <p class="hint">CSV, Excel or JSON · up to ${config.max_upload_mb} MB</p>
+      <p class="hint">CSV, XLSX or JSON · up to ${config.max_upload_mb} MB</p>
       <div class="progress" id="progress" hidden><div class="bar"><span id="bar"></span></div><p id="ptext" aria-live="polite">Uploading…</p></div>
     </section>
     <button class="btn btn-secondary btn-block" type="button" data-action="sample">${ui('sample')} Try a sample file</button>
@@ -341,12 +342,12 @@ function renderOptions() {
   const t = state.tool;
   state.stage = 'options';
   view.dataset.screen = 'options';
-  const action = t.convert ? downloadFields(state.cols, 'Save as') : '';
+  const action = t.convert ? downloadFields('Save as') : t.splitter ? splitFields() : '';
   const pivot = t.op === 'pivot';
   const chart = pivot && state.view === 'chart';
   view.innerHTML = `${topbar({ back: '#/', title: t.label })}
     ${fileChip()}
-    ${t.convert ? '' : `<form id="opts" class="form" novalidate autocomplete="off"></form>`}
+    ${t.convert || t.splitter ? '' : `<form id="opts" class="form" novalidate autocomplete="off"></form>`}
     ${action}
     <section class="preview" aria-labelledby="pv-title">
       <div class="preview-head"><h2 id="pv-title">Preview</h2>
@@ -369,7 +370,7 @@ function renderOptions() {
       <p class="hint" id="pv-note"></p>
     </section>
     <div class="action-bar">
-      ${t.convert
+      ${t.convert || t.splitter
         ? `<button class="btn btn-primary btn-lg btn-block" type="button" data-action="download">${ui('download')} Download</button>`
         : `<button class="btn btn-primary btn-lg btn-block" type="button" id="apply" disabled>${esc(t.verb)}</button>`}
     </div>`;
@@ -377,8 +378,8 @@ function renderOptions() {
   $('#sheet')?.addEventListener('change', (e) => changeSheet(e.target.value));
   $('#pv-pager').addEventListener('click', onPager);
   if (pivot) wireChart();
-  if (t.convert) {
-    wireDownload();
+  if (t.convert || t.splitter) {
+    if (t.convert) wireDownload(); else wireSplit();
     showPreview(state.file.steps);
     return;
   }
@@ -399,29 +400,74 @@ function renderOptions() {
   schedulePreview(0);
 }
 
-const splitOptions = (cols) => `<option value="">Don't split</option>${(cols || [])
-  .filter((c) => c.distinct >= 1 && c.distinct <= 200)
-  .map((c) => `<option value="${esc(c.name)}">${esc(c.name)} — ${plural(c.distinct, 'page')}</option>`).join('')}`;
-
-/** Format picker plus "Split into pages by" (Excel: Show Report Filter Pages), shown for Excel and PDF. */
-function downloadFields(cols, label = 'Download as') {
-  return `<div class="field"><label class="field-label" for="fmt">${label}</label>${formatSelect()}</div>
-    <div class="field" id="split-field">
-      <label class="field-label" for="split">Split into pages by</label>
-      <select id="split" class="input">${splitOptions(cols)}</select>
-      <p class="hint">One Excel sheet or one PDF page for each value — like Excel's “Show Report Filter Pages”.</p>
-    </div>`;
+/** The format picker shared by Convert and the result screen. */
+function downloadFields(label = 'Download as') {
+  return `<div class="field"><label class="field-label" for="fmt">${label}</label>${formatSelect()}</div>`;
 }
 
 function wireDownload() {
   const fmt = $('#fmt');
-  const field = $('#split-field');
-  const sync = () => { field.hidden = !['xlsx', 'pdf'].includes(fmt.value); };
-  fmt.addEventListener('change', sync);
-  sync();
-  const split = () => (field.hidden ? '' : $('#split').value);
-  $('[data-action="download"]').addEventListener('click', (e) => download(fmt.value, e.currentTarget, split()));
-  $('[data-action="share"]')?.addEventListener('click', (e) => share(fmt.value, e.currentTarget, split()));
+  $('[data-action="download"]').addEventListener('click', (e) => download(fmt.value, e.currentTarget));
+  $('[data-action="share"]')?.addEventListener('click', (e) => share(fmt.value, e.currentTarget));
+}
+
+// ---------------------------------------------------------------------------- split into pages (its own tool)
+
+const pageColumns = () => state.cols.filter((c) => c.distinct >= 1 && c.distinct <= 200);
+
+function splitFields() {
+  const usable = pageColumns();
+  const pick = usable.find((c) => c.type === 'text') ?? usable[0];
+  state.split = { column: pick?.name ?? '', format: state.split?.format ?? 'xlsx', pages: 0 };
+  return `<div class="field">
+      <label class="field-label" for="split">One page for each value of</label>
+      ${usable.length ? `<select id="split" class="input">${usable.map((c) =>
+        `<option value="${esc(c.name)}" ${c === pick ? 'selected' : ''}>${esc(c.name)} — ${plural(c.distinct, 'page')}</option>`).join('')}</select>`
+        : '<p class="hint">No column has between 1 and 200 different values to split by.</p>'}
+    </div>
+    <div class="field" id="split-format">
+      <span class="field-label">Save as</span>
+      ${seg('splitfmt', [['xlsx', 'Sheets (.xlsx)'], ['pdf', 'PDF pages']], state.split.format, 'Save as')}
+    </div>
+    <section class="pages" aria-labelledby="pages-title">
+      <h2 id="pages-title">Pages</h2>
+      <ol class="page-list" id="page-list"><li class="glass empty">Loading…</li></ol>
+    </section>`;
+}
+
+function wireSplit() {
+  const btn = $('[data-action="download"]');
+  const label = () => {
+    btn.innerHTML = `${ui('download')} Download ${state.split.pages ? plural(state.split.pages, state.split.format === 'pdf' ? 'page' : 'sheet') : ''}`;
+    btn.disabled = !state.split.column;
+  };
+  const load = async () => {
+    const column = state.split.column;
+    const list = $('#page-list');
+    if (!column) { list.innerHTML = ''; label(); return; }
+    try {
+      const data = await api(`/files/${state.file.id}/values?${new URLSearchParams({ column, limit: '200' })}`);
+      if (state.split.column !== column) return;
+      const blanks = state.before - data.values.reduce((sum, v) => sum + v.count, 0);
+      const pages = [...data.values.map((v) => [String(v.value), v.count]), ...(blanks > 0 ? [['(blank)', blanks]] : [])];
+      state.split.pages = pages.length;
+      list.innerHTML = pages.map(([name, n], i) => `<li class="glass"><span class="step-n">${i + 1}</span>
+        <span class="page-name">${esc(name)}</span><small>${plural(n, 'row')}</small></li>`).join('');
+    } catch (err) {
+      list.innerHTML = `<li class="glass empty">${esc(err.message)}</li>`;
+    }
+    label();
+  };
+  $('#split')?.addEventListener('change', (e) => { state.split.column = e.target.value; load(); });
+  $('#split-format').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-seg="splitfmt"]');
+    if (!b) return;
+    state.split.format = b.dataset.val;
+    $('#split-format').querySelectorAll('[data-seg]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    label();
+  });
+  btn.addEventListener('click', (e) => download(state.split.format, e.currentTarget, state.split.column));
+  load();
 }
 
 function formatSelect() {
@@ -522,7 +568,7 @@ const FIELD = {
     if (!id) {
       return `<div class="mini-drop glass" id="drop2">
         <span class="drop-icon small">${ui('upload')}</span>
-        <span class="mini-drop-text"><strong>Add the file to look values up in</strong><small>CSV, Excel or JSON · up to ${config.max_upload_mb} MB</small></span>
+        <span class="mini-drop-text"><strong>Add the file to look values up in</strong><small>CSV, XLSX or JSON · up to ${config.max_upload_mb} MB</small></span>
         <label class="btn btn-secondary btn-sm" for="file2">Choose second file</label>
         <input id="file2" class="sr-only" type="file" accept="${ACCEPT}">
         <button type="button" class="btn-link" data-action="sample2">Try a sample lookup file</button>
@@ -1035,7 +1081,7 @@ function renderDone() {
       </div>
     </section>
     <section class="card glass">
-      ${downloadFields(null)}
+      ${downloadFields()}
       <button class="btn btn-primary btn-lg btn-block" type="button" data-action="download">${ui('download')} Download file</button>
       ${navigator.share ? `<button class="btn btn-secondary btn-block" type="button" data-action="share">${ui('share')} Share</button>` : ''}
     </section>
@@ -1054,9 +1100,6 @@ function renderDone() {
     </section>
     <footer class="done-foot"><button type="button" class="btn-link" data-action="startover">Start over with a new file</button></footer>`;
   wireDownload();
-  api(`/files/${state.file.id}/columns`).then(({ columns }) => { // split options follow the result's columns
-    if ($('#split') && state.stage === 'done') $('#split').innerHTML = splitOptions(columns);
-  }).catch(() => {});
   $('[data-action="startover"]').addEventListener('click', startOver);
   view.querySelectorAll('[data-action="edit"]').forEach((b) => b.addEventListener('click', () => { state.view = 'table'; editLast(); }));
   $('[data-action="chart"]')?.addEventListener('click', () => { state.view = 'chart'; editLast(); });

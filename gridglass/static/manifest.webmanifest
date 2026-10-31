@@ -1,7 +1,7 @@
 {
   "name": "Gridglass — simple spreadsheet tools",
   "short_name": "Gridglass",
-  "description": "Clean, reshape and convert CSV and Excel files from your phone.",
+  "description": "Clean, reshape and convert CSV and spreadsheet files from your phone.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

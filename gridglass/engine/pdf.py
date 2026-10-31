@@ -70,13 +70,13 @@ def write_pdf(df: pl.DataFrame, dest: str | Path, *, title: str = "Gridglass exp
 
 def write_pdf_sections(sections: list[tuple[str, pl.DataFrame]], dest: str | Path, *, title: str = "Gridglass export",
                        first_is_title: bool = False) -> Path:
-    """Several tables, each starting on a new page with its own heading (Excel: Show Report Filter Pages)."""
+    """Several tables, each starting on a new page with its own heading (one value per page)."""
     width = max(df.width for _, df in sections)
     if width > MAX_PDF_COLUMNS:
         from .errors import ExportError
 
         raise ExportError(f"PDF export fits at most {MAX_PDF_COLUMNS} columns; this has {width}. "
-                          "Remove some columns first, or export as Excel.")
+                          "Remove some columns first, or export as XLSX.")
     page = landscape(A4) if width > 6 else A4
     margin = 12 * mm
     usable = page[0] - 2 * margin
