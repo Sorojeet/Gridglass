@@ -155,4 +155,5 @@ CI (`.github/workflows/ci.yml`) runs:
 - **Pivot collects eagerly.** Its output columns depend on the data, so the engine collects at that step, then returns to lazy. It is capped at 200 new columns.
 - **Errors are user-safe.** Each one carries a plain-language message and, for step errors, the index of the step that failed, so the UI can highlight it.
 - **No arbitrary expressions or SQL from users.** Every operation is a typed, whitelisted step.
+- **Column types come from every row, not a sample.** Files are read as text first, then a column becomes a number, date or true/false only if every cell fits. Whole numbers longer than 10 digits (card and transaction IDs) and numbers with leading zeros stay text, so no digit is ever lost — spreadsheet apps keep only 15 digits of a number.
 - **Messy files are cleaned on import.** Headers are made unique and non-blank. Windows-1252 CSVs are re-encoded to UTF-8. The separator is auto-detected, and each file's first bytes are checked against its extension.

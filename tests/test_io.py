@@ -196,3 +196,75 @@ def test_sheet_names_are_safe():
 
     names = sheet_names(["Pune", "pune", "a/b:c*?[x]", "x" * 40, "x" * 40, ""])
     assert names == ["Pune", "pune (2)", "a_b_c___x_", "x" * 31, "x" * 27 + " (2)", "Sheet"]
+
+
+# --------------------------------------------------------------------------- column types (whole-column detection)
+
+def test_column_that_changes_type_late_stays_text(tmp_path):
+    rows = "".join(f"{i},{1565432273931034624 + i}\n" for i in range(12000))
+    _, df = _ingest(tmp_path, "a.csv", ("id,csc_txn\n" + rows + "12000,EW1565432273931034624\n").encode())
+    assert df.schema["id"] == pl.Int64 and df.schema["csc_txn"] == pl.String
+    assert df["csc_txn"][-1] == "EW1565432273931034624" and df["csc_txn"][0] == "1565432273931034624"
+
+
+@pytest.mark.parametrize("value, kind", [
+    ("1234567890", pl.Int64),          # 10 digits: still a number
+    ("12345678901", pl.String),        # 11 digits: text, so no digit is ever lost
+    ("-12345678901", pl.String),
+    ("12345678901.5", pl.String),      # long whole part, too
+    ("1234567.891234", pl.Float64),    # a normal decimal stays a number
+    ("011001", pl.String),             # leading zero kept
+    ("0", pl.Int64),
+    ("0.5", pl.Float64),
+])
+def test_long_numbers_and_leading_zeros(tmp_path, value, kind):
+    _, df = _ingest(tmp_path, "a.csv", f"v\n{value}\n5\n".encode())
+    assert df.schema["v"] == kind
+    if kind == pl.String:
+        assert df["v"][0] == value
+
+
+def test_types_from_every_row_not_a_sample(tmp_path):
+    rows = "".join(f"{i}\n" for i in range(5000)) + "2.5\n"
+    _, df = _ingest(tmp_path, "a.csv", ("n\n" + rows).encode())
+    assert df.schema["n"] == pl.Float64 and df["n"][-1] == 2.5
+
+
+def test_dates_datetimes_booleans_and_blanks(tmp_path):
+    csv = (b"d,t,b,e,mix\n2026-01-05,2026-01-05 10:30:00,true,,1\n"
+           b"2026-02-01,2026-02-01T08:00:00,FALSE,,2026-01-01\n,,,,\n")
+    _, df = _ingest(tmp_path, "a.csv", csv)
+    assert df.schema["d"] == pl.Date and df.schema["t"] == pl.Datetime("us") and df.schema["b"] == pl.Boolean
+    assert df.schema["e"] == pl.String and df.schema["mix"] == pl.String
+    assert df["d"][2] is None and df["b"].to_list() == [True, False, None]
+
+
+def test_xlsx_mixed_column_keeps_every_value(tmp_path):
+    import xlsxwriter
+
+    src = tmp_path / "m.xlsx"
+    with xlsxwriter.Workbook(src) as wb:
+        ws = wb.add_worksheet()
+        ws.write_row(0, 0, ["id", "txn"])
+        for i in range(1, 1500):
+            ws.write_row(i, 0, [i, 15654322 + i])
+        ws.write_row(1500, 0, [1500, "EW1565432273931034624"])
+    ingest(src, "m.xlsx", tmp_path / "c.parquet")
+    df = pl.read_parquet(tmp_path / "c.parquet")
+    assert df["txn"][-1] == "EW1565432273931034624"  # used to come back blank
+    assert df.schema["id"] == pl.Int64
+
+
+def test_json_mixed_column(tmp_path):
+    data = [{"id": i, "txn": 1565432273931034624 + i} for i in range(200)] + [{"id": 200, "txn": "EW15", "tags": ["a"]}]
+    res, df = _ingest(tmp_path, "a.json", json.dumps(data).encode())
+    assert res.rows == 201 and df.schema["txn"] == pl.String and df["txn"][-1] == "EW15"
+    assert df["tags"][-1] == '["a"]'
+
+
+def test_long_ids_survive_xlsx_export(tmp_path):
+    _, df = _ingest(tmp_path, "a.csv", b"card,amount\n1565432273931034624,10\n0000123456789012,20\n")
+    out = export(pl.scan_parquet(tmp_path / "cache.parquet"), "xlsx", tmp_path / "o.xlsx")
+    back = pl.read_excel(out, engine="calamine")  # reads cell types as written
+    assert back.schema["card"] == pl.String and back["card"].to_list() == ["1565432273931034624", "0000123456789012"]
+    assert back.schema["amount"] == pl.Int64 and back["amount"].to_list() == [10, 20]  # numbers stay numbers
