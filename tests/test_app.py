@@ -100,6 +100,30 @@ def test_excel_sheets(client, tmp_path):
     assert client.put(f"/api/v1/files/{fid}/sheet", json={"sheet": "Mar"}).status_code == 400
 
 
+def test_choose_header_row(client, tmp_path):
+    content = b"Sales report\n\nName,City,Amount\nAsha,Pune,100\nRavi,Delhi,250\n"
+    body = upload(client, content, "r.csv").get_json()
+    fid = body["file"]["id"]
+    assert body["file"]["header_row"] == 2 and body["file"]["columns"] == ["Name", "City", "Amount"]
+    top = client.get(f"/api/v1/files/{fid}/top").get_json()
+    assert top["header_row"] == 2 and top["rows"][0] == ["Sales report"] and top["rows"][2] == ["Name", "City", "Amount"]
+    client.post(f"/api/v1/files/{fid}/steps", json={"op": "trim"})
+    r = client.put(f"/api/v1/files/{fid}/header", json={"row": None})
+    meta = r.get_json()["file"]
+    assert r.status_code == 200 and meta["header_row"] is None and meta["steps"] == []
+    assert meta["columns"] == ["Column 1"]  # the title line sets the width when there's no header row
+    r = client.put(f"/api/v1/files/{fid}/header", json={"row": 2})
+    assert r.get_json()["file"]["columns"] == ["Name", "City", "Amount"] and r.get_json()["preview"]["total_rows"] == 2
+    for bad in ({}, {"row": -1}, {"row": "2"}, {"row": True}, {"row": 99}):
+        assert client.put(f"/api/v1/files/{fid}/header", json=bad).status_code == 400
+
+
+def test_json_has_no_header_row(client):
+    fid = upload(client, b'[{"a": 1}]', "a.json").get_json()["file"]["id"]
+    assert client.get(f"/api/v1/files/{fid}/top").status_code == 400
+    assert client.put(f"/api/v1/files/{fid}/header", json={"row": 0}).status_code == 400
+
+
 def test_csv_has_no_sheets(client, file_id):
     assert client.put(f"/api/v1/files/{file_id}/sheet", json={"sheet": "x"}).status_code == 400
 

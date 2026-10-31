@@ -6,6 +6,8 @@
     GET    /files/<id>                     metadata and saved steps
     DELETE /files/<id>                     delete now
     PUT    /files/<id>/sheet               switch the sheet of a .xlsx/.xls {"sheet": "..."} (clears steps)
+    GET    /files/<id>/top                 the first rows exactly as in the file, to choose the header row
+    PUT    /files/<id>/header              {"row": n} use row n (0 = first) as headers; {"row": null} = none (clears steps)
     GET    /files/<id>/preview             preview with the saved steps (?limit=&offset= to page)
     POST   /files/<id>/preview             preview a draft {"steps": [...]} without saving
     GET    /files/<id>/columns             column stats after the saved steps (?upto=n: after the first n)
@@ -173,6 +175,24 @@ def change_sheet(file_id):
     if not isinstance(sheet, str) or not sheet:
         raise IngestError("Choose a sheet.")
     meta = store().change_sheet(file_id, sheet)
+    return jsonify(file=meta, preview=_page(open_source(store().source(file_id))))
+
+
+@bp.get("/files/<file_id>/top")
+def top(file_id):
+    meta = store().meta(file_id)
+    return jsonify(rows=store().top_rows(file_id), header_row=meta.get("header_row", 0))
+
+
+@bp.put("/files/<file_id>/header")
+def change_header(file_id):
+    body = _body()
+    if "row" not in body:
+        raise IngestError("Choose the row that holds the headers.")
+    row = body["row"]
+    if row is not None and (not isinstance(row, int) or isinstance(row, bool) or not 0 <= row < 1000):
+        raise IngestError("Choose the row that holds the headers.")
+    meta = store().change_header(file_id, row)
     return jsonify(file=meta, preview=_page(open_source(store().source(file_id))))
 
 

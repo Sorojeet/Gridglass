@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import codecs
 import csv
+import io
 import json
+import math
 import re
 import shutil
 import tempfile
@@ -22,6 +24,13 @@ _EXT_ALIASES = {"txt": "csv", "jsonl": "ndjson", "xlsm": "xlsx"}
 _SAMPLE = 64 * 1024
 _DUPLICATED = re.compile(r"^(.*)_duplicated_\d+$")
 
+#: `header=AUTO` finds the header row; an int picks it (0 = first row); None means there isn't one.
+AUTO = "auto"
+HEADER_FORMATS = {"csv", "tsv", "xlsx", "xls"}
+HEADER_SCAN_ROWS = 30   # the header row is looked for this far down
+TOP_ROWS = 50           # rows read to judge how wide the table is
+_NUMBERISH = re.compile(r"^[\s₹$€£¥%+\-().,:/0-9]*$")
+
 
 @dataclass
 class IngestResult:
@@ -30,6 +39,7 @@ class IngestResult:
     format: str
     sheets: list[str] = field(default_factory=list)  # .xlsx/.xls only
     sheet: str | None = None
+    header_row: int | None = 0  # rows above it were skipped; None = the file has no header row
 
 
 # --------------------------------------------------------------------------- detect
@@ -74,7 +84,7 @@ def workbook_sheets(path: str | Path) -> list[str]:
 # --------------------------------------------------------------------------- ingest
 
 def ingest(src: str | Path, filename: str, dest: str | Path, *, sheet: str | None = None,
-           max_bytes: int | None = None) -> IngestResult:
+           header: int | None | str = AUTO, max_bytes: int | None = None) -> IngestResult:
     """Read an upload once and store it as Parquet at `dest`; every later step scans that file."""
     src, dest = Path(src), Path(dest)
     if max_bytes is not None and src.stat().st_size > max_bytes:
@@ -82,6 +92,7 @@ def ingest(src: str | Path, filename: str, dest: str | Path, *, sheet: str | Non
     fmt = detect_format(filename, src)
     dest.parent.mkdir(parents=True, exist_ok=True)
     sheets: list[str] = []
+    header_row: int | None = 0
     try:
         # Everything is read as text first, so a column that changes type part-way down
         # (numbers, then "EW1565…") never fails or loses values. Types are then chosen
@@ -91,8 +102,12 @@ def ingest(src: str | Path, filename: str, dest: str | Path, *, sheet: str | Non
             if fmt in ("csv", "tsv"):
                 text = _ensure_utf8(src)
                 try:
-                    lf = _scan_text(text, fmt)
-                    lf.rename(_clean_headers(lf.collect_schema().names())).sink_parquet(raw)
+                    sep, top = _text_top(text, fmt, TOP_ROWS)
+                    header_row = _resolve_header(header, top)
+                    lf = _scan_text(text, sep, header_row)
+                    names = lf.collect_schema().names()
+                    lf.rename(dict(zip(names, _clean_names(names if header_row is not None else [""] * len(names))))
+                              ).sink_parquet(raw)
                 finally:
                     if text != src:
                         text.unlink(missing_ok=True)
@@ -101,7 +116,9 @@ def ingest(src: str | Path, filename: str, dest: str | Path, *, sheet: str | Non
                 if sheet is not None and sheet not in sheets:
                     raise IngestError(f"There's no sheet called '{sheet}'.")
                 sheet = sheet or sheets[0]
-                _write(pl.read_excel(src, sheet_name=sheet, engine="calamine", infer_schema_length=0), raw)
+                grid = _read_sheet(src, sheet)
+                header_row = _resolve_header(header, grid.head(TOP_ROWS).rows())
+                _with_header(grid, header_row).write_parquet(raw)
             elif fmt == "json":
                 _write(_as_text(pl.read_json(src, infer_schema_length=None)), raw)
             else:
@@ -120,20 +137,122 @@ def ingest(src: str | Path, filename: str, dest: str | Path, *, sheet: str | Non
         raise IngestError("This file has no columns.")
     rows = meta.select(pl.len()).collect().item()
     return IngestResult(rows=rows, columns=columns, format=fmt, sheets=sheets,
-                        sheet=sheet if fmt in ("xlsx", "xls") else None)
+                        sheet=sheet if fmt in ("xlsx", "xls") else None,
+                        header_row=header_row if fmt in HEADER_FORMATS else 0)
+
+
+# --------------------------------------------------------------------------- header row
+
+def find_header_row(rows: list[tuple | list]) -> int:
+    """Where the headers are when a file starts with titles, notes or blank rows.
+
+    The header row is the first row that fills at least half the table's width, is about as wide
+    as the row below it, and is mostly words, not numbers. A normal file gets 0, so nothing
+    changes for it.
+    """
+    filled = [[str(v).strip() for v in row if v is not None and str(v).strip()] for row in rows]
+    width = max((len(cells) for cells in filled), default=0)
+    if width == 0:
+        return 0
+    need = max(min(2, width), math.ceil(width / 2))
+    for i, cells in enumerate(filled[:HEADER_SCAN_ROWS]):
+        if len(cells) < need:
+            continue
+        below = next((len(c) for c in filled[i + 1:] if c), 0)
+        if len(cells) * 4 < below * 3:  # a 'Total: 1,234' line is narrower than the table under it
+            continue
+        words = sum(1 for c in cells if not _NUMBERISH.match(c))
+        if words * 2 >= len(cells):
+            return i
+    return 0  # numbers all the way down: probably no header row, so keep the old behaviour
+
+
+def _resolve_header(header: int | None | str, top: list) -> int | None:
+    if header == AUTO:
+        return find_header_row(top)
+    if header is None:
+        return None
+    if not isinstance(header, int) or isinstance(header, bool) or header < 0:
+        raise IngestError("Choose the row that holds the headers.")
+    if header >= len(top):
+        raise IngestError(f"This file has fewer than {header + 1} rows at the top to choose from.")
+    return header
+
+
+def top_rows(src: str | Path, filename: str, *, sheet: str | None = None, n: int = 20) -> list[list[str | None]]:
+    """The first rows exactly as they are in the file, so the user can point at the header row."""
+    src = Path(src)
+    fmt = detect_format(filename, src)
+    if fmt not in HEADER_FORMATS:
+        raise IngestError("Only CSV and spreadsheet files have a header row to choose.")
+    if fmt in ("xlsx", "xls"):
+        sheets = workbook_sheets(src)
+        rows = _read_sheet(src, sheet if sheet in sheets else sheets[0], n_rows=n).rows()
+    else:
+        text = _ensure_utf8(src)
+        try:
+            rows = _text_top(text, fmt, n)[1]
+        finally:
+            if text != src:
+                text.unlink(missing_ok=True)
+    return [[None if v is None or not str(v).strip() else str(v) for v in row] for row in rows[:n]]
+
+
+def _read_sheet(src: Path, sheet: str, n_rows: int | None = None) -> pl.DataFrame:
+    """Every cell as text, no header row, blank rows kept (so row positions stay true)."""
+    import fastexcel
+
+    try:
+        loaded = fastexcel.read_excel(str(src)).load_sheet(sheet, header_row=None, n_rows=n_rows, dtypes="string")
+    except Exception as exc:
+        raise IngestError("Couldn't open this spreadsheet. It may be damaged or password-protected.") from exc
+    df = loaded.to_polars()
+    return df.select(pl.all().cast(pl.String))
+
+
+def _with_header(grid: pl.DataFrame, header_row: int | None) -> pl.DataFrame:
+    """Use row `header_row` as the column names and drop everything above it."""
+    if header_row is None:
+        names, body = [""] * grid.width, grid
+    else:
+        names = ["" if v is None else str(v) for v in grid.row(header_row)] if grid.height else [""] * grid.width
+        body = grid.slice(header_row + 1)
+        # A column with no header and nothing in it is just the margin around a titled table.
+        empty = body.select(pl.all().is_null().all()).row(0) if body.height else [True] * grid.width
+        keep = [i for i, (n, e) in enumerate(zip(names, empty)) if n.strip() or not e]
+        names, body = [names[i] for i in keep], body.select([body.columns[i] for i in keep])
+    body = body.filter(~pl.all_horizontal(pl.all().is_null())) if body.width else body  # blank rows
+    body = body.rename(dict(zip(body.columns, [f"__c{i}" for i in range(body.width)])))
+    return body.rename(dict(zip(body.columns, _clean_names(names))))
+
+
+def _text_top(src: Path, fmt: str, n: int) -> tuple[str, list[list[str]]]:
+    """The separator and the first `n` records of a UTF-8 text file."""
+    with open(src, "rb") as fh:
+        raw = fh.read(_SAMPLE * 4)
+    full = len(raw) < _SAMPLE * 4
+    sample = raw.decode("utf-8", errors="ignore").lstrip("\ufeff")
+    sep = "\t" if fmt == "tsv" else _sniff_separator(_table_part(sample))
+    if not full:
+        sample = sample[: sample.rfind("\n") + 1]  # never judge from a half-read last line
+    rows = []
+    for row in csv.reader(io.StringIO(sample, newline=""), delimiter=sep):
+        rows.append(row)
+        if len(rows) >= n:
+            break
+    return sep, rows
 
 
 def _write(df: pl.DataFrame, dest: Path) -> None:
     df.rename(_clean_headers(df.columns)).write_parquet(dest)
 
 
-def _scan_text(src: Path, fmt: str) -> pl.LazyFrame:
-    with open(src, "rb") as fh:
-        sample = fh.read(_SAMPLE).decode("utf-8", errors="ignore")
-    sep = "\t" if fmt == "tsv" else _sniff_separator(sample)
+def _scan_text(src: Path, sep: str, header_row: int | None) -> pl.LazyFrame:
     return pl.scan_csv(
         src,
         separator=sep,
+        has_header=header_row is not None,
+        skip_rows=header_row or 0,
         infer_schema=False,  # all text; infer_types() decides from every row
         truncate_ragged_lines=True,
         encoding="utf8-lossy",
@@ -271,6 +390,17 @@ def _cast(kind: str, name: str, midnight_only: bool) -> pl.Expr:
     return pl.when(low == "true").then(True).when(low == "false").then(False).otherwise(None).alias(name)
 
 
+def _table_part(sample: str) -> str:
+    """Title lines above a table confuse separator sniffing; judge from the widest part instead."""
+    lines = sample.splitlines()
+    if len(lines) < 4:
+        return sample
+    marks = lambda line: max(line.count(c) for c in ",;\t|")  # noqa: E731
+    widest = max(marks(line) for line in lines[:TOP_ROWS])
+    start = next((i for i, line in enumerate(lines) if widest and marks(line) * 2 >= widest), 0)
+    return "\n".join(lines[start:])
+
+
 def _sniff_separator(sample: str) -> str:
     try:
         return csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
@@ -296,8 +426,12 @@ def _ensure_utf8(src: Path) -> Path:
 
 def _clean_headers(names: list[str]) -> dict[str, str]:
     """Give blank headers a name and make every header unique: '', 'A', 'A' -> 'Column 1', 'A', 'A (2)'."""
+    return dict(zip(names, _clean_names(names)))
+
+
+def _clean_names(names: list[str]) -> list[str]:
     used: set[str] = set()
-    mapping: dict[str, str] = {}
+    out: list[str] = []
     for i, raw in enumerate(names, start=1):
         base = str(raw).lstrip("\ufeff").strip()
         if m := _DUPLICATED.match(base):  # Polars' name for a repeated CSV header
@@ -308,8 +442,8 @@ def _clean_headers(names: list[str]) -> dict[str, str]:
         while name in used:
             name, k = f"{base} ({k})", k + 1
         used.add(name)
-        mapping[raw] = name
-    return mapping
+        out.append(name)
+    return out
 
 
 # --------------------------------------------------------------------------- export

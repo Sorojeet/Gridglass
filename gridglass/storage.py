@@ -2,7 +2,7 @@
 
     DATA_DIR/<id>/
         meta.json        filename, format, sheets, steps, expiry
-        original.<ext>   the uploaded file (kept so another sheet of a .xlsx/.xls can be chosen)
+        original.<ext>   the uploaded file (kept so another sheet or header row can be chosen)
         source.parquet   the converted data every step reads from
         exports/         short-lived export files, deleted after download
 
@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .engine.io import ingest
+from .engine.io import AUTO, HEADER_FORMATS, ingest, top_rows
 
 _ID = re.compile(r"^[A-Za-z0-9_-]{22}$")
 
@@ -71,14 +71,15 @@ class Store:
                 "format": res.format,
                 "sheets": res.sheets,
                 "sheet": res.sheet,
+                "header_row": res.header_row,
                 "rows": res.rows,
                 "columns": res.columns,
                 "steps": [],
                 "created_at": created.isoformat(),
                 "expires_at": (created + self.retention).isoformat(),
             }
-            if res.format not in ("xlsx", "xls"):
-                original.unlink()  # only .xlsx/.xls need the original, to switch sheets
+            if res.format not in HEADER_FORMATS:
+                original.unlink()  # only files with sheets or a header row need the original
             self._write_meta(path, meta)
             return meta
         except BaseException:
@@ -91,11 +92,35 @@ class Store:
             from .engine import IngestError
 
             raise IngestError("Only .xlsx and .xls files have sheets.")
-        original = next(path.glob("original.*"))
+        return self._reingest(path, meta, sheet=sheet, header=AUTO)
+
+    def change_header(self, file_id: str, header: int | None) -> dict[str, Any]:
+        """Read the file again with another row as the headers (None: the file has no header row)."""
+        path, meta = self.dir(file_id), self.meta(file_id)
+        return self._reingest(path, meta, sheet=meta.get("sheet"), header=header)
+
+    def top_rows(self, file_id: str, n: int = 20) -> list[list[str | None]]:
+        path, meta = self.dir(file_id), self.meta(file_id)
+        return top_rows(self._original(path, meta), meta["filename"], sheet=meta.get("sheet"), n=n)
+
+    def _original(self, path: Path, meta: dict[str, Any]) -> Path:
+        original = next(path.glob("original.*"), None)
+        if meta["format"] not in HEADER_FORMATS or original is None:
+            from .engine import IngestError
+
+            raise IngestError("Only CSV and spreadsheet files have a header row to choose.")
+        return original
+
+    def _reingest(self, path: Path, meta: dict[str, Any], *, sheet: str | None, header) -> dict[str, Any]:
         tmp = path / "source.next.parquet"
-        res = ingest(original, meta["filename"], tmp, sheet=sheet)
+        try:
+            res = ingest(self._original(path, meta), meta["filename"], tmp, sheet=sheet, header=header)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
         os.replace(tmp, path / "source.parquet")
-        meta.update(sheet=res.sheet, rows=res.rows, columns=res.columns, steps=[])  # old steps fit the old sheet
+        # Old steps were made for the old columns, so they're cleared.
+        meta.update(sheet=res.sheet, header_row=res.header_row, rows=res.rows, columns=res.columns, steps=[])
         self._write_meta(path, meta)
         return meta
 

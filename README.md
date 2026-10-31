@@ -53,6 +53,8 @@ tests/               pytest suite
 - "First match only" keeps one match per key when keys repeat.
 - The second file's keys are converted to this file's types, and its key columns take this file's names.
 
+**Header row:** files often start with a title, a date or blank rows above the table. On import, Gridglass finds the first row that fills at least half the table's width, is about as wide as the row below it, and is mostly words, not numbers. Everything above it is skipped. Normal files keep row 1. The **Headers** button on the file card shows the top 20 rows, so the user can tap the right one or choose "No header row" (columns become Column 1, 2, 3…).
+
 Conversion is not a step. Import any supported format and export as CSV (with a BOM so spreadsheet apps read it correctly), XLSX, JSON or PDF.
 
 **Split into pages:** a separate tool. It writes one sheet (.xlsx), or one PDF page, per value of a column (A→Z, blanks last, up to 200). It uses `export?split_by=<column>`.
@@ -86,6 +88,8 @@ Security:
 | POST | `/files` | upload (multipart `file`, optional `sheet`) → metadata and preview |
 | GET / DELETE | `/files/<id>` | metadata and saved steps / delete now |
 | PUT | `/files/<id>/sheet` | switch the sheet of a .xlsx/.xls (clears steps) |
+| GET | `/files/<id>/top` | the first 20 rows exactly as in the file, to choose the header row |
+| PUT | `/files/<id>/header` | `{"row": n}` uses row n (0 = first) as column names; `{"row": null}` means no header row (clears steps) |
 | GET | `/files/<id>/preview` | preview with the saved steps. `?limit=&offset=`: 200 rows by default, pages of up to 1,000, browsing up to 10,000 rows |
 | POST | `/files/<id>/preview` | live preview of draft `{"steps": [...]}`; nothing saved |
 | GET | `/files/<id>/columns` | column stats: type, blanks, distinct values, examples |

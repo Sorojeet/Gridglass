@@ -207,9 +207,29 @@ select.input {
 /* ----------------------------------------------------------------- file chip / working banner */
 .file-chip, .working { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--radius); }
 .file-icon { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex: none; background: var(--chip-clean); color: var(--ink-clean); }
-.file-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.file-text { flex: 1 1 11rem; min-width: 0; display: flex; flex-direction: column; }
+.file-chip { flex-wrap: wrap; row-gap: 4px; }
+.file-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .file-text strong { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-text small { font-size: 13px; color: var(--muted); }
+
+/* Header row picker: the top of the file, one tappable row each */
+.header-pick { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius); }
+.header-pick h2 { font-size: 16px; font-weight: 700; }
+.hp-rows { list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: 50dvh; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.hp-row {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%; min-height: 44px; padding: 10px 12px; text-align: left;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--glass-strong); color: var(--ink); font: inherit; cursor: pointer;
+}
+.hp-row:hover { border-color: var(--accent); }
+.hp-row[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.hp-row b { flex: none; min-width: 1.6em; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; padding-top: 2px; }
+.hp-cells { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.hp-cells span { font-size: 13px; padding: 2px 8px; border-radius: 999px; background: var(--chip-clean); color: var(--ink); overflow-wrap: anywhere; }
+.hp-cells em { font-size: 13px; color: var(--muted); }
+.header-pick [data-row="none"] { align-self: flex-start; }
+.header-pick [data-row="none"][aria-pressed="true"] { border-color: var(--accent); }
+.header-pick button:disabled { opacity: 0.6; cursor: progress; }
 
 /* ----------------------------------------------------------------- upload */
 .intro { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
