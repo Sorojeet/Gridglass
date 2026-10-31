@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gridglass"
-version = "1.3.2"
+version = "1.4.0"
 description = "Simple spreadsheet tools for everyone — clean, reshape and convert CSV and spreadsheet files."
 requires-python = ">=3.11"
 dependencies = [

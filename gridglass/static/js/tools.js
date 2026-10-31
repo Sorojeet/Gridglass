@@ -413,6 +413,82 @@ export function defaults(tool, cols) {
 }
 
 /** A friendly hint while required options are still empty, or null when the step can be previewed. */
+// ----------------------------------------------------------------------------- editing a saved step
+
+const str = (v) => (v === undefined || v === null ? '' : String(v));
+
+/** Per-tool: how a saved step maps back onto that tool's form. Tools not listed copy same-named fields. */
+const LOADERS = {
+  fill_blanks: (s) => ({ value: str(s.value) }),
+  keep_rows: (s) => ({ count: str(s.count) }),
+  filter_rows: (s) => ({
+    conditions: s.conditions.map((c) => ({
+      column: c.column, operator: c.operator,
+      value: Array.isArray(c.value) ? c.value.join(', ') : str(c.value),
+    })),
+  }),
+  sort_rows: (s) => ({ by: s.by.map((k) => ({ column: k.column, order: k.descending ? 'desc' : 'asc' })) }),
+  rename_columns: (s) => ({ mapping: { ...s.mapping } }),
+  change_type: (s) => ({ types: Object.entries(s.columns).map(([column, to]) => ({ column, to })), date_format: str(s.date_format) }),
+  split_column: (s) => {
+    const known = [',', ' ', ';', '-', '/', '|'].includes(s.delimiter);
+    return { delim: known ? s.delimiter : 'custom', custom: known ? '' : s.delimiter, parts: str(s.parts) };
+  },
+  add_column: (s) => ({
+    value: str(s.value),
+    rightKind: s.right_column ? 'column' : 'value',
+    right_value: str(s.right_value),
+    right_column: s.right_column ?? '',
+    columns: s.columns ?? [],
+    left: s.left ?? '',
+    operator: s.operator ?? '*',
+  }),
+  merge: (s) => ({ keys: s.keys.map((k) => ({ ...k })), other_name: s.other_name ?? '' }),
+  pivot: (s) => ({
+    pcol: s.columns ?? '',
+    aggs: (s.values?.length ? s.values : [{ func: 'count_rows' }]).map((a) => ({ func: a.func, column: a.column ?? '' })),
+  }),
+};
+
+/** Rebuild a tool's form from a saved step, so it can be edited. */
+export function toDraft(tool, step, cols) {
+  const d = defaults(tool, cols);
+  for (const f of tool.fields) {
+    if (f.key in step && !(tool.op === 'pivot' && f.key === 'columns')) d[f.key] = structuredClone(step[f.key]);
+  }
+  return { ...d, ...(LOADERS[tool.op]?.(step) ?? {}) };
+}
+
+// ----------------------------------------------------------------------------- what to suggest next
+
+/** Tools that usually come next, by the tool just used. */
+export const RELATED = {
+  remove_duplicates: ['filter_rows', 'sort_rows', 'pivot', 'trim', 'split_pages'],
+  trim: ['remove_duplicates', 'change_case', 'replace_values', 'fill_blanks', 'filter_rows'],
+  change_case: ['trim', 'remove_duplicates', 'replace_values', 'filter_rows'],
+  replace_values: ['fill_blanks', 'trim', 'change_type', 'filter_rows'],
+  fill_blanks: ['remove_blank_rows', 'replace_values', 'change_type', 'pivot'],
+  remove_blank_rows: ['fill_blanks', 'remove_duplicates', 'filter_rows', 'sort_rows'],
+  filter_rows: ['sort_rows', 'pivot', 'keep_rows', 'remove_columns', 'split_pages'],
+  sort_rows: ['keep_rows', 'filter_rows', 'remove_duplicates', 'split_pages'],
+  remove_columns: ['keep_columns', 'rename_columns', 'add_column', 'split_column', 'change_type'],
+  keep_columns: ['rename_columns', 'remove_columns', 'add_column', 'sort_rows'],
+  rename_columns: ['keep_columns', 'change_type', 'add_column', 'merge'],
+  keep_rows: ['sort_rows', 'filter_rows', 'pivot'],
+  change_type: ['sort_rows', 'filter_rows', 'pivot', 'add_column'],
+  split_column: ['rename_columns', 'trim', 'remove_columns', 'change_type'],
+  add_column: ['rename_columns', 'keep_columns', 'change_type', 'pivot'],
+  merge: ['remove_columns', 'fill_blanks', 'filter_rows', 'pivot', 'rename_columns'],
+  pivot: ['sort_rows', 'filter_rows', 'rename_columns', 'split_pages'],
+  unpivot: ['pivot', 'rename_columns', 'filter_rows', 'remove_blank_rows'],
+};
+
+/** Up to `n` suggestions: related to the last tool first, then the generally useful ones. */
+export function suggestFor(op, n = 6) {
+  const list = [...(RELATED[op] ?? []), ...SUGGEST];
+  return [...new Set(list)].filter((x) => x !== op && TOOL[x]).slice(0, n);
+}
+
 export function incomplete(tool, d) {
   const own = tool.ready ? tool.ready(d) : null; // tool-specific hints come first: they follow the form's order
   if (own) return own;
