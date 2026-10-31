@@ -175,10 +175,71 @@ function fileChip() {
     <span class="file-icon">${ui('file')}</span>
     <span class="file-text"><strong>${esc(f.filename)}</strong><small>${plural(state.before, 'row')} · ${plural(state.cols.length, 'column')}${
       state.editIndex !== null ? ` · editing step ${state.editIndex + 1} of ${f.steps.length}`
-        : f.steps.length ? ` · ${plural(f.steps.length, 'step')} applied` : ''}</small></span>
-    ${sheets}
-    <button class="btn-link" type="button" data-action="newfile">Change</button>
-  </div>`;
+        : f.steps.length ? ` · ${plural(f.steps.length, 'step')} applied` : ''}${headerNote(f)}</small></span>
+    <span class="file-actions">${sheets}
+    ${hasHeaderRow(f) ? `<button class="btn-link" type="button" data-action="headers" aria-expanded="false" aria-controls="header-pick">Headers</button>` : ''}
+    <button class="btn-link" type="button" data-action="newfile">Change</button></span>
+  </div>
+  <section class="header-pick glass" id="header-pick" aria-labelledby="hp-title" hidden></section>`;
+}
+
+const HEADER_FORMATS = ['csv', 'tsv', 'xlsx', 'xls'];
+const hasHeaderRow = (f) => HEADER_FORMATS.includes(f.format);
+
+/** "· 3 top rows skipped" / "· no header row": what Gridglass did with the top of the file. */
+function headerNote(f) {
+  if (!hasHeaderRow(f)) return '';
+  if (f.header_row === null) return ' · no header row';
+  return f.header_row > 0 ? ` · ${plural(f.header_row, 'top row')} skipped` : '';
+}
+
+// ---------------------------------------------------------------------------- header row
+
+async function toggleHeaders() {
+  const panel = $('#header-pick');
+  const btn = $('[data-action="headers"]');
+  if (!panel.hidden) { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); return; }
+  btn.setAttribute('aria-expanded', 'true');
+  panel.hidden = false;
+  panel.innerHTML = '<p class="hint">Reading the top of your file…</p>';
+  try {
+    const { rows, header_row: current } = await api(`/files/${state.file.id}/top`);
+    const steps = state.file.steps.length;
+    const cells = (r) => {
+      const filled = r.filter((v) => v !== null);
+      return filled.length
+        ? filled.slice(0, 6).map((v) => `<span>${esc(v.length > 24 ? `${v.slice(0, 23)}…` : v)}</span>`).join('') + (filled.length > 6 ? `<span>+${filled.length - 6}</span>` : '')
+        : '<em>blank row</em>';
+    };
+    panel.innerHTML = `
+      <h2 id="hp-title">Which row has the column names?</h2>
+      <p class="hint">Tap it. Rows above it are skipped.${steps ? ` Your ${plural(steps, 'applied step')} will be cleared.` : ''}</p>
+      <ol class="hp-rows">${rows.map((r, i) => `<li><button type="button" class="hp-row" data-row="${i}" aria-pressed="${i === current}"
+        aria-label="Row ${i + 1}${i === current ? ' (current headers)' : ''}: ${esc(r.filter((v) => v !== null).slice(0, 6).join(', ') || 'blank row')}">
+        <b>${i + 1}</b><span class="hp-cells">${cells(r)}</span></button></li>`).join('')}</ol>
+      <button type="button" class="btn btn-secondary btn-sm" data-row="none" aria-pressed="${current === null}">No header row (name them Column 1, 2, 3…)</button>`;
+    panel.querySelector(`[aria-pressed="true"]`)?.focus();
+  } catch (err) {
+    panel.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    toast(err.message, 'error');
+  }
+}
+
+async function pickHeader(e) {
+  const pick = e.target.closest('[data-row]');
+  if (!pick || pick.getAttribute('aria-pressed') === 'true') return;
+  const row = pick.dataset.row === 'none' ? null : Number(pick.dataset.row);
+  $('#header-pick').querySelectorAll('button').forEach((b) => { b.disabled = true; });
+  try {
+    const res = await api(`/files/${state.file.id}/header`, { method: 'PUT', body: { row } });
+    remember(res.file);
+    await enterOptions();
+    toast(row === null ? 'Columns are now named Column 1, 2, 3…' : `Using row ${row + 1} as the column names.`);
+  } catch (err) {
+    $('#header-pick')?.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+    toast(err.message, 'error');
+  }
 }
 
 function table(pv) {
@@ -310,6 +371,9 @@ async function startUpload(file) {
     });
     remember(res.file);
     await enterOptions();
+    if (res.file.header_row > 0) {
+      toast(`Skipped ${plural(res.file.header_row, 'row')} above the column names. Tap Headers to change.`);
+    }
   } catch (err) {
     progress.hidden = true;
     view.querySelectorAll('.busy').forEach((el) => el.classList.remove('busy'));
@@ -391,6 +455,8 @@ function renderOptions() {
         : `<button class="btn btn-primary btn-lg btn-block" type="button" id="apply" disabled>${esc(editing ? 'Save changes' : t.verb)}</button>`}
     </div>`;
   $('[data-action="newfile"]').addEventListener('click', newFile);
+  $('[data-action="headers"]')?.addEventListener('click', toggleHeaders);
+  $('#header-pick').addEventListener('click', pickHeader);
   $('#sheet')?.addEventListener('change', (e) => changeSheet(e.target.value));
   $('#pv-pager').addEventListener('click', onPager);
   if (pivot) wireChart();
@@ -898,9 +964,19 @@ function comboRender(input, data) {
         <span>${esc(v.value)}</span><small>${num(v.count)}</small></li>`).join('')
       + (data.truncated && !token ? `<li class="combo-more" aria-hidden="true">Type to search all ${num(data.distinct)} values</li>` : '')
     : `<li class="combo-more" aria-hidden="true">${token ? 'No match — your typed value will be used' : 'No values'}</li>`;
+  const opening = list.hidden;
   list.hidden = false;
   input.setAttribute('aria-expanded', 'true');
   input.removeAttribute('aria-activedescendant');
+  if (opening) keepAboveBar(list);
+}
+
+/** On phones the action button sticks to the bottom; scroll so an opened list isn't hidden behind it. */
+function keepAboveBar(list) {
+  const bar = $('.action-bar');
+  if (!bar || getComputedStyle(bar).position !== 'sticky') return;
+  const over = list.getBoundingClientRect().bottom + 8 - bar.getBoundingClientRect().top;
+  if (over > 0) window.scrollBy({ top: over, behavior: 'instant' });
 }
 
 function comboClose(input) {
@@ -1251,6 +1327,7 @@ async function changeSheet(sheet) {
     const res = await api(`/files/${state.file.id}/sheet`, { method: 'PUT', body: { sheet } });
     remember(res.file);
     await enterOptions();
+    if (res.file.header_row > 0) toast(`Skipped ${plural(res.file.header_row, 'row')} above the column names.`);
   } catch (err) { toast(err.message, 'error'); }
 }
 

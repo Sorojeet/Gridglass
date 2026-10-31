@@ -344,3 +344,78 @@ def test_pdf_headers_are_not_split_mid_word():
 def test_pdf_keeps_more_of_long_text(tmp_path):
     from gridglass.engine.pdf import _fmt
     assert _fmt("a" * 300) == "a" * 300
+
+
+# --- header row: titles and notes above the table -------------------------------------------
+
+def _titled_book(path, *, start_col=1):
+    import xlsxwriter
+
+    with xlsxwriter.Workbook(path) as wb:
+        ws = wb.add_worksheet("Report")
+        ws.write(1, start_col, "Monthly Sales Report")
+        ws.write(2, start_col, "Generated: 01-10-2026")
+        ws.write_row(4, start_col, ["Region", "Customer", "Amount", "Phone"])
+        ws.write_row(5, start_col, ["North", "Asha", 100, "9876543210"])
+        ws.write_row(6, start_col, ["South", "Ravi", 250.5, "0123456789"])
+        ws.write_row(8, start_col, ["East", "Meera", 80, "9000000001"])  # a blank row inside the data
+
+
+def test_spreadsheet_headers_below_a_title_are_found(tmp_path):
+    _titled_book(tmp_path / "r.xlsx")
+    res, df = _ingest(tmp_path, "r.xlsx", (tmp_path / "r.xlsx").read_bytes())
+    assert df.columns == ["Region", "Customer", "Amount", "Phone"]
+    assert res.header_row == 3 and res.rows == 3  # title, note and a blank row skipped; blank data row dropped
+    assert df["Amount"].to_list() == [100, 250.5, 80] and df["Phone"][1] == "0123456789"
+
+
+def test_csv_headers_below_a_title_are_found(tmp_path):
+    content = b"Monthly Sales Report\nGenerated: 01-10-2026\n\nRegion;Customer;Amount\nNorth;Asha;100\nSouth;Ravi;250.5\n"
+    res, df = _ingest(tmp_path, "r.csv", content)
+    assert res.header_row == 3 and df.columns == ["Region", "Customer", "Amount"]
+    assert df["Amount"].to_list() == [100, 250.5]
+
+
+def test_normal_files_keep_their_first_row_as_headers(tmp_path):
+    res, df = _ingest(tmp_path, "a.csv", b"Name,City\nAsha,Pune\n")
+    assert res.header_row == 0 and df.columns == ["Name", "City"]
+    res, df = _ingest(tmp_path, "n.csv", b"1,2,3\n4,5,6\n")  # numbers only: nothing to skip to
+    assert res.header_row == 0 and df.columns == ["1", "2", "3"]
+
+
+@pytest.mark.parametrize("rows, expected", [
+    ([["Name", "City", "Amount"], ["Asha", "Pune", "1"]], 0),
+    ([["Report"], [], ["Name", "City", "Amount"], ["a", "b", "1"]], 2),
+    ([["Total", "1,234"], ["Name", "City", "Amount"], ["a", "b", "1"]], 1),
+    ([["2024", "2025", "2026"], ["Name", "City", "Amount"]], 1),  # a row of years isn't a header
+    ([], 0),
+])
+def test_find_header_row(rows, expected):
+    from gridglass.engine.io import find_header_row
+
+    assert find_header_row(rows) == expected
+
+
+def test_header_row_can_be_chosen_or_turned_off(tmp_path):
+    content = b"Name,City\nAsha,Pune\nRavi,Delhi\n"
+    res, df = _ingest(tmp_path, "a.csv", content, header=1)
+    assert df.columns == ["Asha", "Pune"] and res.rows == 1
+    res, df = _ingest(tmp_path, "a.csv", content, header=None)
+    assert res.header_row is None and df.columns == ["Column 1", "Column 2"] and res.rows == 3
+    _titled_book(tmp_path / "r.xlsx")
+    res, df = _ingest(tmp_path, "r.xlsx", (tmp_path / "r.xlsx").read_bytes(), header=None)
+    assert df.columns == ["Column 1", "Column 2", "Column 3", "Column 4"] and df["Column 1"][0] == "Monthly Sales Report"
+    with pytest.raises(IngestError, match="fewer than"):
+        _ingest(tmp_path, "a.csv", content, header=40)
+
+
+def test_top_rows_show_the_file_as_it_is(tmp_path):
+    from gridglass.engine.io import top_rows
+
+    _titled_book(tmp_path / "r.xlsx")
+    rows = top_rows(tmp_path / "r.xlsx", "r.xlsx", n=5)
+    assert rows[0][0] == "Monthly Sales Report" and rows[2] == [None] * 4 and rows[3][0] == "Region"
+    (tmp_path / "q.csv").write_bytes(b'"Title, with comma"\n"multi\nline"\nA,B\n1,2\n')
+    assert top_rows(tmp_path / "q.csv", "q.csv") == [["Title, with comma"], ["multi\nline"], ["A", "B"], ["1", "2"]]
+    res, df = _ingest(tmp_path, "q.csv", (tmp_path / "q.csv").read_bytes(), header=2)
+    assert df.columns == ["A", "B"]

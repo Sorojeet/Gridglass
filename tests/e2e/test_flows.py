@@ -328,6 +328,37 @@ def test_excel_sheets(phone, tmp_path):
     expect(page.locator(".file-chip")).to_contain_text("4 rows")
 
 
+def test_header_row_found_and_changed(phone, tmp_path):
+    book = tmp_path / "report.xlsx"
+    with xlsxwriter.Workbook(book) as wb:
+        ws = wb.add_worksheet("Report")
+        ws.write(0, 0, "Monthly Sales Report")
+        ws.write_row(2, 0, ["Region", "Customer", "Amount"])
+        ws.write_row(3, 0, ["North", "Asha", 100])
+        ws.write_row(4, 0, ["South", "Ravi", 250])
+    page = phone.open("/#/tool/sort_rows")
+    page.set_input_files("#file", str(book))
+    page.wait_for_selector("#pv table")
+    expect(page.locator("#toast")).to_contain_text("Skipped 2 rows above the column names")
+    expect(page.locator(".file-chip")).to_contain_text("2 top rows skipped")
+    expect(page.locator("#pv thead")).to_contain_text("Customer")
+
+    page.click('[data-action="headers"]')
+    rows = page.locator(".hp-row")
+    expect(rows).to_have_count(5)
+    expect(rows.nth(2)).to_have_attribute("aria-pressed", "true")
+    expect(rows.nth(1)).to_contain_text("blank row")
+    page.click('#header-pick [data-row="none"]')
+    expect(page.locator(".file-chip")).to_contain_text("no header row")
+    expect(page.locator("#pv thead")).to_contain_text("Column 1")
+    expect(page.locator(".file-chip")).to_contain_text("4 rows")  # blank rows are dropped
+
+    page.click('[data-action="headers"]')
+    page.locator(".hp-row").nth(2).click()
+    expect(page.locator(".file-chip")).to_contain_text("2 rows")
+    expect(page.locator("#pv thead")).to_contain_text("Region")
+
+
 def test_bad_file_shows_friendly_error(phone, tmp_path):
     fake = tmp_path / "notes.pdf"
     fake.write_bytes(b"%PDF-1.7 not a spreadsheet")
