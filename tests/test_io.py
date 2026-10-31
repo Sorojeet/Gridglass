@@ -263,10 +263,8 @@ def test_json_mixed_column(tmp_path):
 
 
 def test_long_ids_survive_xlsx_export(tmp_path):
-    from openpyxl import load_workbook
-
     _, df = _ingest(tmp_path, "a.csv", b"card,amount\n1565432273931034624,10\n0000123456789012,20\n")
     out = export(pl.scan_parquet(tmp_path / "cache.parquet"), "xlsx", tmp_path / "o.xlsx")
-    ws = load_workbook(out).active
-    assert ws["A2"].value == "1565432273931034624" and ws["A3"].value == "0000123456789012"  # text, every digit
-    assert ws["B2"].value == 10  # normal numbers stay numbers
+    back = pl.read_excel(out, engine="calamine")  # reads cell types as written
+    assert back.schema["card"] == pl.String and back["card"].to_list() == ["1565432273931034624", "0000123456789012"]
+    assert back.schema["amount"] == pl.Int64 and back["amount"].to_list() == [10, 20]  # numbers stay numbers
