@@ -12,7 +12,7 @@ worker_class = "gthread"
 threads = int(os.environ.get("GUNICORN_THREADS", 4))
 
 # Big files on slow phone connections need time; a stuck worker is still recycled.
-timeout = int(os.environ.get("GUNICORN_TIMEOUT", 120))
+timeout = int(os.environ.get("GUNICORN_TIMEOUT", 300))  # 100 MB uploads on slow phone connections
 graceful_timeout = 30
 keepalive = 5
 

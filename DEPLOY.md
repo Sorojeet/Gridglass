@@ -30,7 +30,10 @@ Plans:
 - **Free** works but sleeps after 15 idle minutes; the first visit afterwards takes ~30 s.
 - **Starter** stays awake.
 
-With 512 MB of RAM, set `WEB_CONCURRENCY=1` so one large 50 MB file always has room. With 1 GB or more, keep 2.
+**Memory and the 100 MB limit.** A 100 MB CSV with remove duplicates needs about 600 MB of memory, and a large .xlsx needs more, because spreadsheets are decompressed while they're read.
+- On 512 MB plans (Free, Starter), set `MAX_UPLOAD_MB=40` and `WEB_CONCURRENCY=1`.
+- For the full 100 MB, use an instance with 2 GB or more (Standard) and `WEB_CONCURRENCY=1`.
+- With 4 GB, `WEB_CONCURRENCY=2` is fine.
 
 ## 2b. Railway
 
@@ -52,7 +55,7 @@ The second command runs the real browser tests against your live site. Keep it t
 
 | Variable | Default | What it does |
 |---|---|---|
-| `MAX_UPLOAD_MB` | 50 | Largest file a user can upload |
+| `MAX_UPLOAD_MB` | 100 | Largest file a user can upload (needs about 6× that in memory; see above) |
 | `FILE_RETENTION_MINUTES` | 60 | When uploads are deleted |
 | `TRUST_PROXY` | 1 in Docker | Number of proxies in front of the app (Render/Railway: 1). Needed for correct client IPs and HTTPS. |
 | `WEB_CONCURRENCY` | 2 | gunicorn worker processes. Use 1 on 512 MB plans. |
@@ -63,6 +66,7 @@ The second command runs the real browser tests against your live site. Keep it t
 | `RATELIMIT_STORAGE_URI` | `memory://` | Use `redis://…` when running several instances |
 | `DATA_DIR` | `/tmp/gridglass` in Docker | Where uploads live while they're being worked on |
 | `LOG_LEVEL` | info | gunicorn log level |
+| `GUNICORN_TIMEOUT` | 300 | Seconds a request may take (big uploads on slow connections) |
 
 ## Notes
 

@@ -23,7 +23,7 @@ Undo means deleting a step, and chaining tools means appending steps.
 ```
 gridglass/
   __init__.py        Flask app factory (API arrives in Phase 4)
-  config.py          limits: 50 MB uploads, 200-row previews, 1-hour retention …
+  config.py          limits: 100 MB uploads, 200-row previews, 1-hour retention …
   engine/
     steps.py         the 18 tools + parse_steps() validation
     pipeline.py      build(), run(), preview(), profile()

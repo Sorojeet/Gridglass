@@ -1,0 +1,15 @@
+{
+  "name": "Gridglass — simple spreadsheet tools",
+  "short_name": "Gridglass",
+  "description": "Clean, reshape and convert CSV and spreadsheet files from your phone.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#EEF3F6",
+  "theme_color": "#0F766E",
+  "icons": [
+    { "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

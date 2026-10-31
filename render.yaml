@@ -13,4 +13,4 @@ services:
       - key: WEB_CONCURRENCY
         value: "2"
       - key: MAX_UPLOAD_MB
-        value: "50"
+        value: "100"
