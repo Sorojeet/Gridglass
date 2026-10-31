@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import codecs
 import csv
+import json
 import re
 import shutil
 import tempfile
@@ -82,25 +83,32 @@ def ingest(src: str | Path, filename: str, dest: str | Path, *, sheet: str | Non
     dest.parent.mkdir(parents=True, exist_ok=True)
     sheets: list[str] = []
     try:
-        if fmt in ("csv", "tsv"):
-            text = _ensure_utf8(src)
-            try:
-                lf = _scan_text(text, fmt)
-                lf.rename(_clean_headers(lf.collect_schema().names())).sink_parquet(dest)
-            finally:
-                if text != src:
-                    text.unlink(missing_ok=True)
-        elif fmt in ("xlsx", "xls"):
-            sheets = workbook_sheets(src)
-            if sheet is not None and sheet not in sheets:
-                raise IngestError(f"There's no sheet called '{sheet}'.")
-            sheet = sheet or sheets[0]
-            df = pl.read_excel(src, sheet_name=sheet, engine="calamine")
-            _write(df, dest)
-        elif fmt == "json":
-            _write(pl.read_json(src), dest)
-        else:
-            _write(pl.read_ndjson(src), dest)
+        # Everything is read as text first, so a column that changes type part-way down
+        # (numbers, then "EW1565…") never fails or loses values. Types are then chosen
+        # from the whole column (see infer_types).
+        raw = dest.with_name(dest.stem + ".raw.parquet")
+        try:
+            if fmt in ("csv", "tsv"):
+                text = _ensure_utf8(src)
+                try:
+                    lf = _scan_text(text, fmt)
+                    lf.rename(_clean_headers(lf.collect_schema().names())).sink_parquet(raw)
+                finally:
+                    if text != src:
+                        text.unlink(missing_ok=True)
+            elif fmt in ("xlsx", "xls"):
+                sheets = workbook_sheets(src)
+                if sheet is not None and sheet not in sheets:
+                    raise IngestError(f"There's no sheet called '{sheet}'.")
+                sheet = sheet or sheets[0]
+                _write(pl.read_excel(src, sheet_name=sheet, engine="calamine", infer_schema_length=0), raw)
+            elif fmt == "json":
+                _write(_as_text(pl.read_json(src, infer_schema_length=None)), raw)
+            else:
+                _write(_as_text(pl.read_ndjson(src, infer_schema_length=None)), raw)
+            infer_types(pl.scan_parquet(raw)).sink_parquet(dest)
+        finally:
+            raw.unlink(missing_ok=True)
     except IngestError:
         raise
     except (pl.exceptions.PolarsError, ValueError, OSError) as exc:
@@ -126,11 +134,141 @@ def _scan_text(src: Path, fmt: str) -> pl.LazyFrame:
     return pl.scan_csv(
         src,
         separator=sep,
-        infer_schema_length=10_000,
-        try_parse_dates=True,
+        infer_schema=False,  # all text; infer_types() decides from every row
         truncate_ragged_lines=True,
         encoding="utf8-lossy",
     )
+
+
+def _as_text(df: pl.DataFrame) -> pl.DataFrame:
+    """JSON can hold nested lists/objects; keep those as JSON text, everything else as plain text."""
+    out = []
+    for name, dtype in df.schema.items():
+        col = pl.col(name)
+        if isinstance(dtype, (pl.List, pl.Array, pl.Struct)):
+            out.append(col.map_elements(lambda v: None if v is None else json.dumps(_plain(v), ensure_ascii=False),
+                                        return_dtype=pl.String).alias(name))
+        elif dtype == pl.Boolean:
+            out.append(pl.when(col).then(pl.lit("true")).when(~col).then(pl.lit("false")).alias(name))
+        else:
+            out.append(col.cast(pl.String).alias(name))
+    return df.select(out)
+
+
+def _plain(v):
+    if isinstance(v, pl.Series):
+        return [_plain(x) for x in v.to_list()]
+    if isinstance(v, dict):
+        return {k: _plain(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_plain(x) for x in v]
+    return v
+
+
+# --------------------------------------------------------------------------- types
+
+#: Whole numbers with more digits than this stay text: long IDs, card and phone numbers.
+#: Spreadsheet apps keep only 15 significant digits, so as numbers they'd be silently changed.
+MAX_NUMBER_DIGITS = 10
+
+_INT = r"^-?\d+$"
+_FLOAT = r"^-?(\d+\.\d*|\.\d+|\d+)([eE][-+]?\d+)?$"
+_LEADING_ZERO = r"^-?0\d"
+_LONG_WHOLE_PART = r"^-?\d{%d,}" % (MAX_NUMBER_DIGITS + 1)
+_DATE_FORMATS = ["%Y-%m-%d"]
+_DATETIME_FORMATS = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M",
+                     "%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S%.f"]
+
+
+def infer_types(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """Turn an all-text table into typed columns, looking at every value (not a sample).
+
+    A column becomes a number, date, date-time or true/false only if *every* non-blank cell fits.
+    It stays text if any cell doesn't, if a number has a leading zero (011001), or if a whole
+    number has more than MAX_NUMBER_DIGITS digits (1565432273931034624).
+
+    To stay fast, the first rows pick which types are possible for each column; only those are
+    then checked against the whole column.
+    """
+    schema = lf.collect_schema()
+    names = [n for n, t in schema.items() if t == pl.String]
+    if not names:
+        return lf
+
+    sample = lf.select(names).head(1000).collect()
+    candidates = {name: _possible_types(sample.get_column(name)) for name in names}
+    exprs = []
+    for i, name in enumerate(names):
+        s, filled = _clean(name)
+        exprs.append(filled.sum().alias(f"n{i}"))
+        for kind in candidates[name]:
+            exprs.append((filled & _fits(kind, s)).sum().alias(f"{kind}{i}"))
+        if "int" in candidates[name] or "float" in candidates[name]:
+            exprs.append((filled & s.str.contains(_FLOAT)
+                          & (s.str.contains(_LEADING_ZERO) | s.str.contains(_LONG_WHOLE_PART))).sum().alias(f"keep{i}"))
+        if "datetime" in candidates[name]:
+            exprs.append((filled & (_stamp(s).dt.time() != pl.time(0))).sum().alias(f"tod{i}"))
+    stats = lf.select(exprs).collect().row(0, named=True)
+
+    casts = []
+    for i, name in enumerate(names):
+        n = stats[f"n{i}"]
+        if n == 0 or stats.get(f"keep{i}"):
+            continue  # empty, or numbers that must keep every digit / leading zeros: stay text
+        kind = next((k for k in candidates[name] if stats[f"{k}{i}"] == n), None)
+        if kind:
+            casts.append(_cast(kind, name, midnight_only=stats.get(f"tod{i}") == 0))
+    return lf.with_columns(casts) if casts else lf
+
+
+_ORDER = ("int", "float", "date", "datetime", "bool")
+
+
+def _clean(name: str) -> tuple[pl.Expr, pl.Expr]:
+    s = pl.col(name).str.strip_chars()
+    return s, s.is_not_null() & (s != "")
+
+
+def _stamp(s: pl.Expr) -> pl.Expr:
+    return pl.coalesce([s.str.to_datetime(f, strict=False, time_unit="us") for f in _DATETIME_FORMATS])
+
+
+def _fits(kind: str, s: pl.Expr) -> pl.Expr:
+    if kind == "int":
+        return s.str.contains(_INT)
+    if kind == "float":
+        return s.str.contains(_FLOAT)
+    if kind == "date":
+        return (s.str.len_chars() == 10) & s.str.to_date(_DATE_FORMATS[0], strict=False).is_not_null()
+    if kind == "datetime":
+        return _stamp(s).is_not_null()
+    return s.str.to_lowercase().is_in(["true", "false"])
+
+
+def _possible_types(sample: pl.Series) -> list[str]:
+    """Types every non-blank value in the sample fits, most specific first."""
+    values = sample.str.strip_chars()
+    values = values.filter(values.is_not_null() & (values != ""))
+    if values.is_empty():
+        return list(_ORDER)  # nothing to go on yet: let the whole column decide
+    frame = values.to_frame("v")
+    return [k for k in _ORDER if frame.select(_fits(k, pl.col("v")).all()).item()]
+
+
+def _cast(kind: str, name: str, midnight_only: bool) -> pl.Expr:
+    s, filled = _clean(name)
+    value = pl.when(filled).then(s)
+    if kind == "int":
+        return value.cast(pl.Int64).alias(name)
+    if kind == "float":
+        return value.cast(pl.Float64).alias(name)
+    if kind == "date":
+        return s.str.to_date(_DATE_FORMATS[0], strict=False).alias(name)
+    if kind == "datetime":
+        stamp = _stamp(s)
+        return (stamp.dt.date() if midnight_only else stamp).alias(name)  # all midnight: just a date
+    low = s.str.to_lowercase()
+    return pl.when(low == "true").then(True).when(low == "false").then(False).otherwise(None).alias(name)
 
 
 def _sniff_separator(sample: str) -> str:
