@@ -268,3 +268,35 @@ def test_long_ids_survive_xlsx_export(tmp_path):
     back = pl.read_excel(out, engine="calamine")  # reads cell types as written
     assert back.schema["card"] == pl.String and back["card"].to_list() == ["1565432273931034624", "0000123456789012"]
     assert back.schema["amount"] == pl.Int64 and back["amount"].to_list() == [10, 20]  # numbers stay numbers
+
+
+# --------------------------------------------------------------------------- numbers are written plainly
+
+def test_xlsx_numbers_have_no_accounting_format(tmp_path):
+    import zipfile
+
+    lf = pl.LazyFrame({"qty": [1250, -40], "amount": [125000.5, -500.25]})
+    out = export(lf, "xlsx", tmp_path / "n.xlsx")
+    styles = zipfile.ZipFile(out).read("xl/styles.xml").decode()
+    assert "#,##0" not in styles and "[Red]" not in styles  # no thousands commas, fixed decimals or red negatives
+    back = pl.read_excel(out, engine="calamine")
+    assert back["qty"].to_list() == [1250, -40] and back["amount"].to_list() == [125000.5, -500.25]
+
+
+def test_split_sheets_also_plain(tmp_path):
+    import zipfile
+
+    lf = pl.LazyFrame({"city": ["Pune", "Delhi"], "amount": [125000.5, 9.0]})
+    out = export(lf, "xlsx", tmp_path / "s.xlsx", split_by="city")
+    assert "#,##0" not in zipfile.ZipFile(out).read("xl/styles.xml").decode()
+
+
+@pytest.mark.parametrize("value, text", [
+    (1250, "1250"), (-40, "-40"), (125000.5, "125000.5"), (-500.25, "-500.25"),
+    (1250.0, "1250"), (0.125, "0.125"), (1e-7, "0.0000001"), (12345678901234.5, "12345678901234.5"),
+    (float("nan"), ""), (None, ""),
+])
+def test_pdf_numbers_are_plain(value, text):
+    from gridglass.engine.pdf import _fmt
+
+    assert _fmt(value) == text
