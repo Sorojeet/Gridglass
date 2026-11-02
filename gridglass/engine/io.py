@@ -295,6 +295,25 @@ _FLOAT = r"^-?(\d+\.\d*|\.\d+|\d+)([eE][-+]?\d+)?$"
 _LEADING_ZERO = r"^-?0\d"
 _LONG_WHOLE_PART = r"^-?\d{%d,}" % (MAX_NUMBER_DIGITS + 1)
 _DATE_FORMATS = ["%Y-%m-%d"]
+
+# Numbers written the way people type them: ₹1,23,456.50  Rs. 500/-  $1,234  (250) for -250.
+_CURRENCY = r"(?i)^(-?)\s*(?:rs\.?|inr|[₹$€£¥])\s*"
+_WHOLE = r"(\d+|\d{1,3}(,\d{3})+|\d{1,2}(,\d{2})*,\d{3})"  # 1234, 1,234,567 or Indian 12,34,567
+_NUM_INT = rf"^-?{_WHOLE}$"
+_NUM_FLOAT = rf"^-?({_WHOLE}(\.\d*)?|\.\d+)$"
+_PARENS = r"^\((.*)\)$"
+
+# Dates written other ways: 05/03/2026, 5-3-26, 5 Mar 2026, 05-Mar-26, March 5, 2026, 2026/03/05.
+_MONTH = r"(?i)\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
+_DATE_SHAPES = {  # shape (after tidying) -> format, for day-first and month-first readings
+    r"^\d{4}-\d{1,2}-\d{1,2}$": ("%Y-%m-%d", "%Y-%m-%d"),
+    r"^\d{1,2}-\d{1,2}-\d{4}$": ("%d-%m-%Y", "%m-%d-%Y"),
+    r"^\d{1,2}-\d{1,2}-\d{2}$": ("%d-%m-%y", "%m-%d-%y"),
+    r"^\d{1,2}-[A-Za-z]{3}-\d{4}$": ("%d-%b-%Y", "%d-%b-%Y"),
+    r"^\d{1,2}-[A-Za-z]{3}-\d{2}$": ("%d-%b-%y", "%d-%b-%y"),
+    r"^[A-Za-z]{3}-\d{1,2}-\d{4}$": ("%b-%d-%Y", "%b-%d-%Y"),
+    r"^[A-Za-z]{3}-\d{1,2}-\d{2}$": ("%b-%d-%y", "%b-%d-%y"),
+}
 _DATETIME_FORMATS = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M",
                      "%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S%.f"]
 
@@ -315,32 +334,90 @@ def infer_types(lf: pl.LazyFrame) -> pl.LazyFrame:
         return lf
 
     sample = lf.select(names).head(1000).collect()
-    candidates = {name: _possible_types(sample.get_column(name)) for name in names}
-    exprs = []
-    for i, name in enumerate(names):
-        s, filled = _clean(name)
-        exprs.append(filled.sum().alias(f"n{i}"))
-        for kind in candidates[name]:
-            exprs.append((filled & _fits(kind, s)).sum().alias(f"{kind}{i}"))
-        if "int" in candidates[name] or "float" in candidates[name]:
-            exprs.append((filled & s.str.contains(_FLOAT)
-                          & (s.str.contains(_LEADING_ZERO) | s.str.contains(_LONG_WHOLE_PART))).sum().alias(f"keep{i}"))
-        if "datetime" in candidates[name]:
-            exprs.append((filled & (_stamp(s).dt.time() != pl.time(0))).sum().alias(f"tod{i}"))
-    stats = lf.select(exprs).collect().row(0, named=True)
-
-    casts = []
-    for i, name in enumerate(names):
-        n = stats[f"n{i}"]
-        if n == 0 or stats.get(f"keep{i}"):
-            continue  # empty, or numbers that must keep every digit / leading zeros: stay text
-        kind = next((k for k in candidates[name] if stats[f"{k}{i}"] == n), None)
-        if kind:
-            casts.append(_cast(kind, name, midnight_only=stats.get(f"tod{i}") == 0))
+    plain, messy = {}, {}
+    for name in names:
+        kinds = _possible_types(sample.get_column(name))
+        base = [k for k in kinds if k in _PLAIN]
+        extra = [k for k in kinds if k not in _PLAIN]
+        # Clean columns are checked the quick way first; ₹/comma/date tidying only runs on the
+        # columns that didn't fit (it is several times slower).
+        plain[name] = base or extra
+        messy[name] = extra if base else []
+    chosen = _choose(lf, plain)
+    chosen.update(_choose(lf, {n: k for n, k in messy.items() if n not in chosen}))
+    casts = [_cast(v[0], name, v[1]) for name, v in chosen.items() if v]
     return lf.with_columns(casts) if casts else lf
 
 
-_ORDER = ("int", "float", "date", "datetime", "bool")
+def _choose(lf: pl.LazyFrame, candidates: dict[str, list[str]]) -> dict[str, tuple[str, bool] | None]:
+    """One pass over the data: for each column, the first candidate type every non-blank cell fits.
+
+    Returns (type, all-midnight) per column, None for a column that must stay text, and leaves
+    out columns where no candidate fitted (so other types can still be tried).
+    """
+    candidates = {n: k for n, k in candidates.items() if k}
+    if not candidates:
+        return {}
+    exprs, tidied = [], []
+    for i, (name, kinds) in enumerate(candidates.items()):
+        s, filled = _clean(name)
+        if {"nint", "nfloat"} & set(kinds):  # tidy once, then check against the tidied text
+            tidied.append(_number_text(s).alias(f"__num{i}"))
+        if {"dmy", "mdy"} & set(kinds):
+            tidied.append(_date_text(s).alias(f"__date{i}"))
+        exprs.append(filled.sum().alias(f"n{i}"))
+        for kind in kinds:
+            exprs.append((filled & _fits(kind, s, i)).sum().alias(f"{kind}{i}"))
+        numeric = {"int", "float", "nint", "nfloat"} & set(kinds)
+        if numeric:
+            n = _plain_number(pl.col(f"__num{i}")) if numeric - {"int", "float"} else s
+            exprs.append((filled & n.str.contains(_FLOAT)
+                          & (n.str.contains(_LEADING_ZERO) | n.str.contains(_LONG_WHOLE_PART))).sum().alias(f"keep{i}"))
+        if "datetime" in kinds:
+            exprs.append((filled & (_stamp(s).dt.time() != pl.time(0))).sum().alias(f"tod{i}"))
+    stats = (lf.with_columns(tidied) if tidied else lf).select(exprs).collect().row(0, named=True)
+
+    chosen: dict[str, tuple[str, bool] | None] = {}
+    for i, (name, kinds) in enumerate(candidates.items()):
+        n = stats[f"n{i}"]
+        if n == 0 or stats.get(f"keep{i}"):
+            chosen[name] = None  # empty, or numbers that must keep every digit / leading zeros
+            continue
+        kind = next((k for k in kinds if stats[f"{k}{i}"] == n), None)
+        if kind:
+            chosen[name] = (kind, stats.get(f"tod{i}") == 0)
+    return chosen
+
+
+#: Most specific first. nint/nfloat are numbers with ₹, commas or brackets; dmy/mdy are dates
+#: written day-first or month-first. When both readings fit every date, day-first wins.
+_ORDER = ("int", "float", "date", "datetime", "bool", "nint", "nfloat", "dmy", "mdy")
+_PLAIN = {"int", "float", "date", "datetime", "bool"}
+
+
+def _number_text(s: pl.Expr) -> pl.Expr:
+    """'₹1,23,456.50' -> '1,23,456.50', '(250)' -> '-250', 'Rs. 500/-' -> '500'.
+
+    Commas stay: _NUM_INT/_NUM_FLOAT check they're in the right places (so '1,2,3' isn't a
+    number), and _plain_number removes them.
+    """
+    return s.str.replace(_PARENS, "-$1").str.replace(_CURRENCY, "$1").str.replace(r"\s*/-$", "")
+
+
+def _plain_number(t: pl.Expr) -> pl.Expr:
+    return t.str.replace_all(",", "", literal=True)
+
+
+def _date_text(s: pl.Expr) -> pl.Expr:
+    """'March 5, 2026' -> 'Mar-5-2026', '05/03/26' -> '05-03-26'."""
+    return s.str.replace_all(_MONTH, "$1").str.replace_all(r"[\s./,-]+", "-").str.strip_chars("-")
+
+
+def _any_date(t: pl.Expr, day_first: bool) -> pl.Expr:
+    """`t` is text from _date_text."""
+    k = 0 if day_first else 1
+    return pl.coalesce([pl.when(t.str.contains(shape)).then(t.str.to_date(fmts[k], strict=False))
+                        for shape, fmts in _DATE_SHAPES.items()])
 
 
 def _clean(name: str) -> tuple[pl.Expr, pl.Expr]:
@@ -352,7 +429,8 @@ def _stamp(s: pl.Expr) -> pl.Expr:
     return pl.coalesce([s.str.to_datetime(f, strict=False, time_unit="us") for f in _DATETIME_FORMATS])
 
 
-def _fits(kind: str, s: pl.Expr) -> pl.Expr:
+def _fits(kind: str, s: pl.Expr, i: int | None = None) -> pl.Expr:
+    """Does each cell fit `kind`? With `i`, tidied text is read from the __num{i}/__date{i} columns."""
     if kind == "int":
         return s.str.contains(_INT)
     if kind == "float":
@@ -361,6 +439,12 @@ def _fits(kind: str, s: pl.Expr) -> pl.Expr:
         return (s.str.len_chars() == 10) & s.str.to_date(_DATE_FORMATS[0], strict=False).is_not_null()
     if kind == "datetime":
         return _stamp(s).is_not_null()
+    if kind in ("nint", "nfloat"):
+        n = _number_text(s) if i is None else pl.col(f"__num{i}")
+        return n.str.contains(_NUM_INT if kind == "nint" else _NUM_FLOAT)
+    if kind in ("dmy", "mdy"):
+        t = _date_text(s) if i is None else pl.col(f"__date{i}")
+        return _any_date(t, day_first=kind == "dmy").is_not_null()
     return s.str.to_lowercase().is_in(["true", "false"])
 
 
@@ -386,6 +470,11 @@ def _cast(kind: str, name: str, midnight_only: bool) -> pl.Expr:
     if kind == "datetime":
         stamp = _stamp(s)
         return (stamp.dt.date() if midnight_only else stamp).alias(name)  # all midnight: just a date
+    if kind in ("nint", "nfloat"):
+        number = pl.when(filled).then(_plain_number(_number_text(s)))
+        return number.cast(pl.Int64 if kind == "nint" else pl.Float64).alias(name)
+    if kind in ("dmy", "mdy"):
+        return _any_date(_date_text(s), day_first=kind == "dmy").alias(name)
     low = s.str.to_lowercase()
     return pl.when(low == "true").then(True).when(low == "false").then(False).otherwise(None).alias(name)
 

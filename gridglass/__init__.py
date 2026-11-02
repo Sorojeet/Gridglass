@@ -7,13 +7,15 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, request, send_from_directory
+from urllib.parse import quote
+
+from flask import Flask, jsonify, redirect, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import Config
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 log = logging.getLogger("gridglass")
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
@@ -42,7 +44,8 @@ def create_app(config: type[Config] = Config, **overrides: Any) -> Flask:
     if not app.debug and not app.testing:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-    from .limits import limiter
+    from .engine import GridglassError
+    from .limits import from_config, limiter
 
     limiter.init_app(app)
 
@@ -78,14 +81,38 @@ def create_app(config: type[Config] = Config, **overrides: Any) -> Flask:
         resp.headers["Cache-Control"] = "no-cache"
         return resp
 
+    @app.post("/share")
+    @limiter.limit(from_config("RATE_LIMIT_UPLOADS"))
+    def share():
+        """A file shared from another app (WhatsApp, Files, email…) to the installed app.
+
+        It's uploaded here, then the app opens on the home screen ready for a tool.
+        """
+        if request.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):
+            return redirect("/", 303)  # only the phone's share sheet (or Gridglass itself) may post here
+        file = request.files.get("file")
+        if file is None or not file.filename:
+            return _share_failed("No file came through. Try sharing it again.")
+        try:
+            meta = store.create(file.stream, file.filename)
+        except GridglassError as exc:
+            return _share_failed(str(exc))
+        return redirect(f"/#/open/{meta['id']}", 303)
+
+    def _share_failed(message: str):
+        return redirect(f"/#/open?error={quote(message)}", 303)
+
+    messages = {
+        413: f"This file is larger than the {app.config['MAX_UPLOAD_MB']} MB limit.",
+        429: "You're going a bit fast — please wait a minute and try again.",
+    }
+
     @app.errorhandler(HTTPException)
     def http_error(exc: HTTPException):
+        if request.path == "/share" and exc.code in messages:
+            return _share_failed(messages[exc.code])
         if not request.path.startswith("/api/"):
             return exc
-        messages = {
-            413: f"This file is larger than the {app.config['MAX_UPLOAD_MB']} MB limit.",
-            429: "You're going a bit fast — please wait a minute and try again.",
-        }
         code = exc.name.lower().replace(" ", "_")
         return jsonify(error={"code": code, "message": messages.get(exc.code, exc.description)}), exc.code
 

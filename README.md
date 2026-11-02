@@ -25,7 +25,7 @@ gridglass/
   __init__.py        Flask app factory (API arrives in Phase 4)
   config.py          limits: 100 MB uploads, 200-row previews, 1-hour retention …
   engine/
-    steps.py         the 18 tools + parse_steps() validation
+    steps.py         the 19 tools + parse_steps() validation
     pipeline.py      build(), run(), preview(), profile()
     io.py            ingest (CSV/TSV/XLSX/XLS/JSON/NDJSON → Parquet), export (CSV/XLSX/JSON/PDF)
     pdf.py           table-style PDF export (ReportLab)
@@ -48,10 +48,28 @@ tests/               pytest suite
 | | `split_column` | |
 | | `add_column` (constant, combine, math) | |
 
-**Combine:** `merge` brings in columns from a second upload by matching keys (a lookup). It has every join: lookup/left, inner, full outer, right, anti (no match) and semi (has a match).
+**Combine:** `stack` (below), and `merge`, which brings in columns from a second upload by matching keys (a lookup). It has every join: lookup/left, inner, full outer, right, anti (no match) and semi (has a match).
 - It can match on up to 5 key columns.
 - "First match only" keeps one match per key when keys repeat.
 - The second file's keys are converted to this file's types, and its key columns take this file's names.
+
+**Stack files:** `stack` puts the rows of one or more other uploads under this file.
+- Columns match by name, ignoring capitals and extra spaces.
+- A column that only some files have is blank in the others; a column whose type differs between files becomes text.
+- An optional `source_column` records which file each row came from.
+
+**Numbers and dates as people type them:** on import, `₹1,23,456.50`, `Rs. 500/-`, `$1,234` and `(250)` become numbers, with either Indian or western comma grouping. `05/03/2026`, `5 Mar 2026`, `March 5, 2026` and `05-Mar-26` become dates: day-first, unless the column shows it's month-first; a column with both orders stays text.
+- Every cell must fit, and commas must be in the right places, so `1,2,3` stays text.
+- The 10-digit and leading-zero rules still apply.
+- This tidying only runs on columns the quick type check couldn't type.
+
+**Recipes:** the applied steps can be saved by name (in the browser, on that device) and run on another file from the home screen (`#/recipe/<id>`).
+- If a step doesn't fit the new file, the steps before it are kept and the user is told which one stopped.
+- Steps that use extra uploads (Merge, Stack) can't be saved, because those uploads expire.
+
+**Files from other apps:** the installed app accepts files from the phone's share sheet (`share_target` → `POST /share`) and "Open with" on computers (`file_handlers` + `launchQueue`).
+- `/share` refuses posts from other websites (`Sec-Fetch-Site`).
+- Results land on `#/open/<id>`.
 
 **Header row:** files often start with a title, a date or blank rows above the table. On import, Gridglass finds the first row that fills at least half the table's width, is about as wide as the row below it, and is mostly words, not numbers. Everything above it is skipped. Normal files keep row 1. The **Headers** button on the file card shows the top 20 rows, so the user can tap the right one or choose "No header row" (columns become Column 1, 2, 3…).
 
