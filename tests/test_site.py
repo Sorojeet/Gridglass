@@ -63,11 +63,44 @@ def test_tool_pages_open_the_right_tool(client):
     assert 'href="/#/tool/remove_duplicates"' in html
 
 
-def test_no_brand_names_on_any_page(client):
+BRANDS = ("Excel", "VLOOKUP", "XLOOKUP", "Microsoft", "Google Sheets", "Power Query")
+
+
+def test_each_tool_page_targets_one_search(client):
+    """The phrase people type is in the <title>, the <h1> and the first paragraph, and no two pages chase the same one."""
+    from gridglass.content import SEARCH
+
+    phrases = [p for p, _, _ in SEARCH.values()]
+    assert len(set(map(str.lower, phrases))) == len(phrases)
+    for t in TOOLS:
+        html = client.get(f"/tools/{t.slug}").get_data(as_text=True)
+        phrase = SEARCH[t.slug][0]
+        title = re.search(r"<title>(.*?)</title>", html, re.S).group(1)
+        h1 = re.search(r"<h1>(.*?)</h1>", html, re.S).group(1)
+        first = re.search(r"</header>\s*<p>(.*?)</p>", html, re.S).group(1)
+        assert title.startswith(phrase) and h1 == phrase, t.slug
+        assert phrase.lower() in re.sub(r"<[^>]+>", "", first).lower(), t.slug
+        assert phrase.lower() in re.search(r'<meta name="description" content="([^"]*)"', html).group(1).lower(), t.slug
+
+
+def test_other_brands_only_with_the_trademark_note(client):
+    """Other products may be named to say what Gridglass works with, but every such page carries the notice."""
+    from gridglass.content import TRADEMARKS
+
     for path in PAGES:
-        text = re.sub(r"<[^>]+>", " ", client.get(path).get_data(as_text=True))
-        for word in ("Excel", "VLOOKUP", "XLOOKUP", "Power Query", "Report Filter"):
-            assert word.lower() not in text.lower(), f"{word} on {path}"
+        html = client.get(path).get_data(as_text=True)
+        text = re.sub(r"<[^>]+>", " ", html)
+        if any(b in text for b in BRANDS):
+            assert TRADEMARKS in html, path
+
+
+def test_brands_never_name_our_tools():
+    """Our own names stay ours: no other product in a tool name or in the site name."""
+    from gridglass.content import SITE_NAME
+
+    for t in TOOLS:
+        assert not any(b.lower() in t.name.lower() for b in BRANDS), t.name
+    assert not any(b.lower() in SITE_NAME.lower() for b in BRANDS)
 
 
 def test_site_details_are_on_the_legal_pages(client):

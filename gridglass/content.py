@@ -692,7 +692,159 @@ TOOLS: list[ToolPage] = [
     ),
 ]
 
+# --------------------------------------------------------------------------- one search per page
+#
+# Each tool page answers one search: the phrase people type goes in the <title>, the <h1> and
+# the first paragraph. Other products are named only to say what files and tasks Gridglass handles
+# (see TRADEMARKS); our own tool names stay neutral.
+
+SEARCH: dict[str, tuple[str, str, str]] = {  # slug: (phrase, first paragraph, meta description)
+    "remove-duplicates": (
+        "Remove duplicate rows from a CSV or Excel file",
+        "Remove duplicate rows from a CSV or Excel file in a few taps: choose which columns decide a duplicate, keep "
+        "the first or last copy, and download a clean file. It works on your phone or computer, with no sign-up.",
+        "Remove duplicate rows from a CSV or Excel file online. Match on all or chosen columns, keep the first or last "
+        "copy, or just mark them. Free."),
+    "trim-spaces": (
+        "Remove extra spaces from CSV and Excel files",
+        "Remove extra spaces from CSV and Excel files: spaces before and after text, and double spaces inside it, "
+        "across whole columns at once, without a TRIM formula.",
+        "Remove extra spaces from CSV and Excel files online: leading, trailing and double spaces in whole columns. "
+        "Fixes filters and lookups that don't match. Free."),
+    "change-case": (
+        "Change text to uppercase, lowercase or proper case",
+        "Change text to uppercase, lowercase or proper case (Title Case) in whole columns of a CSV or Excel file, so "
+        "names, cities and codes are written one way.",
+        "Change text to uppercase, lowercase or proper case online, for whole columns of a CSV or Excel file. Free, "
+        "no formulas, works on phones."),
+    "replace-values": (
+        "Find and replace in CSV and Excel files",
+        "Find and replace in CSV and Excel files, whole cells or part of the text, in the columns you choose. It also "
+        "cleans text: remove special characters, keep only digits, or pull out an email's domain.",
+        "Find and replace in CSV and Excel files online, or clean up text: remove special characters, keep only "
+        "digits or letters, email domains. Free."),
+    "fill-blanks": (
+        "Fill blank cells with the value above",
+        "Fill blank cells with the value above (fill down), with the value below, or with something you type such as "
+        "0 or ‘Unknown’, across whole columns of a CSV or Excel file.",
+        "Fill blank cells with the value above (fill down) or a value like 0, across whole columns of a CSV or Excel "
+        "file. Free and online."),
+    "remove-blank-rows": (
+        "Delete blank rows from a CSV or Excel file",
+        "Delete blank rows from a CSV or Excel file: rows that are completely empty, or rows missing something "
+        "important such as an email or amount.",
+        "Delete blank rows from a CSV or Excel file online: empty rows, or rows missing a value in columns you choose. "
+        "Free, works on phones."),
+    "filter-rows": (
+        "Filter rows in a CSV or Excel file",
+        "Filter rows in a CSV or Excel file and download only the rows you need: by text, numbers, dates or blanks, "
+        "with values suggested from your own data.",
+        "Filter rows in a CSV or Excel file online by text, numbers, dates or blanks, with up to 20 conditions. "
+        "Download the result. Free."),
+    "sort-rows": (
+        "Sort a CSV file by multiple columns",
+        "Sort a CSV file by multiple columns: by one column first, then by others to break ties, with numbers and "
+        "dates sorted properly. Excel files work too.",
+        "Sort a CSV file by multiple columns online, A to Z or largest first, with numbers and dates sorted "
+        "correctly. Excel files work too. Free."),
+    "remove-columns": (
+        "Delete columns from a CSV file",
+        "Delete columns from a CSV file by tapping them, then download a smaller, cleaner file. Excel and JSON files "
+        "work too.",
+        "Delete columns from a CSV file online by tapping them. Excel and JSON files work too. Free, no sign-up."),
+    "choose-columns": (
+        "Reorder columns in a CSV file",
+        "Reorder columns in a CSV file by tapping them in the order you want, and leave out the rest. Excel files "
+        "work too.",
+        "Reorder columns in a CSV file online: tap columns in the order you want and drop the others. Excel files "
+        "work too. Free."),
+    "rename-columns": (
+        "Rename column headers in a CSV file",
+        "Rename column headers in a CSV file: type a new name next to any column and download. Excel files work too.",
+        "Rename column headers in a CSV file online, for clearer reports or to match another file. Excel files work "
+        "too. Free."),
+    "keep-top-rows": (
+        "Keep the first or last N rows of a CSV file",
+        "Keep the first or last N rows of a CSV file, such as the top 10 after sorting, and download just those.",
+        "Keep the first or last N rows of a CSV file online, such as a top 10 after sorting. Excel files work too. "
+        "Free."),
+    "change-type": (
+        "Convert text to numbers in CSV and Excel files",
+        "Convert text to numbers in CSV and Excel files, or text to dates, so totals, sorting and filters work. "
+        "Amounts like ‘₹1,23,456’ are usually read as numbers automatically.",
+        "Convert text to numbers in CSV and Excel files online (or text to dates), so totals and sorting work. "
+        "Handles ₹ and Indian commas. Free."),
+    "split-column": (
+        "Split one column into multiple columns",
+        "Split one column into multiple columns at a comma, space or any separator, such as a full name into first "
+        "and last name.",
+        "Split one column into multiple columns online by comma, space or any separator, like full name into first "
+        "and last name. Free."),
+    "add-column": (
+        "Add a calculated column without formulas",
+        "Add a calculated column without formulas: if-then rules, the month or financial year of a date, number "
+        "ranges, totals and ranks, or simple math between columns.",
+        "Add a calculated column without formulas: if-then rules, date parts, ranges, running totals, rank, % of "
+        "total or math. Free, online."),
+    "merge-files": (
+        "Merge two CSV files by a common column",
+        "Merge two CSV files by a common column, such as Order ID or Email, and bring over the columns you need. "
+        "If you know VLOOKUP, it does the same job without formulas, and Excel files work too.",
+        "Merge two CSV files by a common column online, like a VLOOKUP without formulas. Every join type; Excel "
+        "files work too. Free."),
+    "stack-files": (
+        "Combine multiple CSV files into one",
+        "Combine multiple CSV files into one by putting their rows one under another, even when the columns are in a "
+        "different order. Excel files work too.",
+        "Combine multiple CSV files into one online, matching columns by name. Add a column for the source file. "
+        "Excel files work too. Free."),
+    "pivot-table": (
+        "Create a pivot table from a CSV file",
+        "Create a pivot table from a CSV file online: group by any column, add up or count values, spread totals "
+        "across columns and add a Grand Total. Excel files work too.",
+        "Create a pivot table from a CSV file online: group, sum, count, filter and chart. Excel files work too. "
+        "Free, works on phones."),
+    "make-a-chart": (
+        "Make a chart from CSV or Excel data",
+        "Make a chart from CSV or Excel data in a few taps: choose what to group by and what to add up, then pick "
+        "column, bar, line, area, pie or donut.",
+        "Make a chart from CSV or Excel data online: column, bar, line, area, pie or donut, with titles, colours and "
+        "data labels. Download PNG or SVG."),
+    "unpivot": (
+        "Convert columns to rows (unpivot)",
+        "Convert columns to rows (unpivot): turn a wide table with Jan, Feb and Mar columns into a long one with "
+        "Month and Value columns.",
+        "Convert columns to rows (unpivot) online: wide tables with month or year columns become long tables, ready "
+        "to filter and chart. Free."),
+    "convert-file": (
+        "Convert Excel files to CSV online",
+        "Convert Excel files to CSV online, keeping long IDs exact and Indian text readable. It also converts CSV to "
+        "Excel, either one to JSON, and any of them to a clean PDF.",
+        "Convert Excel files to CSV online, or CSV to Excel, JSON or PDF. Long IDs stay exact. Free, no sign-up, "
+        "works on phones."),
+    "split-into-pages": (
+        "Split an Excel sheet into multiple sheets by column value",
+        "Split an Excel sheet into multiple sheets by column value, such as one sheet per city or branch, or into "
+        "files of N rows each. CSV files work too.",
+        "Split an Excel sheet into multiple sheets by column value online, or into separate files of N rows. PDF "
+        "pages too. Free."),
+}
+
+
+def _for_search(t: ToolPage) -> ToolPage:
+    from dataclasses import replace
+
+    phrase, lead, description = SEARCH[t.slug]
+    return replace(t, title=phrase, description=description, intro=[lead, *t.intro])
+
+
+TOOLS = [_for_search(t) for t in TOOLS]
 TOOL_BY_SLUG = {t.slug: t for t in TOOLS}
+
+#: Shown on every information page. Other products are named only to describe what Gridglass works with.
+TRADEMARKS = ("Microsoft and Excel are trademarks of the Microsoft group of companies. Google Sheets is a trademark "
+              "of Google LLC. Gridglass is independent and is not affiliated with, endorsed by or sponsored by "
+              "Microsoft or Google.")
 
 
 # --------------------------------------------------------------------------- guides

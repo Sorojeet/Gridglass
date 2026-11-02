@@ -49,6 +49,7 @@
         {% for endpoint, label in pages %}<a href="{{ url_for(endpoint) }}">{{ label }}</a>{% endfor %}
       </nav>
       <p class="site-copy">© {{ year }} {{ site.SITE_NAME }} · Made in {{ site.CITY }}, India</p>
+      <p class="site-tm">{{ site.TRADEMARKS }}</p>
     </div>
   </footer>
   <script src="/static/js/site.js" nonce="{{ nonce }}"></script>

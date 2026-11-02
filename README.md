@@ -159,6 +159,14 @@ Server-rendered pages (Jinja, `gridglass/site.py`, `templates/site/`, words in `
 - `/about`, `/contact`, `/privacy` and `/terms`.
 - `/sitemap.xml`, `/robots.txt` and `/ads.txt`.
 
+**One search per tool page (1.12):** `content.SEARCH` gives each tool page the phrase people type, such as "Merge two CSV files by a common column". The phrase is the `<title>`, the `<h1>`, the start of the meta description and part of the first paragraph; tests check all four and that no two pages share a phrase.
+
+**Naming other products (1.12):**
+- Information pages may name other products (Excel, VLOOKUP, Google Sheets) in plain text, to say truthfully what files and tasks Gridglass handles, e.g. "Excel files work too".
+- They are never used in our tool names, the site name or the domain, never with their logos, and never in a way that suggests endorsement.
+- Every page that names one carries `content.TRADEMARKS` in the footer (the Terms page has it too).
+- The app's own screens stay neutral.
+
 Tool icons and short descriptions are read from `static/js/tools.js`, so they never drift from the app. With `ADSENSE_CLIENT` set, these pages load ads under a nonce-based CSP (`'strict-dynamic'`); the app itself keeps the strict CSP and never loads ad code.
 
 ## Deploy
