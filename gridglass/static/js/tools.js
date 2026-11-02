@@ -38,6 +38,7 @@ export const icon = (name, cls = '') =>
   `<svg class="ico ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name] ?? name}</svg>`;
 
 export const UI = {
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.6M12 17.2v.1"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
   recipe: '<path d="M6 3h12v18l-6-4-6 4z"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
@@ -424,6 +425,15 @@ export const TOOLS = [
 ];
 
 export const TOOL = Object.fromEntries(TOOLS.map((t) => [t.op, t]));
+
+/** Each tool's page on the site (/tools/<slug>): what it does, when to use it, an example. */
+export const PAGE = {
+  remove_duplicates: 'remove-duplicates', trim: 'trim-spaces', change_case: 'change-case', replace_values: 'replace-values',
+  fill_blanks: 'fill-blanks', remove_blank_rows: 'remove-blank-rows', filter_rows: 'filter-rows', sort_rows: 'sort-rows',
+  remove_columns: 'remove-columns', keep_columns: 'choose-columns', rename_columns: 'rename-columns', keep_rows: 'keep-top-rows',
+  change_type: 'change-type', split_column: 'split-column', add_column: 'add-column', merge: 'merge-files', stack: 'stack-files',
+  pivot: 'pivot-table', unpivot: 'unpivot', convert: 'convert-file', split_pages: 'split-into-pages',
+};
 
 export const FORMATS = [['xlsx', 'Spreadsheet (.xlsx)'], ['csv', 'CSV (.csv)'], ['json', 'JSON (.json)'], ['pdf', 'PDF (.pdf)']];
 

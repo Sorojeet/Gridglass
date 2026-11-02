@@ -1023,3 +1023,14 @@ def test_app_links_to_information_pages(phone):
     expect(page.locator("h1")).to_have_text("Privacy policy")
     page.click(".site-top .brand")
     expect(page.locator(".tool-card").first).to_be_visible()
+
+
+def test_guides_are_easy_to_find(phone):
+    page = phone.open("/")
+    expect(page.locator(".topbar .top-link")).to_have_text("Guides")
+    page.goto(phone.base + "/#/tool/pivot")
+    expect(page.locator(".intro-link")).to_have_attribute("href", "/tools/pivot-table")
+    page.click('[data-action="sample"]')
+    page.wait_for_selector("#pv table")
+    page.click('.topbar a[aria-label="How to use Pivot table"]')
+    expect(page.locator("h1")).to_contain_text("pivot table")

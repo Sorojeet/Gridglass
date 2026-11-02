@@ -162,3 +162,12 @@ def test_redirect_leaves_some_requests_alone(ads, client):
     assert ads.get("/tools", base_url="https://gridglass.in").status_code == 200
     assert ads.get("/tools", base_url="https://example.com").status_code == 200              # other hosts: untouched
     assert client.get("/tools", base_url="https://www.gridglass.in").status_code == 200       # not configured: untouched
+
+
+def test_app_help_links_match_the_tool_pages():
+    from pathlib import Path
+
+    src = (Path(__file__).parents[1] / "gridglass" / "static" / "js" / "tools.js").read_text()
+    block = re.search(r"export const PAGE = \{(.*?)\};", src, re.S).group(1)
+    pages = dict(re.findall(r"(\w+): '([\w-]+)'", block))
+    assert pages == {t.op: t.slug for t in TOOLS}
