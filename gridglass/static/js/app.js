@@ -124,6 +124,13 @@ async function boot() {
   }
   window.addEventListener('hashchange', route);
   route();
+  // Installed on a computer: "Open with Gridglass" on a CSV or spreadsheet file lands here.
+  if ('launchQueue' in window) {
+    window.launchQueue.setConsumer(async ({ files }) => {
+      if (!files?.length) return;
+      try { await openFromDevice(await files[0].getFile()); } catch (err) { toast(err.message, 'error'); }
+    });
+  }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
 
@@ -137,6 +144,7 @@ let firstRoute = true;
 
 function route() {
   const h = location.hash;
+  if (h.startsWith('#/open')) { openShared(h); return; }
   const tool = h.match(/^#\/tool\/([a-z_]+)/);
   const edit = h.match(/^#\/edit\/(\d+)$/);
   if (h === '#/result' && state.file) showResult();
@@ -1329,6 +1337,39 @@ async function changeSheet(sheet) {
     await enterOptions();
     if (res.file.header_row > 0) toast(`Skipped ${plural(res.file.header_row, 'row')} above the column names.`);
   } catch (err) { toast(err.message, 'error'); }
+}
+
+// ---------------------------------------------------------------------------- files from other apps
+
+/** A file shared to Gridglass from another app arrives as #/open/<id> (or #/open?error=…). */
+async function openShared(hash) {
+  const id = hash.match(/^#\/open\/([A-Za-z0-9_-]{22})$/)?.[1];
+  const error = new URLSearchParams(hash.split('?')[1] || '').get('error');
+  history.replaceState(null, '', '#/');
+  renderHome();
+  if (!id) { toast(error || "Couldn't open that file.", 'error'); return; }
+  try {
+    const meta = (await api(`/files/${id}`)).file;
+    if (state.file && state.file.id !== meta.id) forget();
+    remember(meta);
+    renderHome();
+    toast(`${meta.filename} is ready. Pick a tool.`);
+  } catch (err) {
+    toast(err.status === 404 ? 'That file has expired. Please share it again.' : err.message, 'error');
+  }
+}
+
+async function openFromDevice(file) {
+  if (file.size > config.max_upload_mb * 1024 * 1024) {
+    toast(`That file is ${(file.size / 1048576).toFixed(1)} MB. The limit is ${config.max_upload_mb} MB.`, 'error');
+    return;
+  }
+  toast(`Opening ${file.name}…`);
+  const res = await uploadFile(file, () => {});
+  if (state.file) forget();
+  remember(res.file);
+  if (location.hash && location.hash !== '#/') location.hash = '#/'; else renderHome();
+  toast(`${res.file.filename} is ready. Pick a tool.`);
 }
 
 function forget() {

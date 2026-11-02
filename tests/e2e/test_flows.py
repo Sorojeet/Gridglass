@@ -883,3 +883,35 @@ def test_bottom_button_stays_above_options_while_typing(phone):
     hit = page.evaluate("([x, y]) => !!document.elementFromPoint(x, y)?.closest('.action-bar')",
                         [box["x"] + box["width"] / 2, box["y"] + box["height"] / 2])
     assert hit, "the options form covered the bottom button"
+
+
+# ----------------------------------------------------------------------------- files shared from other apps
+
+def test_shared_file_opens_on_home(phone):
+    import urllib.request, uuid
+
+    boundary = uuid.uuid4().hex
+    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"shared.csv\"\r\n"
+            f"Content-Type: text/csv\r\n\r\nName,City\nAsha,Pune\n\r\n--{boundary}--\r\n").encode()
+    req = urllib.request.Request(phone.base + "/share", data=body, method="POST",
+                                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k):
+            return None
+
+    try:
+        urllib.request.build_opener(NoRedirect).open(req)
+    except urllib.error.HTTPError as exc:
+        location = exc.headers["Location"]
+    page = phone.open(location)
+    expect(page.locator(".working")).to_contain_text("shared.csv")
+    expect(page.locator("#toast")).to_contain_text("shared.csv is ready")
+    assert page.evaluate("location.hash") == "#/"
+    page.click('a[href="#/tool/sort_rows"]')
+    expect(page.locator(".file-chip")).to_contain_text("shared.csv")
+
+
+def test_shared_file_error_is_shown(phone):
+    page = phone.open("/#/open?error=" + "This%20file%20is%20empty.")
+    expect(page.locator("#toast")).to_contain_text("This file is empty.")

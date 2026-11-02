@@ -432,3 +432,39 @@ def test_columns_and_values_before_a_step(client, file_id):
     vals = client.get(f"/api/v1/files/{file_id}/values?column=Name&upto=0").get_json()["values"]
     assert "  Asha " in [v["value"] for v in vals]                   # before trim
     assert client.get(f"/api/v1/files/{file_id}/columns?upto=x").status_code == 400
+
+
+# --------------------------------------------------------------------------- files shared from other apps
+
+def _share(client, content=CSV, name="orders.csv", **headers):
+    return client.post("/share", data={"file": (io.BytesIO(content), name)}, content_type="multipart/form-data",
+                       headers=headers)
+
+
+def test_share_opens_the_file(client):
+    r = _share(client, **{"Sec-Fetch-Site": "none"})
+    assert r.status_code == 303 and r.location.startswith("/#/open/")
+    fid = r.location.rsplit("/", 1)[1]
+    assert client.get(f"/api/v1/files/{fid}").get_json()["file"]["filename"] == "orders.csv"
+
+
+def test_share_errors_come_back_as_a_message(client):
+    r = _share(client, b"%PDF-1.7", "notes.pdf")
+    assert r.status_code == 303 and r.location.startswith("/#/open?error=") and "pdf" in r.location
+    r = client.post("/share", data={}, content_type="multipart/form-data")
+    assert "error=" in r.location
+    r = _share(client, b"x" * 300_000, "big.csv")  # over this test app's 0.2 MB limit
+    assert r.status_code == 303 and "limit" in r.location
+
+
+def test_share_refuses_other_websites(client, app):
+    r = _share(client, **{"Sec-Fetch-Site": "cross-site"})
+    assert r.status_code == 303 and r.location == "/"
+    assert not any((Path(app.config["DATA_DIR"])).iterdir())
+
+
+def test_manifest_accepts_shared_files(client):
+    m = json.loads(client.get("/static/manifest.webmanifest").data)
+    assert m["share_target"]["action"] == "/share" and m["share_target"]["params"]["files"][0]["name"] == "file"
+    assert ".xlsx" in m["share_target"]["params"]["files"][0]["accept"]
+    assert m["file_handlers"][0]["accept"]["text/csv"] == [".csv"]
