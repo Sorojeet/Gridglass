@@ -1006,7 +1006,7 @@ def test_recipes_with_extra_files_cannot_be_saved(phone, tmp_path):
 
 def test_tool_page_leads_into_the_app(phone):
     page = phone.open("/tools/stack-files")
-    expect(page.locator("h1")).to_contain_text("Combine CSV and spreadsheet files")
+    expect(page.locator("h1")).to_contain_text("Combine multiple CSV files into one")
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
     before = page.evaluate("document.documentElement.dataset.theme")
     page.click('[data-action="theme"]')

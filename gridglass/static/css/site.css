@@ -92,3 +92,4 @@ main.site-main { max-width: 1080px; width: 100%; box-sizing: border-box; padding
 .site-copy { font-size: 13px; color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) { .guide-card:hover { transform: none; } }
+.site-tm { font-size: 12px; color: var(--muted); max-width: 60em; }
