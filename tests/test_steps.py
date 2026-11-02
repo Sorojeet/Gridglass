@@ -300,6 +300,36 @@ def test_unpivot_mixed_types(orders, apply):
     assert out.height == 12 and out["Value"].dtype == pl.String
 
 
+def test_transpose_names_columns_from_a_column(apply):
+    lf = pl.LazyFrame({"Product": ["Tea", "Coffee", None, "Tea"], "Jan": [120, 90, 5, 1], "Feb": [135, 80, 6, 2]})
+    out = apply(lf, {"op": "unpivot", "mode": "transpose", "header": "Product"})
+    assert out.columns == ["Product", "Tea", "Coffee", "Column 3", "Tea (2)"]  # blanks numbered, repeats marked
+    assert out["Product"].to_list() == ["Jan", "Feb"]
+    assert out["Tea"].dtype == pl.Int64 and out["Coffee"].to_list() == [90, 80]  # numbers come back as numbers
+
+
+def test_transpose_without_a_header_column(apply):
+    lf = pl.LazyFrame({"Name": ["A", "B"], "Score": [1, 2]})
+    out = apply(lf, {"op": "unpivot", "mode": "transpose"})
+    assert out.columns == ["Field", "Column 1", "Column 2"]
+    assert out.rows() == [("Name", "A", "B"), ("Score", "1", "2")]  # mixed columns stay text
+    back = apply(out.lazy(), {"op": "unpivot", "mode": "transpose", "header": "Field"})
+    assert back.columns == ["Field", "Name", "Score"] and back["Score"].dtype == pl.Int64
+
+
+def test_transpose_has_a_row_limit(apply):
+    from gridglass.engine import StepError
+
+    lf = pl.LazyFrame({"x": list(range(501))})
+    with pytest.raises(StepError, match="up to 500 rows"):
+        apply(lf, {"op": "unpivot", "mode": "transpose"})
+
+
+def test_unpivot_still_needs_columns_to_keep():
+    with pytest.raises(Exception, match="keep"):
+        parse_steps([{"op": "unpivot"}])
+
+
 # --------------------------------------------------------------------------- chaining
 
 def test_realistic_recipe(orders, apply):

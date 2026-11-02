@@ -299,12 +299,22 @@ def test_keep_rows_and_unpivot(phone):
     apply(page)
     page.goto(phone.base + "/#/tool/unpivot")
     page.wait_for_selector("#opts")
+    page.click('[data-seg="mode"][data-val="unpivot"]')
     page.click('[data-seg="columns__mode"][data-val="some"]')
     page.click('[data-field="columns"] [data-col="City"]')
     page.click('[data-field="columns"] [data-col="Amount"]')
     apply(page)
     rows = result_json(page)
     assert len(rows) == 6 and {"Attribute", "Value"} <= set(rows[0])
+
+
+def test_transpose(phone):
+    page = phone.upload_sample("unpivot")                       # opens on Flip rows and columns
+    page.select_option("#f-header", "Order ID")
+    apply(page)
+    rows = result_json(page)
+    assert list(rows[0])[0] == "Order ID" and rows[0]["Order ID"] == "Customer"
+    assert len(rows[0]) > 2 and "Order ID" not in [r["Order ID"] for r in rows]  # each order is now a column
 
 
 @pytest.mark.parametrize("fmt, magic", [("csv", b"\xef\xbb\xbf"), ("xlsx", b"PK"), ("json", b"["), ("pdf", b"%PDF")])

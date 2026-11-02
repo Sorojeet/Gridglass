@@ -16,7 +16,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import Config
 
-__version__ = "1.12.0"
+__version__ = "1.13.0"
 log = logging.getLogger("gridglass")
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 

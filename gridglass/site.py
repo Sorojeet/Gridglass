@@ -10,7 +10,7 @@ import re
 import secrets
 from datetime import date
 
-from flask import Blueprint, Response, abort, current_app, g, render_template, request, url_for
+from flask import Blueprint, Response, abort, current_app, g, redirect, render_template, request, url_for
 from markupsafe import Markup
 
 from . import content
@@ -98,6 +98,8 @@ def tools_index():
 
 @bp.get("/tools/<slug>")
 def tool(slug):
+    if slug in content.MOVED:  # an old address: keep links and search results working
+        return redirect(url_for("site.tool", slug=content.MOVED[slug]), code=301)
     t = TOOL_BY_SLUG.get(slug) or abort(404)
     return page("site/tool.html", tool=t, related=[TOOL_BY_SLUG[s] for s in t.related if s in TOOL_BY_SLUG],
                 guides_for=[gd for gd in GUIDES if slug in gd.tools])
