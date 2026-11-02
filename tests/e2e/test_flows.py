@@ -13,7 +13,7 @@ from playwright.sync_api import expect
 ALL_OPS = [
     "remove_duplicates", "trim", "change_case", "replace_values", "fill_blanks", "remove_blank_rows",
     "filter_rows", "sort_rows", "remove_columns", "keep_columns", "rename_columns", "keep_rows",
-    "change_type", "split_column", "add_column", "merge", "stack", "pivot", "unpivot", "convert", "split_pages",
+    "change_type", "split_column", "add_column", "merge", "stack", "pivot", "chart", "unpivot", "convert", "split_pages",
 ]
 SAMPLE_ROWS = 45  # the built-in sample: 40 orders + 5 exact duplicates
 
@@ -48,7 +48,7 @@ def test_home_lists_every_tool_and_searches(phone):
     expect(page.locator(".empty")).to_contain_text("No tool matches")
     page.fill("#q", "")
     page.click('[data-cat="summarize"]')
-    expect(page.locator(".tool-card")).to_have_count(2)
+    expect(page.locator(".tool-card")).to_have_count(3)
     expect(page.locator('[data-cat="summarize"]')).to_have_attribute("aria-pressed", "true")
 
 
@@ -1170,3 +1170,49 @@ def test_headers_for_a_stacked_file(phone, tmp_path):
     page.locator("#header-pick3 .hp-row").nth(0).click()        # use the title line as headers instead
     expect(page.locator("#toast")).to_contain_text("row 1")
     expect(page.locator(".stack-list li")).to_contain_text("3 rows")
+
+
+# ----------------------------------------------------------------------------- charts (1.10)
+
+def test_make_a_chart_opens_on_the_chart(phone):
+    page = phone.open("/")
+    page.click('a[href="#/tool/chart"]')
+    expect(page.locator(".intro h1")).to_have_text("Make a chart")
+    page.click('[data-action="sample"]')
+    expect(page.locator(".topbar-title")).to_have_text("Make a chart")
+    expect(page.locator("#tab-chart")).to_have_attribute("aria-selected", "true")
+    expect(page.locator("#chart-panel")).to_be_visible()
+    expect(page.locator("#pv")).to_be_hidden()
+    expect(page.locator("#chart svg")).to_be_visible()
+
+
+def test_chart_customisation(phone):
+    page = phone.upload_sample("pivot")
+    page.click("#tab-chart")
+    expect(page.locator("#chart svg")).to_be_visible()
+    page.locator("#chart-custom summary").click()
+    page.fill("#ch-title", "Orders by city")
+    page.fill("#ch-x", "City")
+    page.fill("#ch-y", "Orders")
+    expect(page.locator("#chart svg")).to_contain_text("Orders by city")
+    page.click('[data-palette="sunset"]')
+    expect(page.locator("#chart svg rect.grow-y").first).to_have_attribute("fill", "#EA580C")
+    page.locator("label.toggle", has_text="Show values").click()
+    page.click('[data-seg="chsort"][data-val="desc"]')
+    page.click('[data-seg="chtop"][data-val="5"]')
+    bars = page.locator("#chart svg rect.grow-y")
+    expect(bars).to_have_count(6)                                    # the top 5, plus "Other" for the rest
+    expect(page.locator("#chart svg")).to_contain_text("Other (")
+    page.click('[data-seg="chshape"][data-val="square"]')
+    expect(page.locator("#chart svg")).to_have_attribute("viewBox", "0 0 560 560")
+    for kind in ("area", "donut"):
+        page.click(f'[data-seg="charttype"][data-val="{kind}"]')
+        expect(page.locator("#chart svg")).to_be_visible()
+    expect(page.locator("#chart svg")).to_contain_text("Total")       # the donut's middle
+    with page.expect_download() as dl:
+        page.click('[data-chart-save="svg"]')
+    svg = Path(dl.value.path()).read_text()
+    assert "Orders by city" in svg and 'viewBox="0 0 560 560"' in svg and dl.value.suggested_filename.startswith("Orders by city-donut")
+    page.click("[data-chart-reset]")
+    expect(page.locator('[data-palette="theme"]')).to_have_attribute("aria-pressed", "true")
+    expect(page.locator("#ch-title")).to_have_value("Orders by city")  # words are kept

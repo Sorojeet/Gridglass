@@ -106,7 +106,7 @@ class Phone:
     def upload_sample(self, tool="remove_duplicates"):
         page = self.open(f"/#/tool/{tool}")
         page.click('[data-action="sample"]')
-        page.wait_for_selector("#pv table")
+        page.wait_for_selector("#chart svg, #chart .empty" if tool == "chart" else "#pv table")  # Make a chart opens on its chart
         return page
 
 
