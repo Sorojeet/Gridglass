@@ -1247,15 +1247,25 @@ def test_pivot_filter_and_percentage_labels(phone):
     page.locator("#chart-custom summary").click()
     page.click('[data-seg="charttype"][data-val="pie"]')
     page.locator("label.toggle", has_text="Show data labels").click()
-    expect(page.locator('[data-seg="chlabel"][data-val="percent"]')).to_have_attribute("aria-pressed", "true")  # pies default to %
-    page.click('[data-seg="chlabel"][data-val="both"]')
+    for part, on in (("name", "true"), ("value", "false"), ("percent", "true")):    # pies default to name + %
+        expect(page.locator(f'[data-labelpart="{part}"]')).to_have_attribute("aria-pressed", on)
     labels = page.locator("#chart svg text[fill='#FFFFFF']")
     expect(labels.first).to_be_visible()
+    texts = labels.all_text_contents()
+    assert any(t.endswith("%") for t in texts) and any(t.startswith(("Asha", "Ravi", "Priya", "meera", "Dev", "(blank")) for t in texts)
+    page.click('[data-labelpart="value"]')                                       # name + value + %
+    expect(page.locator('[data-labelpart="value"]')).to_have_attribute("aria-pressed", "true")
+    page.click('[data-labelpart="name"]')
+    page.click('[data-labelpart="percent"]')
+    page.click('[data-labelpart="value"]')                                       # the last one can't be turned off
+    expect(page.locator('[data-labelpart="value"]')).to_have_attribute("aria-pressed", "true")
+    page.click('[data-labelpart="percent"]')
     texts = labels.all_text_contents()
     assert any(t.endswith("%") for t in texts) and any(not t.endswith("%") for t in texts)   # value and % lines
     shares = [float(t.split("%")[0]) for t in page.locator("#chart svg text[text-anchor='end']").all_text_contents() if "%" in t]
     assert shares == sorted(shares, reverse=True) and len(shares) >= 2           # biggest slice first in the legend
     page.click('[data-seg="charttype"][data-val="column"]')
+    expect(page.locator('[data-labelpart="name"]')).to_be_hidden()               # names are on the axis already
     expect(page.locator("#chart svg")).to_contain_text("%")
     apply(page)
     step = page.evaluate("""async () => {

@@ -2,7 +2,7 @@ import {
   AGG_FUNCS, CATS, FORMATS, JOINS, NO_VALUE_OPS, OPERATORS, PAGE, TOOL, TOOLS, TYPES, UI, defaults, icon, incomplete, suggestFor,
   toDraft, toStep,
 } from './tools.js';
-import { DEFAULT_OPTIONS, MAX_CATEGORIES, PALETTES, arrange, chartData, chartSVG, labelMode, saveChart, themeColors } from './chart.js';
+import { DEFAULT_OPTIONS, MAX_CATEGORIES, PALETTES, arrange, chartData, chartSVG, labelParts, saveChart, themeColors } from './chart.js';
 
 const API = '/api/v1';
 const desktop = window.matchMedia('(min-width: 1024px)');
@@ -1163,7 +1163,7 @@ function chartCustomiser() {
       <div class="field toggles">
         ${toggle('labels', 'Show data labels on the chart')}
         <div class="field" id="ch-labelas" ${c.labels ? '' : 'hidden'}><span class="field-label">Labels show</span>
-          ${seg('chlabel', [['value', 'Value'], ['percent', '%'], ['both', 'Value + %']], labelMode(c), 'Labels show')}</div>
+          <div class="label-parts" role="group" aria-label="Labels show">${labelChips(c)}</div></div>
         ${toggle('legend', 'Show the legend')}
         ${toggle('grid', 'Show grid lines')}
         <span id="ch-stack-wrap">${toggle('stacked', 'Stack the series')}</span>
@@ -1173,7 +1173,15 @@ function chartCustomiser() {
   </details>`;
 }
 
-const SEG_OPT = { chsort: 'sort', chtop: 'top', chnum: 'numbers', chshape: 'shape', chlabel: 'labelAs' };
+const SEG_OPT = { chsort: 'sort', chtop: 'top', chnum: 'numbers', chshape: 'shape' };
+
+/** Name / Value / % switches for the data labels; Name only on pies and donuts (other charts have an axis). */
+function labelChips(c) {
+  const on = labelParts(c);
+  const round = c.type === 'pie' || c.type === 'donut';
+  return [['name', 'Name'], ['value', 'Value'], ['percent', '%']].map(([k, l]) => `<button type="button" class="col-chip"
+    data-labelpart="${k}" aria-pressed="${on[k]}" ${k === 'name' && !round ? 'hidden' : ''}><span>${l}</span></button>`).join('');
+}
 
 function wireChart() {
   const tabs = [$('#tab-table'), $('#tab-chart')];
@@ -1205,10 +1213,19 @@ function wireChart() {
       pressSeg(b);
       if (b.dataset.seg === 'charttype') {
         state.chart.type = b.dataset.val;
-        const pick = $(`[data-seg="chlabel"][data-val="${labelMode(state.chart)}"]`);
-        if (pick) pressSeg(pick);
+        const chips = $('.label-parts');
+        if (chips) chips.innerHTML = labelChips(state.chart);
       }
       else state.chart[SEG_OPT[b.dataset.seg]] = b.dataset.seg === 'chtop' ? Number(b.dataset.val) : b.dataset.val;
+      renderChart();
+    } else if (b.dataset.labelpart) {
+      const round = state.chart.type === 'pie' || state.chart.type === 'donut';
+      const on = labelParts(state.chart);
+      on[b.dataset.labelpart] = !on[b.dataset.labelpart];
+      const list = Object.keys(on).filter((k) => on[k] && (k !== 'name' || round));
+      if (!list.length) return; // keep at least one
+      state.chart.labelAs = list;
+      $('.label-parts').innerHTML = labelChips(state.chart);
       renderChart();
     } else if (b.dataset.palette) {
       state.chart.palette = b.dataset.palette;

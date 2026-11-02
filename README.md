@@ -96,7 +96,7 @@ Conversion is not a step. Import any supported format and export as CSV (with a 
   - short (1.2L) or full numbers
   - wide, square or tall shape
 - Downloads (SVG, or PNG at 2×) match the preview.
-- Data labels show the value, the % or both (1.11). The % is a slice's share on pies; on other charts it's a share of the series, or of the stack when stacked.
+- Data labels show any mix of name (pies and donuts only), value and % (1.11; `labelAs` is a list such as `['name', 'percent']`, the pie default). The % is a slice's share on pies; on other charts it's a share of the series, or of the stack when stacked.
 - Pivot `filters` (conditions, `filter_match`) limit rows before grouping (1.11).
 - The **Make a chart** card (`op: 'chart'`, `opens: 'pivot'`) opens the Pivot table tool on its Chart tab.
 
