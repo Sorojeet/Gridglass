@@ -815,12 +815,18 @@ class Pivot(Step):
     columns: Col | None = None                                        # Columns (optional)
     values: Annotated[list[Aggregation], Field(max_length=20)] = []   # Values (default: count)
     totals: bool = False                                              # Grand Total row
+    filters: Annotated[list[Condition], Field(max_length=20)] = []    # only count rows that match (before grouping)
+    filter_match: Literal["all", "any"] = "all"
     max_columns: ClassVar[int] = MAX_PIVOT_COLUMNS
     TOTAL_LABEL: ClassVar[str] = "Grand Total"
     BLANK: ClassVar[str] = "(blank)"
     SEP: ClassVar[str] = " · "
 
     def apply(self, lf, schema):
+        if self.filters:  # e.g. only City is Pune: totals and the Grand Total count just those rows
+            need(schema, [c.column for c in self.filters])
+            hits = [c.expr(schema) for c in self.filters]
+            lf = lf.filter(pl.all_horizontal(hits) if self.filter_match == "all" else pl.any_horizontal(hits))
         aggs = list(self.values) or [Aggregation(func="count_rows")]
         keys = self.rows + ([self.columns] if self.columns else [])
         need(schema, keys + [a.column for a in aggs if a.column])

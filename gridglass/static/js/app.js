@@ -2,7 +2,7 @@ import {
   AGG_FUNCS, CATS, FORMATS, JOINS, NO_VALUE_OPS, OPERATORS, PAGE, TOOL, TOOLS, TYPES, UI, defaults, icon, incomplete, suggestFor,
   toDraft, toStep,
 } from './tools.js';
-import { DEFAULT_OPTIONS, MAX_CATEGORIES, PALETTES, arrange, chartData, chartSVG, saveChart, themeColors } from './chart.js';
+import { DEFAULT_OPTIONS, MAX_CATEGORIES, PALETTES, arrange, chartData, chartSVG, labelMode, saveChart, themeColors } from './chart.js';
 
 const API = '/api/v1';
 const desktop = window.matchMedia('(min-width: 1024px)');
@@ -788,9 +788,10 @@ const FIELD = {
   toggle: (f, v) => `<label class="toggle"><input type="checkbox" data-key="${f.key}" ${v ? 'checked' : ''}><span class="switch" aria-hidden="true"></span><span>${esc(f.label)}</span></label>`,
   conditions(f, rows) {
     const key = f.key;
-    const p = key === 'conditions' ? 'c' : 'r'; // element ids: c0col (filter), r0col (if-then rules)
-    const noun = f.then ? 'rule' : 'condition';
-    return `${rows.map((c, i) => `<div class="row-card glass${f.then ? ' rule' : ''}">
+    const p = { conditions: 'c', rules: 'r', filters: 'pf' }[key] ?? key; // ids: c0col (filter), r0col (rules), pf0col (pivot)
+    const noun = f.noun ?? (f.then ? 'rule' : 'condition');
+    const empty = f.optional && !rows.length ? `<p class="hint">${esc(f.emptyHint ?? 'None yet.')}</p>` : '';
+    return `${empty}${rows.map((c, i) => `<div class="row-card glass${f.then ? ' rule' : ''}">
       <div class="row-grid">
         ${f.then ? `<span class="rule-word" aria-hidden="true">${i ? 'Else if' : 'If'}</span>` : ''}
         <label class="sr-only" for="${p}${i}col">Column</label>
@@ -810,7 +811,7 @@ const FIELD = {
         ${f.then ? `<label class="rule-then" for="${p}${i}then"><span>then</span>
           <input class="input" id="${p}${i}then" data-list="${key}" data-i="${i}" data-prop="then" value="${esc(c.then ?? '')}" placeholder="e.g. High" autocomplete="off"></label>` : ''}
       </div>
-      ${rows.length > 1 ? `<button type="button" class="icon-btn small" data-remove="${key}" data-i="${i}" aria-label="Remove ${noun} ${i + 1}">${ui('trash')}</button>` : ''}
+      ${rows.length > 1 || f.optional ? `<button type="button" class="icon-btn small" data-remove="${key}" data-i="${i}" aria-label="Remove ${noun} ${i + 1}">${ui('trash')}</button>` : ''}
     </div>`).join('')}
     <button type="button" class="btn btn-secondary btn-sm" data-add="${key}">${ui('plus')} Add ${noun}</button>`;
   },
@@ -907,6 +908,7 @@ const NEW_ROW = {
   keys: () => ({ left: state.cols[0]?.name ?? '', right: state.otherCols[0]?.name ?? '' }),
   conditions: () => ({ column: state.cols[0]?.name ?? '', operator: 'equals', value: '' }),
   rules: () => ({ column: state.cols[0]?.name ?? '', operator: 'equals', value: '', then: '' }),
+  filters: () => ({ column: (state.cols.find((c) => c.type === 'text') ?? state.cols[0])?.name ?? '', operator: 'equals', value: '' }),
   by: () => ({ column: state.cols[0]?.name ?? '', order: 'asc' }),
   aggs: () => ({ func: 'sum', column: colsFor('number')[0]?.name ?? '' }),
   types: () => ({ column: state.cols[0]?.name ?? '', to: 'text' }),
@@ -1159,7 +1161,9 @@ function chartCustomiser() {
       <div class="field"><span class="field-label">Shape</span>
         ${seg('chshape', [['wide', 'Wide'], ['square', 'Square'], ['tall', 'Tall']], c.shape, 'Shape')}</div>
       <div class="field toggles">
-        ${toggle('labels', 'Show values on the chart')}
+        ${toggle('labels', 'Show data labels on the chart')}
+        <div class="field" id="ch-labelas" ${c.labels ? '' : 'hidden'}><span class="field-label">Labels show</span>
+          ${seg('chlabel', [['value', 'Value'], ['percent', '%'], ['both', 'Value + %']], labelMode(c), 'Labels show')}</div>
         ${toggle('legend', 'Show the legend')}
         ${toggle('grid', 'Show grid lines')}
         <span id="ch-stack-wrap">${toggle('stacked', 'Stack the series')}</span>
@@ -1169,7 +1173,7 @@ function chartCustomiser() {
   </details>`;
 }
 
-const SEG_OPT = { chsort: 'sort', chtop: 'top', chnum: 'numbers', chshape: 'shape' };
+const SEG_OPT = { chsort: 'sort', chtop: 'top', chnum: 'numbers', chshape: 'shape', chlabel: 'labelAs' };
 
 function wireChart() {
   const tabs = [$('#tab-table'), $('#tab-chart')];
@@ -1199,7 +1203,11 @@ function wireChart() {
     if (!b) return;
     if (b.dataset.seg === 'charttype' || SEG_OPT[b.dataset.seg]) {
       pressSeg(b);
-      if (b.dataset.seg === 'charttype') state.chart.type = b.dataset.val;
+      if (b.dataset.seg === 'charttype') {
+        state.chart.type = b.dataset.val;
+        const pick = $(`[data-seg="chlabel"][data-val="${labelMode(state.chart)}"]`);
+        if (pick) pressSeg(pick);
+      }
       else state.chart[SEG_OPT[b.dataset.seg]] = b.dataset.seg === 'chtop' ? Number(b.dataset.val) : b.dataset.val;
       renderChart();
     } else if (b.dataset.palette) {
@@ -1231,6 +1239,7 @@ function wireChart() {
       typing = setTimeout(renderChart, 250);
     } else if (el.dataset.chartOpt) {
       state.chart[el.dataset.chartOpt] = el.checked;
+      if (el.dataset.chartOpt === 'labels') $('#ch-labelas').hidden = !el.checked;
       renderChart();
     }
   });

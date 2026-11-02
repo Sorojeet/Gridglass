@@ -25,7 +25,8 @@ export const PALETTES = {
 
 export const DEFAULT_OPTIONS = {
   type: 'column', stacked: false, title: '', xTitle: '', yTitle: '', palette: 'theme',
-  labels: false, legend: true, grid: true, sort: 'none', top: 0, numbers: 'short', shape: 'wide',
+  // labelAs: value | percent | both (null: % on pies and donuts, the value elsewhere)
+  labels: false, labelAs: null, legend: true, grid: true, sort: 'none', top: 0, numbers: 'short', shape: 'wide',
 };
 
 /** Pick chart data out of a preview: first column = categories, number columns = series. Grand totals are left out. */
@@ -147,7 +148,12 @@ function stackOf(series, n) {
  */
 export function chartSVG(data, colors, opts = {}) {
   const o = { ...DEFAULT_OPTIONS, ...opts };
-  const [w, h] = size(o);
+  let [w, h] = size(o);
+  if ((o.type === 'pie' || o.type === 'donut') && o.legend && w < 560) {
+    // Narrow screens: the legend goes under the pie, so make room for one line per slice.
+    const slices = Math.min(data.categories.length, o.top > 0 ? o.top + 1 : 10);
+    h = Math.max(h, Math.round(w * 0.78) + (o.title ? 38 : 12) + slices * 24 + 16);
+  }
   const fmt = FORMAT[o.numbers] ?? FORMAT.short;
   const exact = FORMAT.full;
   const label = `${o.title || `${o.type} chart`} of ${data.series.map((s) => s.name).join(', ')} by ${data.categoryName}`;
@@ -167,13 +173,26 @@ export function chartSVG(data, colors, opts = {}) {
   const { lo, hi, ticks } = niceScale(Math.min(0, ...all), Math.max(0, ...all));
   const color = (k) => colors.series[k % 8];
   const tip = (c, s, v) => `<title>${esc(c)} — ${esc(s)}: ${exact.format(v)}</title>`;
-  const valueText = (x, y, v, anchor = 'middle', fill = colors.ink) =>
-    `<text x="${x}" y="${y}" text-anchor="${anchor}" font-size="11" font-weight="700" fill="${fill}">${fmt.format(v)}</text>`;
+  // % = share of the series total, or of the stack when stacked (how much of this column each part is).
+  const labelAs = labelMode(o);
+  const seriesTotal = data.series.map((s) => s.values.reduce((t, v) => t + v, 0));
+  const share = (v, k, i) => {
+    const base = stacked ? data.series.reduce((t, s) => t + s.values[i], 0) : seriesTotal[k];
+    return base ? pctText((v / base) * 100) : '';
+  };
+  /** One or two label lines at (x, y); `twoLines` stacks value over % (columns), else "value · %". */
+  const valueText = (x, y, v, k, i, { anchor = 'middle', fill = colors.ink, twoLines = false, room = Infinity } = {}) => {
+    const t = (text, dy = 0, size = 11) => `<text x="${x}" y="${y + dy}" text-anchor="${anchor}" font-size="${size}" font-weight="700" fill="${fill}">${text}</text>`;
+    const pct = share(v, k, i);
+    if (labelAs === 'percent' || (labelAs === 'both' && room < 26)) return t(pct || fmt.format(v));
+    if (labelAs === 'both' && pct) return twoLines ? t(fmt.format(v), -13) + t(pct, 0, 10) : t(`${fmt.format(v)} · ${pct}`);
+    return t(fmt.format(v));
+  };
   let body = '';
 
   if (o.type === 'bar') { // horizontal bars, category labels on the left
     const left = Math.min(Math.round(w * 0.24), 12 + Math.max(...data.categories.map((c) => clip(c, 20).length)) * 7) + (o.yTitle ? 18 : 0);
-    const right = w - (o.labels ? 52 : 16);
+    const right = w - (o.labels ? (labelAs === 'both' ? 92 : 52) : 16);
     const bottom = h - 30 - (o.xTitle ? 20 : 0);
     const x = (v) => left + ((v - lo) / (hi - lo)) * (right - left);
     const band = (bottom - top) / n;
@@ -192,8 +211,8 @@ export function chartSVG(data, colors, opts = {}) {
         const len = Math.max(1, Math.abs(x(b) - x(a)));
         body += `<rect class="grow-x" x="${x0}" y="${y0}" width="${len}" height="${bw - 2}" rx="3" fill="${color(k)}">${tip(c, s.name, v)}</rect>`;
         if (o.labels && v && (!stacked || len > 34)) {
-          body += stacked ? valueText(x0 + len / 2, y0 + bw / 2 + 3, v, 'middle', '#FFFFFF')
-            : valueText(x(b) + (v >= 0 ? 4 : -4), y0 + bw / 2 + 3, v, v >= 0 ? 'start' : 'end');
+          body += stacked ? valueText(x0 + len / 2, y0 + bw / 2 + 3, v, k, i, { fill: '#FFFFFF', room: bw })
+            : valueText(x(b) + (v >= 0 ? 4 : -4), y0 + bw / 2 + 3, v, k, i, { anchor: v >= 0 ? 'start' : 'end' });
         }
       });
     });
@@ -206,7 +225,7 @@ export function chartSVG(data, colors, opts = {}) {
   const rotate = n > Math.floor(w / 80);
   const left = 56 + (o.yTitle ? 18 : 0);
   const bottom = h - (rotate ? 78 : 34) - (o.xTitle ? 20 : 0);
-  const y = (v) => bottom - ((v - lo) / (hi - lo)) * (bottom - top - (o.labels ? 14 : 0));
+  const y = (v) => bottom - ((v - lo) / (hi - lo)) * (bottom - top - (o.labels ? (labelAs === 'both' ? 28 : 14) : 0));
   const band = (w - left - 12) / n;
   const cx = (i) => left + band * i + band / 2;
   body += ticks.map((t) => `${o.grid ? `<line x1="${left}" y1="${y(t)}" x2="${w - 8}" y2="${y(t)}" stroke="${colors.grid}"/>` : ''}
@@ -227,7 +246,7 @@ export function chartSVG(data, colors, opts = {}) {
       }
       body += `<polyline class="draw" pathLength="1" points="${pts.join(' ')}" fill="none" stroke="${color(k)}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
       if (showDots) body += s.values.map((v, i) => `<circle class="pop" cx="${cx(i)}" cy="${y(tops[i])}" r="${o.type === 'area' ? 3 : 4}" fill="${color(k)}">${tip(data.categories[i], s.name, v)}</circle>`).join('');
-      if (o.labels && n <= 24) body += s.values.map((v, i) => valueText(cx(i), y(tops[i]) - 8, v)).join('');
+      if (o.labels && n <= 24) body += s.values.map((v, i) => valueText(cx(i), y(tops[i]) - 8, v, k, i, { twoLines: true })).join('');
     });
   } else {
     const groups = stacked ? 1 : data.series.length;
@@ -241,8 +260,9 @@ export function chartSVG(data, colors, opts = {}) {
         const tall = Math.max(1, Math.abs(y(b) - y(a)));
         body += `<rect class="grow-y" x="${x0}" y="${yTop}" width="${bw - 2}" height="${tall}" rx="3" fill="${color(k)}">${tip(c, s.name, v)}</rect>`;
         if (o.labels && v && (stacked ? tall > 16 && bw > 26 : bw > 14)) {
-          body += stacked ? valueText(x0 + (bw - 2) / 2, yTop + tall / 2 + 4, v, 'middle', '#FFFFFF')
-            : valueText(x0 + (bw - 2) / 2, v >= 0 ? yTop - 5 : yTop + tall + 13, v);
+          body += stacked ? valueText(x0 + (bw - 2) / 2, yTop + tall / 2 + (labelAs === 'both' && tall >= 30 ? 10 : 4), v, k, i,
+            { fill: '#FFFFFF', twoLines: true, room: tall })
+            : valueText(x0 + (bw - 2) / 2, v >= 0 ? yTop - 5 : yTop + tall + (labelAs === 'both' ? 26 : 13), v, k, i, { twoLines: true });
         }
       });
     });
@@ -271,7 +291,7 @@ function pie(data, colors, o, { w, h, top, fmt }) {
   }
   const total = items.reduce((sum, d) => sum + d.v, 0);
   if (!total) return `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" fill="${colors.muted}">No positive values to show.</text>`;
-  const side = w >= h * 1.3; // legend beside the pie on wide charts, below it otherwise
+  const side = w >= 560 && w >= h * 1.3; // legend beside the pie on wide charts, below it otherwise
   const legendRows = items.length;
   const r = side ? Math.min((h - top - 24) / 2, w * 0.24) : Math.min((w - 40) / 2, (h - top - 28 - legendRows * 24) / 2);
   const cx = side ? 24 + r : w / 2;
@@ -293,10 +313,15 @@ function pie(data, colors, o, { w, h, top, fmt }) {
       path = `M ${cx} ${cy} L ${pt(a0, r)} A ${r} ${r} 0 ${large} 1 ${pt(a1, r)} Z`;
     }
     out += `<path class="pop" d="${path}" fill="${colors.series[i % 8]}" fill-rule="evenodd" stroke="${colors.bg}" stroke-width="2"><title>${esc(d.c)}: ${FORMAT.full.format(d.v)} (${((d.v / total) * 100).toFixed(1)}%)</title></path>`;
-    if (o.labels && d.v / total >= 0.05) {
+    const mode = labelMode(o);
+    if (o.labels && d.v / total >= (mode === 'both' ? 0.1 : 0.05)) { // small slices: the legend has the numbers
       const mid = (a0 + a1) / 2;
-      const rad = inner ? (r + inner) / 2 : r * 0.65;
-      out += `<text x="${cx + rad * Math.cos(mid)}" y="${cy + rad * Math.sin(mid) + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="#FFFFFF">${((d.v / total) * 100).toFixed(0)}%</text>`;
+      const rad = inner ? (r + inner) / 2 : r * 0.62;
+      const lx = cx + rad * Math.cos(mid);
+      const ly = cy + rad * Math.sin(mid);
+      const t = (text, dy, size) => `<text x="${lx}" y="${ly + dy}" text-anchor="middle" font-size="${size}" font-weight="700" fill="#FFFFFF">${text}</text>`;
+      const pct = pctText((d.v / total) * 100);
+      out += mode === 'value' ? t(fmt.format(d.v), 4, 11) : mode === 'both' ? t(fmt.format(d.v), -2, 12) + t(pct, 12, 11) : t(pct, 4, 11);
     }
     a0 = a1;
   });
@@ -311,13 +336,23 @@ function pie(data, colors, o, { w, h, top, fmt }) {
     items.forEach((d, i) => {
       const y = ly + i * step;
       const pct = `${((d.v / total) * 100).toFixed(1)}%`;
-      const val = o.labels ? '' : ` · ${fmt.format(d.v)}`;
+      const val = ` · ${fmt.format(d.v)}`;
       out += `<rect x="${lx}" y="${y}" width="14" height="14" rx="3" fill="${colors.series[i % 8]}"/>
         <text x="${lx + 22}" y="${y + 12}" font-size="13" fill="${colors.ink}">${esc(clip(d.c, side ? 24 : 30))}</text>
         <text x="${w - 12}" y="${y + 12}" text-anchor="end" font-size="13" fill="${colors.muted}">${pct}${val}</text>`;
     });
   }
   return out;
+}
+
+/** What data labels show: the chosen mode, or by default % on pies and donuts and the value elsewhere. */
+export function labelMode(o) {
+  return o.labelAs ?? (o.type === 'pie' || o.type === 'donut' ? 'percent' : 'value');
+}
+
+/** 21% · 8.5% · 0.3% — whole numbers from 10% up, one decimal below. */
+function pctText(p) {
+  return `${Math.abs(p) >= 10 || p === 0 ? p.toFixed(0) : p.toFixed(1)}%`;
 }
 
 /** Download the chart as an SVG file or a 2× PNG (with a solid background). */

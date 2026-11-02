@@ -589,6 +589,8 @@ TOOLS: list[ToolPage] = [
                         after_columns=["City", "Sum of Amount"], after=[["Delhi", "1200"], ["Pune", "2250"], ["Grand total", "3450"]]),
         options=[("Calculations", "Sum, average, count rows, count values, count unique, smallest, largest, median, first, last."),
                  ("Grand totals", "A total row and, with a Columns field, a total column."),
+                 ("Only count rows where", "Optional filters (the same conditions as Filter rows) applied before grouping, "
+                                           "so totals and the Grand Total only count matching rows."),
                  ("Chart", "Column, bar, line or pie; follows light and dark mode.")],
         faqs=[("How many columns can the Columns field make?", "Up to 200."),
               ("Can I edit the pivot after making it?", "Yes. Tap Edit on the result screen; the preview updates live.")],
@@ -618,7 +620,10 @@ TOOLS: list[ToolPage] = [
             ("Titles", "A chart title and titles for both axes."),
             ("Colours", "Gridglass (follows light and dark mode), Ocean, Sunset, Forest, Berry or Grey."),
             ("Order and size", "As in the table, largest first, smallest first or A → Z; all, top 5, top 10 or top 20."),
-            ("Labels", "Values on the chart, the legend and grid lines can each be turned on or off."),
+            ("Labels", "Data labels can show the value, the percentage, or both (on pies, each slice's share; on other "
+                       "charts, each bar's share of its series, or of its stack when stacked). The legend and grid lines "
+                       "can be turned on or off."),
+            ("Filter", "‘Only count rows where’ limits the chart to some rows, such as City is Pune, before anything is added up."),
             ("Numbers", "Short (1.2L, 3.4Cr) or full (1,23,456)."),
             ("Shape", "Wide (720 × 400), square (560 × 560) or tall (480 × 640). PNG downloads are twice that size."),
         ],

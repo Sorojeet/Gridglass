@@ -614,3 +614,16 @@ def test_health_check_reports_gaps_but_not_blank_rows_twice():
     kinds = {it["kind"]: it for it in report["issues"]}
     assert kinds["blanks"]["columns"] == ["Name"] and kinds["blanks"]["count"] == 1
     assert kinds["blank_rows"]["count"] == 1 and kinds["blanks"]["fix"] == {"tool": "fill_blanks"}
+
+
+# --------------------------------------------------------------------------- pivot filters
+
+def test_pivot_filters_rows_before_totalling():
+    lf = pl.LazyFrame({"City": ["Pune", "Delhi", "Pune", "Goa"], "Cust": ["A", "B", "A", "C"], "Amt": [10, 20, 30, 40]})
+    step = {"op": "pivot", "rows": ["Cust"], "values": [{"func": "sum", "column": "Amt"}], "totals": True,
+            "filters": [{"column": "City", "operator": "in_list", "value": ["Pune", "Goa"]},
+                        {"column": "Amt", "operator": "greater_than", "value": 15}]}
+    assert run(lf, [step]).rows() == [("A", 30), ("C", 40), ("Grand Total", 70)]
+    assert run(lf, [{**step, "filter_match": "any"}]).rows() == [("A", 40), ("B", 20), ("C", 40), ("Grand Total", 100)]
+    with pytest.raises(StepError):
+        run(lf, [{**step, "filters": [{"column": "Nope", "operator": "equals", "value": "x"}]}])
