@@ -1,5 +1,5 @@
 import {
-  AGG_FUNCS, CATS, FORMATS, JOINS, NO_VALUE_OPS, OPERATORS, TOOL, TOOLS, TYPES, UI, defaults, icon, incomplete, suggestFor,
+  AGG_FUNCS, CATS, FORMATS, JOINS, NO_VALUE_OPS, OPERATORS, PAGE, TOOL, TOOLS, TYPES, UI, defaults, icon, incomplete, suggestFor,
   toDraft, toStep,
 } from './tools.js';
 import { MAX_CATEGORIES, chartData, chartSVG, saveChart, themeColors } from './chart.js';
@@ -163,7 +163,9 @@ function finishRoute() {
   firstRoute = false;
 }
 
-function topbar({ back, title, close, edit } = {}) {
+const helpFor = (t) => (PAGE[t.op] ? { slug: PAGE[t.op], label: t.label } : null);
+
+function topbar({ back, title, close, edit, help, guides } = {}) {
   const left = edit
     ? `<a class="icon-btn" href="${edit}" aria-label="Back to the editor">${ui('back')}</a><span class="topbar-title">${esc(title)}</span>`
     : back
@@ -173,7 +175,10 @@ function topbar({ back, title, close, edit } = {}) {
       : `<a class="brand" href="#/" aria-label="Gridglass home">${logo()}<span>Gridglass</span></a>`;
   const right = close ? `<a class="icon-btn" href="${close}" aria-label="Close">${ui('close')}</a>` : '';
   const label = document.documentElement.dataset.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
-  return `<header class="topbar">${left}<span class="spacer"></span>
+  const aid = help
+    ? `<a class="icon-btn glass" href="/tools/${help.slug}" aria-label="How to use ${esc(help.label)}" title="How to use ${esc(help.label)}">${ui('help')}</a>`
+    : guides ? `<a class="top-link glass" href="/guides">${ui('help')}<span>Guides</span></a>` : '';
+  return `<header class="topbar">${left}<span class="spacer"></span>${aid}
     <button class="icon-btn glass theme-btn" type="button" data-action="theme" aria-label="${label}">${ui('moon', 'when-light')}${ui('sun', 'when-dark')}</button>${right}</header>`;
 }
 
@@ -283,7 +288,7 @@ function renderHome() {
       <button class="btn-link" type="button" data-action="startover">Clear</button>
     </div>` : '';
   view.dataset.screen = 'home';
-  view.innerHTML = `${topbar()}
+  view.innerHTML = `${topbar({ guides: true })}
     <section class="hero">
       <h1>Every spreadsheet tool you need, one tap away.</h1>
       <p>Clean, reshape and convert CSV and spreadsheet files on your phone or computer. Free, no sign-up.</p>
@@ -342,11 +347,12 @@ function renderUpload() {
   const t = state.tool;
   state.stage = 'upload';
   view.dataset.screen = 'upload';
-  view.innerHTML = `${topbar({ back: '#/', title: 'All tools' })}
+  view.innerHTML = `${topbar({ back: '#/', title: 'All tools', help: helpFor(t) })}
     <section class="intro">
       <span class="badge cat-${t.cat}">${CATS[t.cat]}</span>
       <h1>${t.label}</h1>
       <p>${t.intro}</p>
+      ${PAGE[t.op] ? `<a class="intro-link" href="/tools/${PAGE[t.op]}">${ui('help')} How it works, with an example</a>` : ''}
     </section>
     <section class="dropzone glass" id="drop">
       <span class="drop-icon">${ui('upload')}</span>
@@ -444,7 +450,7 @@ function renderOptions() {
   const pivot = t.op === 'pivot';
   const chart = pivot && state.view === 'chart';
   const editing = state.editIndex !== null;
-  view.innerHTML = `${topbar({ back: editing ? '#/result' : '#/', title: editing ? `Edit: ${t.label}` : t.label })}
+  view.innerHTML = `${topbar({ back: editing ? '#/result' : '#/', title: editing ? `Edit: ${t.label}` : t.label, help: helpFor(t) })}
     ${fileChip()}
     ${t.convert || t.splitter ? '' : `<form id="opts" class="form" novalidate autocomplete="off"></form>`}
     ${action}

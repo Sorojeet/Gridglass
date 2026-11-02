@@ -203,6 +203,18 @@ select.input {
 .cat-combine { background: var(--chip-combine); color: var(--ink-combine); }
 .privacy { display: flex; align-items: center; gap: 10px; padding: 16px 0 4px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 .privacy .ico { width: 18px; height: 18px; }
+.top-link {
+  display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px 0 12px; margin-right: 6px;
+  border-radius: 999px; color: var(--ink); font-weight: 700; font-size: 14px; text-decoration: none;
+}
+.top-link:hover { color: var(--ink); }
+@media (max-width: 360px) {  /* small phones: icon only, so the theme button still fits */
+  .top-link { width: 44px; padding: 0; justify-content: center; }
+  .top-link span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+.topbar .icon-btn.glass + .theme-btn { margin-left: 6px; }
+.intro-link { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 15px; text-decoration: none; align-self: flex-start; }
+.intro-link .ico { width: 18px; height: 18px; }
 .app-links { display: flex; flex-wrap: wrap; gap: 2px 16px; margin-top: -10px; }
 .app-links a { font-size: 13px; font-weight: 600; padding: 6px 0; }
 @media (min-width: 1024px) { main[data-screen] > .app-links { grid-column: 1 / -1; } }
