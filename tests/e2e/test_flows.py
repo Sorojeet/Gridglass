@@ -1204,7 +1204,7 @@ def test_chart_customisation(phone):
     expect(bars).to_have_count(6)                                    # the top 5, plus "Other" for the rest
     expect(page.locator("#chart svg")).to_contain_text("Other (")
     page.click('[data-seg="chshape"][data-val="square"]')
-    expect(page.locator("#chart svg")).to_have_attribute("viewBox", "0 0 560 560")
+    expect(page.locator("#chart svg")).to_have_attribute("viewBox", re.compile(r"^0 0 (\d+) \1$"))  # square, at the phone's width
     for kind in ("area", "donut"):
         page.click(f'[data-seg="charttype"][data-val="{kind}"]')
         expect(page.locator("#chart svg")).to_be_visible()
@@ -1216,3 +1216,21 @@ def test_chart_customisation(phone):
     page.click("[data-chart-reset]")
     expect(page.locator('[data-palette="theme"]')).to_have_attribute("aria-pressed", "true")
     expect(page.locator("#ch-title")).to_have_value("Orders by city")  # words are kept
+
+
+def test_chart_fits_the_phone_and_stays_in_view(phone):
+    page = phone.upload_sample("pivot")
+    page.click("#tab-chart")
+    svg = page.locator("#chart svg")
+    expect(svg).to_be_visible()
+    box_w = page.evaluate("document.querySelector('#chart').clientWidth")
+    assert abs(int(svg.get_attribute("width")) - box_w) <= 1           # drawn at the phone's width, not shrunk
+    types = page.locator('[data-seg="charttype"]')
+    assert types.nth(0).bounding_box()["y"] < types.nth(3).bounding_box()["y"]   # two rows of three on a phone
+    page.locator("#chart-custom summary").click()
+    page.locator("label.toggle", has_text="grid lines").scroll_into_view_if_needed()
+    chart = page.locator(".chart-stick").bounding_box()
+    assert chart["y"] >= -1 and chart["y"] < 40                            # pinned at the top while scrolling the options
+    toggle = page.locator("label.toggle", has_text="grid lines").bounding_box()
+    assert toggle["y"] >= chart["y"] + chart["height"] - 1                 # the option shows below the chart, not under it
+    assert page.evaluate("getComputedStyle(document.querySelector('.action-bar')).position") == "static"

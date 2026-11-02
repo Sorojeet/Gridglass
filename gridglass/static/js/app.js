@@ -546,7 +546,7 @@ function renderOptions() {
       <div class="table-wrap glass" id="pv" tabindex="0" aria-label="Preview table" ${pivot ? 'role="tabpanel" aria-labelledby="tab-table"' : ''} ${chart ? 'hidden' : ''}><div class="skeleton"></div></div>
       ${pivot ? `<div class="chart-panel glass" id="chart-panel" role="tabpanel" aria-labelledby="tab-chart" ${chart ? '' : 'hidden'}>
         <div class="chart-types">${seg('charttype', CHART_TYPES, state.chart.type, 'Chart type')}</div>
-        <div class="chart" id="chart"></div>
+        <div class="chart-stick"><div class="chart" id="chart"></div></div>
         <p class="hint" id="chart-note"></p>
         ${chartCustomiser()}
         <div class="chart-actions">
@@ -1238,6 +1238,15 @@ function wireChart() {
   if (state.view === 'chart') renderChart();
 }
 
+let chartWidth = 0;
+window.addEventListener('resize', () => { // rotate or resize: redraw at the new width
+  const el = $('#chart');
+  if (!el || el.offsetParent === null || Math.abs(el.clientWidth - chartWidth) < 24) return;
+  chartWidth = el.clientWidth;
+  clearTimeout(window.chartResize);
+  window.chartResize = setTimeout(renderChart, 120);
+});
+
 /** The preview as chart data, sorted and trimmed the way the options say; null when there's nothing to draw. */
 function chartReady() {
   const data = state.pvData ? chartData(state.pvData) : null;
@@ -1262,7 +1271,9 @@ function renderChart() {
   const wrap = $('#ch-stack-wrap');
   if (wrap) wrap.hidden = !stackable;
   el.dataset.shape = c.shape;
-  el.innerHTML = chartSVG(data, themeColors(c.palette), c);
+  el.innerHTML = chartSVG(data, themeColors(c.palette), { ...c, fit: el.clientWidth || undefined });
+  // Options scroll in below the pinned chart, never behind it (CSS reads this for scroll-margin-top).
+  $('#chart-panel').style.setProperty('--stick-h', `${el.parentElement.offsetHeight}px`);
   note.textContent = [
     round && data.series.length > 1 ? `The ${c.type} shows ${data.series[0].name}.` : '',
     data.truncated ? `Showing the first ${MAX_CATEGORIES} of ${num(data.total)} ${data.categoryName} values. Use Show: Top 10 to group the rest.` : '',
