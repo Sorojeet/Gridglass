@@ -22,10 +22,16 @@ Undo means deleting a step, and chaining tools means appending steps.
 
 ```
 gridglass/
-  __init__.py        Flask app factory (API arrives in Phase 4)
+  __init__.py        Flask app factory, app shell, /share, main-address redirect
+  api.py             the JSON API under /api/v1
+  site.py            information pages, sitemap, robots.txt, ads.txt
+  content.py         the words on those pages (tools, guides, search phrases)
+  static/            the app: HTML, CSS, JS modules, service worker
+  templates/         app shell and information page templates
   config.py          limits: 100 MB uploads, 200-row previews, 1-hour retention …
   engine/
-    steps.py         the 19 tools + parse_steps() validation
+    steps.py         the 19 step types + parse_steps() validation
+    health.py        the Check panel's data problems and their fixes
     pipeline.py      build(), run(), preview(), profile()
     io.py            ingest (CSV/TSV/XLSX/XLS/JSON/NDJSON → Parquet), export (CSV/XLSX/JSON/PDF)
     pdf.py           table-style PDF export (ReportLab)
@@ -39,14 +45,22 @@ tests/               pytest suite
 | Clean | Shape | Summarize |
 |---|---|---|
 | `remove_duplicates` | `remove_columns` | `pivot`: Rows, optional Columns, several Values, Grand Total. With no Columns it works as a group-by. |
-| `trim` | `keep_columns` (choose and reorder) | `unpivot`: columns into rows, or `mode: "transpose"` to flip rows and columns (up to 500 rows; `header` names the new columns) |
+| `trim` | `keep_columns` (choose and reorder) | `unpivot`: **Transpose or unpivot** (see below) |
 | `change_case` | `rename_columns` | |
 | `replace_values` | `filter_rows` (13 operators, all/any) | |
 | `fill_blanks` (value, down, up) | `sort_rows` | |
 | `remove_blank_rows` | `keep_rows` (top/bottom) | |
 | | `change_type` | |
 | | `split_column` | |
-| | `add_column` (constant, combine, math) | |
+| | `add_column` (constant, combine, math and more, see below) | |
+
+**Transpose or unpivot (1.13):** one card, two modes of the `unpivot` step.
+- `mode: "transpose"` flips rows and columns. Optional `header` is a column whose values name the new columns (blank → `Column N`, repeats → `Tea (2)`); without it they are `Column 1, 2, 3…`, and the first column (`Field`) lists the old column names. It works on up to 500 rows, since each row becomes a column. All values are flipped as text, then each new column's type is checked again, so numbers stay numbers.
+- `mode: "unpivot"` (the default, so older saved steps still work) turns columns into rows: `keep` stays as it is, `columns` (or all the others) become `attribute_name` / `value_name` pairs.
+
+```json
+{"op": "unpivot", "mode": "transpose", "header": "Product"}
+```
 
 **Combine:** `stack` (below), and `merge`, which brings in columns from a second upload by matching keys (a lookup). It has every join: lookup/left, inner, full outer, right, anti (no match) and semi (has a match).
 - It can match on up to 5 key columns.
@@ -102,9 +116,9 @@ Conversion is not a step. Import any supported format and export as CSV (with a 
 
 ## Frontend
 
-There is no build step. The frontend is plain HTML, CSS and JavaScript modules in `gridglass/static/`:
+There is no build step. The frontend is plain HTML, CSS and JavaScript modules in `gridglass/static/`, with the app shell in `gridglass/templates/app.html`:
 
-- `index.html` is the app shell. `js/theme.js` sets light or dark mode before the first paint.
+- `templates/app.html` is the app shell. `js/theme.js` sets light or dark mode before the first paint.
 - `js/tools.js` is the tool catalogue. For each tool it holds the label, category, icon and option fields, how those fields become an API step, the result title, and the hints shown while options are incomplete.
 - `js/app.js` runs the hash router and the screens:
   - home (search and categories)
@@ -158,6 +172,7 @@ Server-rendered pages (Jinja, `gridglass/site.py`, `templates/site/`, words in `
 - `/guides/<slug>`: how-tos.
 - `/about`, `/contact`, `/privacy` and `/terms`.
 - `/sitemap.xml`, `/robots.txt` and `/ads.txt`.
+- Moved pages forward permanently (301) through `content.MOVED`, e.g. `/tools/unpivot` → `/tools/transpose`.
 
 **One search per tool page (1.12):** `content.SEARCH` gives each tool page the phrase people type, such as "Merge two CSV files by a common column". The phrase is the `<title>`, the `<h1>`, the start of the meta description and part of the first paragraph; tests check all four and that no two pages share a phrase.
 
@@ -196,6 +211,7 @@ flask --app gridglass run --debug      # open http://localhost:5000 on your phon
 | `tests/test_pipeline.py` | lazy replay, preview and column stats |
 | `tests/test_io.py` | every import and export format, messy files (encodings, headers, fake extensions) |
 | `tests/test_app.py` | every API endpoint, errors, expiry and cleanup, security headers, app shell |
+| `tests/test_site.py` | information pages, search phrases, trademark notice, sitemap, redirects, ad isolation |
 | `tests/e2e/` | Playwright on emulated phones (iPhone SE, iPhone 14, Pixel 7) and desktop |
 
 What the end-to-end tests check:
