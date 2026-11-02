@@ -92,6 +92,13 @@ const DELIMS = [[',', 'Comma ,'], [' ', 'Space'], [';', 'Semicolon ;'], ['-', 'D
   ['|', 'Bar |'], ['custom', 'Something else']];
 
 const TOTALS = ['running_total', 'rank', 'percent'];
+/** Form rows -> API conditions: "is one of" takes a comma list, "is blank" takes no value. */
+const conditionsOut = (rows) => rows.map((c) => ({
+  column: c.column, operator: c.operator,
+  ...(NO_VALUE_OPS.has(c.operator) ? {} : {
+    value: c.operator === 'in_list' ? String(c.value).split(',').map((x) => x.trim()).filter(Boolean) : c.value,
+  }),
+}));
 /** "100, 500, 1,00,000" -> ['100', '500', '1,00,000']: with ", " or ";" those split (so Indian-style
  *  numbers keep their commas); "100,500,1000" with no spaces splits on every comma. */
 export const splitList = (text) => {
@@ -222,12 +229,7 @@ export const TOOLS = [
     ],
     build: (d) => ({
       match: d.match,
-      conditions: d.conditions.map((c) => ({
-        column: c.column, operator: c.operator,
-        ...(NO_VALUE_OPS.has(c.operator) ? {} : {
-          value: c.operator === 'in_list' ? c.value.split(',').map((s) => s.trim()).filter(Boolean) : c.value,
-        }),
-      })),
+      conditions: conditionsOut(d.conditions),
     }),
     done: (b, a) => `${plural(a, 'row')} kept of ${n(b)}`,
     ready: (d) => (d.conditions.some((c) => !NO_VALUE_OPS.has(c.operator) && !String(c.value).trim()) ? 'Type a value to filter by.' : null),
@@ -455,6 +457,10 @@ export const TOOLS = [
           const numeric = first(cols, 'decimal') || first(cols, 'integer');
           return [numeric ? { func: 'sum', column: numeric } : { func: 'count_rows', column: '' }];
         } },
+      { key: 'filters', type: 'conditions', optional: true, noun: 'filter', label: 'Only count rows where (optional)',
+        emptyHint: 'No filter: every row is counted.', default: [] },
+      { key: 'filter_match', type: 'choice', label: 'Rows must match', default: 'all',
+        options: [['all', 'All filters'], ['any', 'Any filter']], show: (d) => d.filters.length > 1 },
       { key: 'totals', type: 'toggle', label: 'Show Grand Total', default: true },
     ],
     build: (d) => ({
@@ -462,8 +468,10 @@ export const TOOLS = [
       columns: d.pcol || undefined,
       values: d.aggs.map((a) => (a.func === 'count_rows' ? { func: 'count_rows' } : { func: a.func, column: a.column })),
       totals: d.totals,
+      ...(d.filters.length ? { filters: conditionsOut(d.filters), filter_match: d.filter_match } : {}),
     }),
-    ready: (d) => (d.aggs.some((a) => a.func !== 'count_rows' && !a.column) ? 'Choose a column for each value.'
+    ready: (d) => (d.filters.some((c) => !NO_VALUE_OPS.has(c.operator) && !String(c.value).trim()) ? 'Type a value for each filter, or remove it.'
+      : d.aggs.some((a) => a.func !== 'count_rows' && !a.column) ? 'Choose a column for each value.'
       : d.pcol && d.rows.includes(d.pcol) ? 'Pick a Columns field that isn’t already in Rows.' : null),
     done: (b, a) => `Pivot table ready — ${plural(a, 'row')}`,
   },
@@ -574,6 +582,8 @@ const LOADERS = {
     source_column: s.source_column ?? 'Source file',
   }),
   pivot: (s) => ({
+    filters: (s.filters ?? []).map((c) => ({ column: c.column, operator: c.operator, value: Array.isArray(c.value) ? c.value.join(', ') : str(c.value) })),
+    filter_match: s.filter_match ?? 'all',
     pcol: s.columns ?? '',
     aggs: (s.values?.length ? s.values : [{ func: 'count_rows' }]).map((a) => ({ func: a.func, column: a.column ?? '' })),
   }),

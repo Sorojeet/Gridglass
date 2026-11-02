@@ -614,6 +614,7 @@ td.null { background: repeating-linear-gradient(135deg, transparent 0 6px, var(-
 /* While customising, the main button stops floating over the options; it waits at the end of the page. */
 body:has(.chart-custom[open]) main[data-screen="options"] > .action-bar { position: static; margin-top: 8px; }
 .chart[data-shape="square"] svg, .chart[data-shape="tall"] svg { margin: 0 auto; }
+.chart-stick .chart svg { max-height: 56dvh; width: auto; max-width: 100%; margin: 0 auto; } /* leave room for the options */
 @media (max-width: 719px) { .chart[data-shape="tall"] svg { max-height: 62dvh; width: auto; } }
 @media (min-width: 720px) { .chart[data-shape="square"] svg { max-width: 560px; } .chart[data-shape="tall"] svg { max-width: 460px; } }
 .chart-custom { border-top: 1px solid var(--line); padding-top: 10px; }

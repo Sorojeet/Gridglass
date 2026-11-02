@@ -1197,7 +1197,7 @@ def test_chart_customisation(phone):
     expect(page.locator("#chart svg")).to_contain_text("Orders by city")
     page.click('[data-palette="sunset"]')
     expect(page.locator("#chart svg rect.grow-y").first).to_have_attribute("fill", "#EA580C")
-    page.locator("label.toggle", has_text="Show values").click()
+    page.locator("label.toggle", has_text="Show data labels").click()
     page.click('[data-seg="chsort"][data-val="desc"]')
     page.click('[data-seg="chtop"][data-val="5"]')
     bars = page.locator("#chart svg rect.grow-y")
@@ -1234,3 +1234,32 @@ def test_chart_fits_the_phone_and_stays_in_view(phone):
     toggle = page.locator("label.toggle", has_text="grid lines").bounding_box()
     assert toggle["y"] >= chart["y"] + chart["height"] - 1                 # the option shows below the chart, not under it
     assert page.evaluate("getComputedStyle(document.querySelector('.action-bar')).position") == "static"
+
+
+def test_pivot_filter_and_percentage_labels(phone):
+    page = phone.upload_sample("pivot")
+    expect(page.locator("#opts")).to_contain_text("No filter: every row is counted.")
+    page.click('[data-add="filters"]')
+    page.select_option("#pf0col", "City")
+    page.fill("#pf0v", "Pune")
+    page.keyboard.press("Escape")
+    page.click("#tab-chart")
+    page.locator("#chart-custom summary").click()
+    page.click('[data-seg="charttype"][data-val="pie"]')
+    page.locator("label.toggle", has_text="Show data labels").click()
+    expect(page.locator('[data-seg="chlabel"][data-val="percent"]')).to_have_attribute("aria-pressed", "true")  # pies default to %
+    page.click('[data-seg="chlabel"][data-val="both"]')
+    labels = page.locator("#chart svg text[fill='#FFFFFF']")
+    expect(labels.first).to_be_visible()
+    texts = labels.all_text_contents()
+    assert any(t.endswith("%") for t in texts) and any(not t.endswith("%") for t in texts)   # value and % lines
+    shares = [float(t.split("%")[0]) for t in page.locator("#chart svg text[text-anchor='end']").all_text_contents() if "%" in t]
+    assert shares == sorted(shares, reverse=True) and len(shares) >= 2           # biggest slice first in the legend
+    page.click('[data-seg="charttype"][data-val="column"]')
+    expect(page.locator("#chart svg")).to_contain_text("%")
+    apply(page)
+    step = page.evaluate("""async () => {
+        const id = sessionStorage.getItem('gg.file');
+        return (await (await fetch(`/api/v1/files/${id}`)).json()).file.steps[0];
+    }""")
+    assert step["filters"] == [{"column": "City", "operator": "equals", "value": "Pune", "case_sensitive": False}]
