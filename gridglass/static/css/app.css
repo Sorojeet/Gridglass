@@ -569,3 +569,7 @@ td.null { background: repeating-linear-gradient(135deg, transparent 0 6px, var(-
 .working .btn-sm { align-self: center; }
 .step-list li .icon-btn + .icon-btn { margin-left: -6px; }
 .combo-list { scroll-margin-bottom: 110px; } /* keep the open list clear of the sticky button */
+
+/* Options under the download format (PDF page, title, columns) */
+.pdf-opts { display: flex; flex-direction: column; gap: 18px; }
+.pdf-opts .col-chips { margin-top: 10px; }

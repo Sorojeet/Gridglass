@@ -144,7 +144,7 @@ def test_append_steps_and_undo(client, file_id):
 def test_steps_are_stored_with_defaults(client, file_id):
     client.post(f"/api/v1/files/{file_id}/steps", json={"op": "remove_duplicates"})
     step = client.get(f"/api/v1/files/{file_id}").get_json()["file"]["steps"][0]
-    assert step == {"op": "remove_duplicates", "columns": None, "keep": "first"}
+    assert step == {"op": "remove_duplicates", "columns": None, "keep": "first", "action": "remove", "mark_column": "Duplicate"}
 
 
 def test_replace_steps(client, file_id):
@@ -293,7 +293,7 @@ def test_index_and_static(client):
 
 def test_service_worker_at_root(client):
     r = client.get("/sw.js")
-    assert r.status_code == 200 and b"gridglass-v9" in r.data and r.headers["Cache-Control"] == "no-cache"
+    assert r.status_code == 200 and b"gridglass-v10" in r.data and r.headers["Cache-Control"] == "no-cache"
     r.close()
 
 
@@ -482,3 +482,16 @@ def test_stack_files_through_the_api(client):
     client.delete(f"/api/v1/files/{b}")
     r = client.get(f"/api/v1/files/{a}/preview")
     assert r.status_code == 422 and "feb.csv has expired" in r.get_json()["error"]["message"]
+
+
+def test_export_options_through_the_api(client, file_id):
+    import zipfile
+
+    r = client.get(f"/api/v1/files/{file_id}/export?format=csv&split_rows=2&files=1")
+    assert r.status_code == 200 and r.mimetype == "application/zip"
+    assert 'filename=orders-gridglass.zip' in r.headers["Content-Disposition"]
+    assert zipfile.ZipFile(io.BytesIO(r.data)).namelist() == ["orders - Rows 1–2.csv", "orders - Rows 3–4.csv"]
+    r = client.get(f"/api/v1/files/{file_id}/export?format=pdf&orientation=portrait&title=Hello&columns=City&columns=Name")
+    assert r.status_code == 200 and r.data.startswith(b"%PDF") and b"Hello" in r.data
+    r = client.get(f"/api/v1/files/{file_id}/export?format=csv&split_rows=many&files=1")
+    assert r.status_code == 422 and r.get_json()["error"]["message"] == "Rows per part must be a whole number."

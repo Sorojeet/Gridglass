@@ -26,8 +26,8 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request, send_file
 
-from .engine import (OPS, GridglassError, IngestError, InvalidStepsError, build, distinct_values, open_source,
-                     parse_steps, preview, profile)
+from .engine import (OPS, ExportError, GridglassError, IngestError, InvalidStepsError, build, distinct_values,
+                     open_source, parse_steps, preview, profile)
 from .engine.io import EXPORT_FORMATS, export
 from .limits import from_config, limiter
 from .storage import NotFound, Store
@@ -47,6 +47,7 @@ MIMETYPES = {
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "json": "application/json",
     "pdf": "application/pdf",
+    "zip": "application/zip",
 }
 
 
@@ -79,6 +80,16 @@ def _saved_steps(file_id: str) -> list[dict[str, Any]]:
         return steps[: max(0, int(upto))]
     except ValueError:
         raise InvalidStepsError("upto must be a number.") from None
+
+
+def _int_arg(name: str, label: str = "Rows per part") -> int | None:
+    value = request.args.get(name)
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        raise ExportError(f"{label} must be a whole number.") from None
 
 
 def _limit() -> int:
@@ -267,17 +278,23 @@ def download(file_id):
     fmt = (request.args.get("format") or "csv").lower()
     _, lf = _steps_and_frame(file_id, meta["steps"])
     stem = Path(meta["filename"]).stem or "data"
-    dest = store().export_path(file_id, fmt if fmt in EXPORT_FORMATS else "out")
     split_by = request.args.get("split_by") or None
-    export(lf, fmt, dest, title=stem, max_pdf_rows=_cfg("MAX_PDF_ROWS"), split_by=split_by)
+    split_rows = _int_arg("split_rows")
+    files = request.args.get("files") == "1"
+    dest = store().export_path(file_id, "zip" if files else fmt if fmt in EXPORT_FORMATS else "out")
+    title = (request.args.get("title") or "").strip()[:120] or stem
+    columns = request.args.getlist("columns") or None
+    export(lf, fmt, dest, title=title, max_pdf_rows=_cfg("MAX_PDF_ROWS"), split_by=split_by, split_rows=split_rows,
+           files=files, orientation=request.args.get("orientation") or "auto", columns=columns)
     fh = open(dest, "rb")
     try:
         dest.unlink()  # the open handle keeps the data readable; nothing is left on disk
     except OSError:     # Windows can't delete open files — clean up when the response closes
         fh.close()
         fh = None
-    response = send_file(fh or dest, mimetype=MIMETYPES[fmt], as_attachment=True,
-                         download_name=f"{stem}-gridglass.{fmt}", max_age=0)
+    ext = "zip" if files else fmt
+    response = send_file(fh or dest, mimetype=MIMETYPES[ext], as_attachment=True,
+                         download_name=f"{stem}-gridglass.{ext}", max_age=0)
     if fh is None:
         response.call_on_close(lambda: dest.unlink(missing_ok=True))
     return response

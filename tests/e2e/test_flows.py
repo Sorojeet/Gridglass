@@ -232,7 +232,7 @@ def test_add_column_math(phone):
     page = phone.upload_sample("add_column")
     expect(page.locator("#pv-note")).to_contain_text("Give the new column a name")
     page.fill("#f-name", "With GST")
-    page.click('[data-seg="mode"][data-val="math"]')
+    page.select_option("#f-mode", "math")
     page.select_option("#f-left", "Amount")
     page.click('[data-seg="operator"][data-val="*"]')
     page.fill("#f-right_value", "1.18")
@@ -1034,3 +1034,73 @@ def test_guides_are_easy_to_find(phone):
     page.wait_for_selector("#pv table")
     page.click('.topbar a[aria-label="How to use Pivot table"]')
     expect(page.locator("h1")).to_contain_text("pivot table")
+
+
+# ----------------------------------------------------------------------------- more options (1.8)
+
+def test_show_and_mark_duplicates(phone):
+    page = phone.upload_sample("remove_duplicates")
+    page.click('[data-seg="action"][data-val="show"]')
+    expect(page.locator(".preview-head")).to_contain_text("35 fewer rows")  # 45 → 10: 5 rows, each with its copy
+    page.click('[data-seg="action"][data-val="mark"]')
+    expect(page.locator("#pv thead")).to_contain_text("Duplicate")
+    apply(page)
+    expect(page.locator(".done h1")).to_have_text("Duplicates marked")
+    rows = result_json(page)
+    assert len(rows) == 45 and sum(r["Duplicate"] == "Yes" for r in rows) == 5
+
+
+def test_clean_up_text(phone):
+    page = phone.upload_sample("replace_values")
+    page.click('[data-seg="action"][data-val="clean"]')
+    page.click('[data-col-toggle="columns"][data-col="Email"]')
+    page.select_option("#f-clean", "email_domain")
+    apply(page)
+    assert {r["Email"] for r in result_json(page)} == {"example.com", None}
+
+
+def test_rank_within_each_city(phone):
+    page = phone.upload_sample("add_column")
+    page.fill("#f-name", "Rank in city")
+    page.select_option("#f-mode", "rank")
+    page.select_option("#f-left", "Amount")
+    page.click('[data-seg="within__mode"][data-val="some"]')
+    page.click('[data-col-toggle="within"][data-col="City"]')
+    apply(page)
+    rows = result_json(page)
+    for city in {r["City"] for r in rows}:
+        best = max((r for r in rows if r["City"] == city), key=lambda r: r["Amount"])
+        assert best["Rank in city"] == 1
+
+
+def test_split_every_n_rows_into_separate_files(phone):
+    import zipfile
+
+    page = phone.upload_sample("split_pages")
+    page.click('[data-seg="splitby"][data-val="rows"]')
+    page.fill("#split-n", "20")
+    expect(page.locator(".page-list li")).to_have_count(3)                # 45 rows → 20 + 20 + 5
+    page.click('[data-seg="splitfmt"][data-val="zip"]')
+    expect(page.locator('[data-action="download"]')).to_contain_text("Download 3 files (.zip)")
+    with page.expect_download() as dl:
+        page.click('[data-action="download"]')
+    names = zipfile.ZipFile(dl.value.path()).namelist()
+    assert names == ["sample-orders - Rows 1–20.csv", "sample-orders - Rows 21–40.csv", "sample-orders - Rows 41–45.csv"]
+    page.fill("#split-n", "0")
+    expect(page.locator('[data-action="download"]')).to_be_disabled()
+
+
+def test_pdf_options_in_convert(phone):
+    page = phone.upload_sample("convert")
+    expect(page.locator("#pdf-opts")).to_be_hidden()
+    page.select_option("#fmt", "pdf")
+    page.click('[data-seg="orient"][data-val="portrait"]')
+    page.fill("#pdf-title", "Orders for March")
+    page.click('[data-seg="pdfcols"][data-val="some"]')
+    page.click('[data-pdfcol="Email"]')
+    with page.expect_download() as dl:
+        page.click('[data-action="download"]')
+    data = Path(dl.value.path()).read_bytes()
+    assert data.startswith(b"%PDF") and b"Orders for March" in data
+    w, h = (float(x) for x in re.search(rb"/MediaBox \[\s*[\d.]+ [\d.]+ ([\d.]+) ([\d.]+)", data).groups())
+    assert w < h

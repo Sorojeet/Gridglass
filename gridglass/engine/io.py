@@ -538,46 +538,120 @@ def _clean_names(names: list[str]) -> list[str]:
 # --------------------------------------------------------------------------- export
 
 def export(lf: pl.LazyFrame, fmt: str, dest: str | Path, *, title: str = "Gridglass export",
-           max_pdf_rows: int = 10_000, split_by: str | None = None, max_pages: int = MAX_SPLIT_PAGES) -> Path:
+           max_pdf_rows: int = 10_000, split_by: str | None = None, split_rows: int | None = None,
+           files: bool = False, orientation: str = "auto", columns: list[str] | None = None,
+           max_pages: int = MAX_SPLIT_PAGES) -> Path:
     """Write the result as CSV, XLSX, JSON or PDF.
 
-    `split_by` makes one sheet (.xlsx), or one PDF page, per value of that column.
+    - `split_by` makes one part per value of that column; `split_rows` one part per N rows.
+      Parts become sheets (.xlsx) or pages (PDF), or with `files` separate files in a .zip.
+    - `columns` keeps only those columns, in that order.
+    - `orientation` (PDF): auto (landscape when wide), portrait or landscape.
     """
     fmt = fmt.lower()
     if fmt not in EXPORT_FORMATS:
         raise ExportError(f"Can't export as {fmt}. Choose CSV, XLSX, JSON or PDF.")
-    if split_by and fmt not in ("xlsx", "pdf"):
-        raise ExportError("Splitting into pages works for XLSX and PDF.")
+    if orientation not in ("auto", "portrait", "landscape"):
+        raise ExportError("Page orientation must be auto, portrait or landscape.")
+    if split_by and split_rows:
+        raise ExportError("Split by a column or by a number of rows, not both.")
+    if split_rows is not None and split_rows < 1:
+        raise ExportError("Rows per part must be at least 1.")
+    split = bool(split_by or split_rows)
+    if split and not files and fmt not in ("xlsx", "pdf"):
+        raise ExportError("Splitting into pages works for XLSX and PDF. For CSV or JSON, choose separate files.")
+    if files and not split:
+        raise ExportError("Separate files need a split: by a column or by a number of rows.")
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
-        if fmt == "csv":
+        if columns:
+            missing = [c for c in columns if c not in lf.collect_schema().names()]
+            if missing:
+                raise ExportError(f"Column not found: '{missing[0]}'.")
+            lf = lf.select(columns)
+        if not split and fmt == "csv":
             lf.collect().write_csv(dest, include_bom=True)  # BOM: spreadsheet apps then open UTF-8 correctly
             return dest
-        if fmt == "json":
+        if not split and fmt == "json":
             lf.collect().write_json(dest)
             return dest
         df = lf.collect()
-        if fmt == "xlsx" and df.height > XLSX_MAX_ROWS:
-            raise ExportError(f"A .xlsx sheet holds at most {XLSX_MAX_ROWS:,} rows; this has {df.height:,}. Export as CSV instead.")
-        if fmt == "pdf" and df.height > max_pdf_rows:
-            raise ExportError(f"PDF export is limited to {max_pdf_rows:,} rows; this has {df.height:,}. "
-                              "Filter it down first, or export as XLSX or CSV.")
-        parts = _split(df, split_by, max_pages) if split_by else None
+        parts = (_split(df, split_by, max_pages) if split_by else _chunks(df, split_rows, max_pages)) if split else None
+        if files:
+            _write_zip(dest, parts, fmt, title=title, orientation=orientation, max_pdf_rows=max_pdf_rows)
+            return dest
+        _check_size(df, fmt, max_pdf_rows)
         if fmt == "xlsx":
             _write_xlsx(dest, parts or [("Data", df)])
         else:
             from .pdf import write_pdf, write_pdf_sections
 
             if parts:
-                write_pdf_sections([(f"{split_by}: {label}", part) for label, part in parts], dest, title=title)
+                heading = (lambda label: f"{split_by}: {label}") if split_by else (lambda label: label)
+                write_pdf_sections([(heading(label), part) for label, part in parts], dest, title=title,
+                                   orientation=orientation)
             else:
-                write_pdf(df, dest, title=title)
+                write_pdf(df, dest, title=title, orientation=orientation)
     except ExportError:
         raise
     except pl.exceptions.PolarsError as exc:
         raise ExportError(f"Export failed: {str(exc).splitlines()[0][:160]}") from exc
     return dest
+
+
+def _check_size(df: pl.DataFrame, fmt: str, max_pdf_rows: int) -> None:
+    if fmt == "xlsx" and df.height > XLSX_MAX_ROWS:
+        raise ExportError(f"A .xlsx sheet holds at most {XLSX_MAX_ROWS:,} rows; this has {df.height:,}. Export as CSV instead.")
+    if fmt == "pdf" and df.height > max_pdf_rows:
+        raise ExportError(f"PDF export is limited to {max_pdf_rows:,} rows; this has {df.height:,}. "
+                          "Filter it down first, or export as XLSX or CSV.")
+
+
+def _chunks(df: pl.DataFrame, size: int, max_pages: int) -> list[tuple[str, pl.DataFrame]]:
+    """Parts of `size` rows each: 'Rows 1–10,000', 'Rows 10,001–20,000', …"""
+    n = max(1, -(-df.height // size))
+    if n > max_pages:
+        raise ExportError(f"{size:,} rows per part makes {n:,} parts — the limit is {max_pages}. Choose bigger parts.")
+    return [(f"Rows {i * size + 1:,}–{min((i + 1) * size, df.height):,}", df.slice(i * size, size)) for i in range(n)]
+
+
+_BAD_FILE_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
+
+
+def _write_zip(dest: Path, parts: list[tuple[str, pl.DataFrame]], fmt: str, *, title: str, orientation: str,
+               max_pdf_rows: int) -> None:
+    """One file per part, in a .zip. Names: '<title> - <part>.<fmt>', made safe and unique."""
+    import io as _io
+    import zipfile
+
+    used: set[str] = set()
+    with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for label, part in parts:
+            _check_size(part, fmt, max_pdf_rows)
+            base = _BAD_FILE_CHARS.sub("-", f"{title} - {label}").strip(" .-")[:120] or "part"
+            name, k = f"{base}.{fmt}", 2
+            while name.lower() in used:
+                name, k = f"{base} ({k}).{fmt}", k + 1
+            used.add(name.lower())
+            buf = _io.BytesIO()
+            if fmt == "csv":
+                part.write_csv(buf, include_bom=True)
+            elif fmt == "json":
+                part.write_json(buf)
+            else:
+                tmp = Path(tempfile.mkstemp(suffix=f".{fmt}", dir=dest.parent)[1])
+                try:
+                    if fmt == "xlsx":
+                        _write_xlsx(tmp, [("Data", part)])
+                    else:
+                        from .pdf import write_pdf
+
+                        write_pdf(part, tmp, title=f"{title} — {label}", orientation=orientation)
+                    buf.write(tmp.read_bytes())
+                finally:
+                    tmp.unlink(missing_ok=True)
+            zf.writestr(name, buf.getvalue())
 
 
 def _split(df: pl.DataFrame, column: str, max_pages: int) -> list[tuple[str, pl.DataFrame]]:

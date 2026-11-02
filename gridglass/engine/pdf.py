@@ -73,13 +73,13 @@ def _fmt(v) -> str:
     return text if len(text) <= MAX_CELL_CHARS else text[: MAX_CELL_CHARS - 1] + "…"
 
 
-def write_pdf(df: pl.DataFrame, dest: str | Path, *, title: str = "Gridglass export") -> Path:
+def write_pdf(df: pl.DataFrame, dest: str | Path, *, title: str = "Gridglass export", orientation: str = "auto") -> Path:
     """One table, header repeated on every page."""
-    return write_pdf_sections([(title, df)], dest, title=title, first_is_title=True)
+    return write_pdf_sections([(title, df)], dest, title=title, first_is_title=True, orientation=orientation)
 
 
 def write_pdf_sections(sections: list[tuple[str, pl.DataFrame]], dest: str | Path, *, title: str = "Gridglass export",
-                       first_is_title: bool = False) -> Path:
+                       first_is_title: bool = False, orientation: str = "auto") -> Path:
     """Several tables, each starting on a new page with its own heading (one value per page)."""
     width = max(df.width for _, df in sections)
     if width > MAX_PDF_COLUMNS:
@@ -87,7 +87,8 @@ def write_pdf_sections(sections: list[tuple[str, pl.DataFrame]], dest: str | Pat
 
         raise ExportError(f"PDF export fits at most {MAX_PDF_COLUMNS} columns; this has {width}. "
                           "Remove some columns first, or export as XLSX.")
-    page = landscape(A4) if width > 6 else A4
+    wide = width > 6 if orientation == "auto" else orientation == "landscape"
+    page = landscape(A4) if wide else A4
     margin = 12 * mm
     usable = page[0] - 2 * margin
     title_style = ParagraphStyle("t", fontName=BOLD, fontSize=13, leading=17, shaping=int(CAN_SHAPE))

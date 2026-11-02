@@ -75,7 +75,12 @@ tests/               pytest suite
 
 Conversion is not a step. Import any supported format and export as CSV (with a BOM so spreadsheet apps read it correctly), XLSX, JSON or PDF.
 
-**Split into pages:** a separate tool. It writes one sheet (.xlsx), or one PDF page, per value of a column (A→Z, blanks last, up to 200). It uses `export?split_by=<column>`.
+**Split into pages:** a separate tool. It splits by a column's values (A→Z, blanks last) or every N rows, up to 200 parts, into sheets (.xlsx), PDF pages, or separate CSV/XLSX/PDF files in a .zip. It uses `export?split_by=` / `split_rows=` and `files=1`.
+
+**Options inside tools (1.8):**
+- `remove_duplicates` has `action`: `remove`, `show` (every copy of repeated rows) or `mark` (a Yes/No `mark_column`).
+- `replace_values` has `action: "clean"` with `clean`: `special`, `digits`, `letters`, `email_domain`, `first_word` or `last_word`.
+- `add_column` has the modes `running_total`, `rank` (ties share a rank; `descending`) and `percent` (% of total), each optionally `within` groups.
 
 **Charts:** the pivot preview has Table / Chart tabs, with column, bar, line and pie charts drawn as SVG by `static/js/chart.js`, which has no dependencies. Charts download as SVG or PNG and follow the light/dark theme.
 
@@ -114,7 +119,7 @@ Security:
 | GET | `/files/<id>/values?column=&q=` | a column's distinct values with counts (filter dropdown) |
 | PUT / POST / DELETE | `/files/<id>/steps` | replace all / append one / clear |
 | DELETE | `/files/<id>/steps/<n>` | remove one step (undo) |
-| GET | `/files/<id>/export?format=` | download as `csv`, `xlsx`, `json` or `pdf` |
+| GET | `/files/<id>/export?format=` | download as `csv`, `xlsx`, `json` or `pdf`. Optional: `split_by=<column>` or `split_rows=N` (one sheet/page per part), `files=1` (separate files in a .zip), `columns=` (repeatable), and for PDFs `orientation=auto\|portrait\|landscape` and `title=` |
 
 **Responses**
 - Changing steps returns `{"file": ..., "preview": ...}`, so the UI needs one round trip per tap.

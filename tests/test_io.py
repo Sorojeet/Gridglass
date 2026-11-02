@@ -474,3 +474,59 @@ def test_messy_values_after_a_clean_start_still_convert():
 def test_csv_with_money_imports_as_numbers(tmp_path):
     res, df = _ingest(tmp_path, "m.csv", 'Item,Price,Date\nTea,"₹1,250.00",05/03/2026\nCake,Rs. 90/-,"5 Mar 2026"\n'.encode())
     assert df["Price"].to_list() == [1250.0, 90.0] and df["Date"].dtype == pl.Date
+
+
+# --- split every N rows, separate files, PDF options -----------------------------------------
+
+def _zip_names(path):
+    import zipfile
+
+    with zipfile.ZipFile(path) as z:
+        return z.namelist(), {n: z.read(n) for n in z.namelist()}
+
+
+def test_split_every_n_rows_into_sheets(tmp_path):
+    import fastexcel
+
+    lf = pl.LazyFrame({"n": range(25)})
+    out = export(lf, "xlsx", tmp_path / "s.xlsx", split_rows=10)
+    assert fastexcel.read_excel(out).sheet_names == ["Rows 1–10", "Rows 11–20", "Rows 21–25"]
+
+
+def test_separate_files_in_a_zip(tmp_path):
+    lf = pl.LazyFrame({"City": ["Pune", "Delhi", "Pune", None], "n": [1, 2, 3, 4]})
+    names, data = _zip_names(export(lf, "csv", tmp_path / "a.zip", split_by="City", files=True, title="orders"))
+    assert names == ["orders - Delhi.csv", "orders - Pune.csv", "orders - (blank).csv"]
+    assert data["orders - Pune.csv"].decode("utf-8-sig").splitlines() == ["City,n", "Pune,1", "Pune,3"]
+    names, data = _zip_names(export(lf, "pdf", tmp_path / "b.zip", split_rows=3, files=True, title="orders"))
+    assert names == ["orders - Rows 1–3.pdf", "orders - Rows 4–4.pdf"] and all(d.startswith(b"%PDF") for d in data.values())
+
+
+def test_split_limits(tmp_path):
+    lf = pl.LazyFrame({"n": range(500)})
+    with pytest.raises(ExportError, match="limit is 200"):
+        export(lf, "xlsx", tmp_path / "x.xlsx", split_rows=2)
+    with pytest.raises(ExportError, match="separate files"):
+        export(lf, "csv", tmp_path / "x.csv", split_rows=100)
+    with pytest.raises(ExportError, match="need a split"):
+        export(lf, "csv", tmp_path / "x.zip", files=True)
+
+
+def test_pdf_orientation_title_and_columns(tmp_path):
+    lf = pl.LazyFrame({"a": [1], "b": ["x"], "c": ["hidden"]})
+
+    def box(path):  # page width, height from the PDF's MediaBox
+        nums = re.search(rb"/MediaBox \[\s*([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+)", path.read_bytes()).groups()
+        return float(nums[2]), float(nums[3])
+
+    wide = export(lf, "pdf", tmp_path / "w.pdf", orientation="landscape", title="My report")
+    tall = export(pl.LazyFrame({f"c{i}": [1] for i in range(10)}), "pdf", tmp_path / "t.pdf", orientation="portrait")
+    auto = export(pl.LazyFrame({f"c{i}": [1] for i in range(10)}), "pdf", tmp_path / "a.pdf")
+    assert box(wide)[0] > box(wide)[1] and box(tall)[0] < box(tall)[1] and box(auto)[0] > box(auto)[1]
+    assert b"My report" in wide.read_bytes()  # document title
+    out = export(lf, "csv", tmp_path / "c.csv", columns=["b", "a"])
+    assert out.read_text(encoding="utf-8-sig").splitlines() == ["b,a", "x,1"]
+    with pytest.raises(ExportError, match="orientation"):
+        export(lf, "pdf", tmp_path / "q.pdf", orientation="sideways")
+    with pytest.raises(ExportError, match="not found"):
+        export(lf, "csv", tmp_path / "q.csv", columns=["nope"])

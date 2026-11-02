@@ -90,6 +90,7 @@ export const JOINS = [
 const DELIMS = [[',', 'Comma ,'], [' ', 'Space'], [';', 'Semicolon ;'], ['-', 'Dash -'], ['/', 'Slash /'],
   ['|', 'Bar |'], ['custom', 'Something else']];
 
+const TOTALS = ['running_total', 'rank', 'percent'];
 const n = (x) => Number(x).toLocaleString('en-IN');
 const plural = (k, word) => `${n(k)} ${word}${k === 1 ? '' : 's'}`;
 const first = (cols, type) => (cols.find((c) => !type || c.type === type) ?? cols[0])?.name ?? '';
@@ -107,11 +108,21 @@ export const TOOLS = [
     fields: [
       { key: 'columns', type: 'columns', label: 'A row is a duplicate when', optional: true,
         allLabel: 'All columns match', someLabel: 'Chosen columns match', default: null },
-      { key: 'keep', type: 'choice', label: 'Which copy to keep', default: 'first',
-        options: [['first', 'First one'], ['last', 'Last one']] },
+      { key: 'action', type: 'choice', label: 'What to do with them', default: 'remove',
+        options: [['remove', 'Remove'], ['show', 'Show only them'], ['mark', 'Mark them']] },
+      { key: 'keep', type: 'choice', label: 'Which copy is the original', default: 'first',
+        options: [['first', 'First one'], ['last', 'Last one']], show: (d) => d.action !== 'show' },
+      { key: 'mark_column', type: 'text', label: 'Name of the new column', default: 'Duplicate',
+        show: (d) => d.action === 'mark' },
     ],
-    build: (d) => ({ columns: d.columns, keep: d.keep }),
-    done: (b, a) => (b > a ? `${plural(b - a, 'duplicate row')} removed` : 'No duplicates found'),
+    build: (d) => ({
+      columns: d.columns, keep: d.keep, action: d.action,
+      ...(d.action === 'mark' ? { mark_column: d.mark_column.trim() || 'Duplicate' } : {}),
+    }),
+    ready: (d) => (d.action === 'mark' && !d.mark_column.trim() ? 'Name the new column.' : null),
+    done: (b, a, s) => (s?.action === 'show' ? (a ? `${plural(a, 'repeated row')} found` : 'No duplicates found')
+      : s?.action === 'mark' ? 'Duplicates marked'
+        : b > a ? `${plural(b - a, 'duplicate row')} removed` : 'No duplicates found'),
   },
   {
     op: 'trim', cat: 'clean', icon: 'trim', label: 'Trim spaces',
@@ -140,18 +151,27 @@ export const TOOLS = [
   {
     op: 'replace_values', cat: 'clean', icon: 'replace', label: 'Replace values',
     desc: 'Find and replace in columns', keywords: 'find substitute swap',
-    intro: 'Swap one value for another, as a whole cell or anywhere inside the text.',
+    intro: 'Swap one value for another, or clean up text: remove special characters, keep only numbers and more.',
     verb: 'Replace',
     fields: [
+      { key: 'action', type: 'choice', label: 'I want to', default: 'replace',
+        options: [['replace', 'Find & replace'], ['clean', 'Clean up text']] },
       { key: 'columns', type: 'columns', label: 'Columns', default: [] },
-      { key: 'find', type: 'text', label: 'Find', placeholder: 'e.g. N/A', default: '' },
-      { key: 'replace', type: 'text', label: 'Replace with', placeholder: 'leave empty to clear it', default: '' },
+      { key: 'find', type: 'text', label: 'Find', placeholder: 'e.g. N/A', default: '', show: (d) => d.action === 'replace' },
+      { key: 'replace', type: 'text', label: 'Replace with', placeholder: 'leave empty to clear it', default: '',
+        show: (d) => d.action === 'replace' },
       { key: 'match', type: 'choice', label: 'Match', default: 'whole',
-        options: [['whole', 'Whole cell'], ['part', 'Part of the text']] },
-      { key: 'case_sensitive', type: 'toggle', label: 'Match capital letters exactly', default: false },
+        options: [['whole', 'Whole cell'], ['part', 'Part of the text']], show: (d) => d.action === 'replace' },
+      { key: 'case_sensitive', type: 'toggle', label: 'Match capital letters exactly', default: false,
+        show: (d) => d.action === 'replace' },
+      { key: 'clean', type: 'select', label: 'Clean up', default: 'special', show: (d) => d.action === 'clean',
+        options: [['special', 'Remove special characters (₹ , . - ! …)'], ['digits', 'Keep only digits'],
+          ['letters', 'Keep only letters'], ['email_domain', 'Email address → its domain'],
+          ['first_word', 'Keep the first word'], ['last_word', 'Keep the last word']] },
     ],
-    build: (d) => ({ columns: d.columns, find: d.find, replace: d.replace, match: d.match, case_sensitive: d.case_sensitive }),
-    ready: (d) => (d.find ? null : 'Type what to find.'),
+    build: (d) => (d.action === 'clean' ? { columns: d.columns, action: 'clean', clean: d.clean }
+      : { columns: d.columns, find: d.find, replace: d.replace, match: d.match, case_sensitive: d.case_sensitive }),
+    ready: (d) => (!d.columns.length ? 'Choose the columns.' : d.action === 'replace' && !d.find ? 'Type what to find.' : null),
   },
   {
     op: 'fill_blanks', cat: 'clean', icon: 'fill', label: 'Fill blanks',
@@ -288,18 +308,23 @@ export const TOOLS = [
   {
     op: 'add_column', cat: 'shape', icon: 'addcol', label: 'Add column',
     desc: 'Combine, calculate or fill in', keywords: 'new column formula calculate concat merge join math',
-    intro: 'Add a new column: join columns together, do simple math, or fill in one value.',
+    intro: 'Add a new column: join columns, do simple math, fill in one value, or add a running total, rank or % of total.',
     verb: 'Add column',
     fields: [
       { key: 'name', type: 'text', label: 'New column name', placeholder: 'e.g. Total', default: '' },
-      { key: 'mode', type: 'choice', label: 'Make it from', default: 'combine',
-        options: [['combine', 'Join columns'], ['math', 'Math'], ['constant', 'One value']] },
+      { key: 'mode', type: 'select', label: 'Make it from', default: 'combine',
+        options: [['combine', 'Join columns'], ['math', 'Math (+ − × ÷)'], ['constant', 'One value for every row'],
+          ['running_total', 'Running total'], ['rank', 'Rank (1, 2, 3…)'], ['percent', '% of total']] },
       { key: 'columns', type: 'columns', label: 'Columns to join, in order', ordered: true, default: [],
         show: (d) => d.mode === 'combine' },
       { key: 'separator', type: 'text', label: 'Put between them', placeholder: 'a space', default: ' ',
         show: (d) => d.mode === 'combine' },
       { key: 'left', type: 'column', label: 'Column', filter: 'number', default: (cols) => first(cols, 'decimal') || first(cols, 'integer'),
-        show: (d) => d.mode === 'math' },
+        show: (d) => d.mode !== 'combine' && d.mode !== 'constant' },
+      { key: 'descending', type: 'choice', label: 'Rank 1 is the', default: 'true',
+        options: [['true', 'Largest'], ['false', 'Smallest']], show: (d) => d.mode === 'rank' },
+      { key: 'within', type: 'columns', label: 'Count over', optional: true, default: null,
+        allLabel: 'The whole file', someLabel: 'Each group separately', show: (d) => TOTALS.includes(d.mode) },
       { key: 'operator', type: 'choice', label: 'Operation', default: '*',
         options: [['+', '+'], ['-', '−'], ['*', '×'], ['/', '÷']], show: (d) => d.mode === 'math' },
       { key: 'rightKind', type: 'choice', label: 'With', default: 'value',
@@ -314,6 +339,9 @@ export const TOOLS = [
       const base = { name: d.name.trim(), mode: d.mode };
       if (d.mode === 'combine') return { ...base, columns: d.columns, separator: d.separator };
       if (d.mode === 'constant') return { ...base, value: d.value };
+      if (TOTALS.includes(d.mode)) {
+        return { ...base, left: d.left, within: d.within?.length ? d.within : null, ...(d.mode === 'rank' ? { descending: d.descending !== 'false' } : {}) };
+      }
       return {
         ...base, left: d.left, operator: d.operator,
         ...(d.rightKind === 'column' ? { right_column: d.right_column }
@@ -321,7 +349,8 @@ export const TOOLS = [
       };
     },
     ready: (d) => (!d.name.trim() ? 'Give the new column a name.'
-      : d.mode === 'math' && !d.left ? 'Choose a number column.'
+      : (d.mode === 'math' || TOTALS.includes(d.mode)) && !d.left ? 'Choose a number column.'
+        : TOTALS.includes(d.mode) && Array.isArray(d.within) && !d.within.length ? 'Choose the columns that make a group.'
         : d.mode === 'math' && d.rightKind === 'value' && d.right_value === '' ? 'Type a number.'
           : d.mode === 'math' && d.rightKind === 'column' && !d.right_column ? 'Choose the second column.' : null),
   },
@@ -416,8 +445,8 @@ export const TOOLS = [
   },
   {
     op: 'split_pages', cat: 'convert', icon: 'pages', label: 'Split into pages',
-    desc: 'One sheet or page per value', keywords: 'split pages sheets tabs per value break separate report each city',
-    intro: 'Pick a column and get one sheet (or one PDF page) for each of its values — for example, a page per city.',
+    desc: 'By a column or every N rows', keywords: 'split pages sheets tabs per value break separate report each city chunks rows files zip',
+    intro: 'Split by a column (a part per city, say) or every N rows, into sheets, PDF pages or separate files.',
     splitter: true,
     fields: [],
   },
@@ -468,6 +497,8 @@ const LOADERS = {
     return { delim: known ? s.delimiter : 'custom', custom: known ? '' : s.delimiter, parts: str(s.parts) };
   },
   add_column: (s) => ({
+    descending: s.descending === false ? 'false' : 'true',
+    within: s.within ?? null,
     value: str(s.value),
     rightKind: s.right_column ? 'column' : 'value',
     right_value: str(s.right_value),
