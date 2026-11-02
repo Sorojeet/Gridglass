@@ -592,7 +592,41 @@ TOOLS: list[ToolPage] = [
                  ("Chart", "Column, bar, line or pie; follows light and dark mode.")],
         faqs=[("How many columns can the Columns field make?", "Up to 200."),
               ("Can I edit the pivot after making it?", "Yes. Tap Edit on the result screen; the preview updates live.")],
-        related=["filter-rows", "unpivot", "sort-rows", "split-into-pages"],
+        related=["make-a-chart", "filter-rows", "unpivot", "sort-rows"],
+    ),
+    ToolPage(
+        slug="make-a-chart", op="chart", cat="summarize", name="Make a chart",
+        title="Make a chart from a CSV or spreadsheet",
+        description="Turn a CSV or XLSX file into a column, bar, line, area, pie or donut chart in a few taps. Add titles, "
+                    "pick colours, show values, sort, keep the top 10, then download PNG or SVG.",
+        intro=[
+            "Make a chart groups your data and draws it straight away: choose what to group by (such as City) and what to "
+            "add up (such as Sum of Amount). It uses the same engine as the <a href=\"/tools/pivot-table\">Pivot table</a>, "
+            "opened on its Chart tab, so you can switch to the table at any time.",
+            "Under <b>Customise the chart</b> you can add a title and axis titles, choose a colour set, show the values on "
+            "the chart, sort largest first, keep only the top 5, 10 or 20 (the rest become ‘Other’), stack the series, "
+            "choose short (1.2L) or full numbers, and pick a wide, square or tall shape.",
+        ],
+        when=["Sales by city for a presentation or WhatsApp group.", "Monthly totals as a line or area chart.",
+              "Each product's share as a pie or donut.", "Top 10 customers as a bar chart."],
+        steps=["Open the tool and choose your file.", "Pick the Rows to group by and the value to calculate.",
+               "Choose the chart type, then open <b>Customise the chart</b> to style it.",
+               "Download it as PNG (for messages and slides) or SVG (sharp at any size)."],
+        example=None,
+        options=[
+            ("Chart types", "Column, bar, line, area, pie and donut. Add a Columns field for several series, then stack them."),
+            ("Titles", "A chart title and titles for both axes."),
+            ("Colours", "Gridglass (follows light and dark mode), Ocean, Sunset, Forest, Berry or Grey."),
+            ("Order and size", "As in the table, largest first, smallest first or A → Z; all, top 5, top 10 or top 20."),
+            ("Labels", "Values on the chart, the legend and grid lines can each be turned on or off."),
+            ("Numbers", "Short (1.2L, 3.4Cr) or full (1,23,456)."),
+            ("Shape", "Wide (720 × 400), square (560 × 560) or tall (480 × 640). PNG downloads are twice that size."),
+        ],
+        faqs=[("How many bars can a chart show?", "Up to 30 categories. Use Show: Top 10 to group the rest as ‘Other’."),
+              ("Does the downloaded chart match what I see?", "Yes. The same drawing is saved, with a solid background."),
+              ("Can I chart a column that is text?", "Charts add up numbers. Count rows instead (the default), or use "
+               "<a href=\"/tools/change-type\">Change type</a> to turn the text into numbers.")],
+        related=["pivot-table", "filter-rows", "sort-rows", "convert-file"],
     ),
     ToolPage(
         slug="unpivot", op="unpivot", cat="summarize", name="Unpivot columns",

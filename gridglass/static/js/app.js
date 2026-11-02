@@ -2,7 +2,7 @@ import {
   AGG_FUNCS, CATS, FORMATS, JOINS, NO_VALUE_OPS, OPERATORS, PAGE, TOOL, TOOLS, TYPES, UI, defaults, icon, incomplete, suggestFor,
   toDraft, toStep,
 } from './tools.js';
-import { MAX_CATEGORIES, chartData, chartSVG, saveChart, themeColors } from './chart.js';
+import { DEFAULT_OPTIONS, MAX_CATEGORIES, PALETTES, arrange, chartData, chartSVG, saveChart, themeColors } from './chart.js';
 
 const API = '/api/v1';
 const desktop = window.matchMedia('(min-width: 1024px)');
@@ -33,7 +33,8 @@ const state = {
   otherCols: [],   // Merge: its columns
   view: 'table',   // Pivot preview: table | chart
   split: null,     // Split into pages: { column, format, pages }
-  chartType: 'column',
+  chart: { ...DEFAULT_OPTIONS }, // chart look: type, titles, colours, labels…
+  alias: null,     // a card that opens another tool (Make a chart -> Pivot table, on its Chart tab)
   pvData: null,    // the preview on screen, for the chart
 };
 const ACCEPT = '.csv,.tsv,.txt,.xlsx,.xlsm,.xls,.json,.jsonl,.ndjson';
@@ -409,6 +410,8 @@ function fillGrid() {
 // ============================================================================ tool flow
 
 async function openTool(tool) {
+  state.alias = tool.opens ? tool : null;
+  tool = tool.opens ? TOOL[tool.opens] : tool;
   state.tool = tool;
   state.editIndex = null;
   state.values = {};
@@ -424,12 +427,13 @@ function renderUpload() {
   const t = state.tool;
   state.stage = 'upload';
   view.dataset.screen = 'upload';
-  view.innerHTML = `${topbar({ back: '#/', title: 'All tools', help: helpFor(t) })}
+  const shown = state.alias ?? t;
+  view.innerHTML = `${topbar({ back: '#/', title: 'All tools', help: helpFor(shown) })}
     <section class="intro">
-      <span class="badge cat-${t.cat}">${CATS[t.cat]}</span>
-      <h1>${t.label}</h1>
-      <p>${t.intro}</p>
-      ${PAGE[t.op] ? `<a class="intro-link" href="/tools/${PAGE[t.op]}">${ui('help')} How it works, with an example</a>` : ''}
+      <span class="badge cat-${shown.cat}">${CATS[shown.cat]}</span>
+      <h1>${shown.label}</h1>
+      <p>${shown.intro}</p>
+      ${PAGE[shown.op] ? `<a class="intro-link" href="/tools/${PAGE[shown.op]}">${ui('help')} How it works, with an example</a>` : ''}
     </section>
     <section class="dropzone glass" id="drop">
       <span class="drop-icon">${ui('upload')}</span>
@@ -515,7 +519,7 @@ async function enterOptions() {
   state.browse = { all: false, page: 0 };
   state.other = null;
   state.otherCols = [];
-  state.view = 'table';
+  state.view = state.alias ? 'chart' : 'table';
   renderOptions();
 }
 
@@ -527,7 +531,8 @@ function renderOptions() {
   const pivot = t.op === 'pivot';
   const chart = pivot && state.view === 'chart';
   const editing = state.editIndex !== null;
-  view.innerHTML = `${topbar({ back: editing ? '#/result' : '#/', title: editing ? `Edit: ${t.label}` : t.label, help: helpFor(t) })}
+  const shown = !editing && state.alias ? state.alias : t;
+  view.innerHTML = `${topbar({ back: editing ? '#/result' : '#/', title: editing ? `Edit: ${t.label}` : shown.label, help: helpFor(shown) })}
     ${fileChip()}
     ${t.convert || t.splitter ? '' : `<form id="opts" class="form" novalidate autocomplete="off"></form>`}
     ${action}
@@ -540,9 +545,10 @@ function renderOptions() {
         <span class="pill" id="pv-badge" aria-live="polite"></span></div>
       <div class="table-wrap glass" id="pv" tabindex="0" aria-label="Preview table" ${pivot ? 'role="tabpanel" aria-labelledby="tab-table"' : ''} ${chart ? 'hidden' : ''}><div class="skeleton"></div></div>
       ${pivot ? `<div class="chart-panel glass" id="chart-panel" role="tabpanel" aria-labelledby="tab-chart" ${chart ? '' : 'hidden'}>
-        ${seg('charttype', [['column', 'Column'], ['bar', 'Bar'], ['line', 'Line'], ['pie', 'Pie']], state.chartType, 'Chart type')}
+        <div class="chart-types">${seg('charttype', CHART_TYPES, state.chart.type, 'Chart type')}</div>
         <div class="chart" id="chart"></div>
         <p class="hint" id="chart-note"></p>
+        ${chartCustomiser()}
         <div class="chart-actions">
           <button type="button" class="btn btn-secondary btn-sm" data-chart-save="png">${ui('download')} PNG</button>
           <button type="button" class="btn btn-secondary btn-sm" data-chart-save="svg">${ui('download')} SVG</button>
@@ -1123,6 +1129,48 @@ const otherFiles = (step) => (step.op === 'merge' ? [step.other] : step.op === '
 
 // ---------------------------------------------------------------------------- pivot chart
 
+const CHART_TYPES = [['column', 'Column'], ['bar', 'Bar'], ['line', 'Line'], ['area', 'Area'], ['pie', 'Pie'], ['donut', 'Donut']];
+const PALETTE_NAMES = { theme: 'Gridglass', ocean: 'Ocean', sunset: 'Sunset', forest: 'Forest', berry: 'Berry', mono: 'Grey' };
+
+function chartCustomiser() {
+  const c = state.chart;
+  const swatches = Object.keys(PALETTES).map((key) => {
+    const cols = themeColors(key).series.slice(0, 5);
+    return `<button type="button" class="swatch" data-palette="${key}" aria-pressed="${c.palette === key}" aria-label="${PALETTE_NAMES[key]} colours">
+      <svg viewBox="0 0 50 14" aria-hidden="true">${cols.map((col, i) => `<rect x="${i * 10}" width="10" height="14" fill="${col}"/>`).join('')}</svg>
+      <span>${PALETTE_NAMES[key]}</span></button>`;
+  }).join('');
+  const toggle = (key, label) => `<label class="toggle"><input type="checkbox" data-chart-opt="${key}" ${c[key] ? 'checked' : ''}><span class="switch" aria-hidden="true"></span><span>${label}</span></label>`;
+  return `<details class="chart-custom" id="chart-custom"${state.chartCustomOpen ? ' open' : ''}>
+    <summary>Customise the chart</summary>
+    <div class="chart-fields">
+      <div class="field"><label class="field-label" for="ch-title">Title</label>
+        <input class="input" id="ch-title" data-chart-text="title" value="${esc(c.title)}" maxlength="70" placeholder="e.g. Sales by city" autocomplete="off"></div>
+      <div class="field two-inputs" id="ch-axes"><span class="field-label">Axis titles</span>
+        <label class="sr-only" for="ch-x">Across the bottom</label><input class="input" id="ch-x" data-chart-text="xTitle" value="${esc(c.xTitle)}" maxlength="60" placeholder="Across, e.g. City" autocomplete="off">
+        <label class="sr-only" for="ch-y">Up the side</label><input class="input" id="ch-y" data-chart-text="yTitle" value="${esc(c.yTitle)}" maxlength="50" placeholder="Up, e.g. Sales (₹)" autocomplete="off"></div>
+      <div class="field"><span class="field-label">Colours</span><div class="swatches">${swatches}</div></div>
+      <div class="field"><span class="field-label">Order</span>
+        ${seg('chsort', [['none', 'As in table'], ['desc', 'Largest first'], ['asc', 'Smallest first'], ['az', 'A → Z']], c.sort, 'Order')}</div>
+      <div class="field"><span class="field-label">Show</span>
+        ${seg('chtop', [['0', 'All'], ['5', 'Top 5'], ['10', 'Top 10'], ['20', 'Top 20']], String(c.top), 'Show')}</div>
+      <div class="field"><span class="field-label">Numbers</span>
+        ${seg('chnum', [['short', 'Short (1.2L)'], ['full', 'Full (1,23,456)']], c.numbers, 'Numbers')}</div>
+      <div class="field"><span class="field-label">Shape</span>
+        ${seg('chshape', [['wide', 'Wide'], ['square', 'Square'], ['tall', 'Tall']], c.shape, 'Shape')}</div>
+      <div class="field toggles">
+        ${toggle('labels', 'Show values on the chart')}
+        ${toggle('legend', 'Show the legend')}
+        ${toggle('grid', 'Show grid lines')}
+        <span id="ch-stack-wrap">${toggle('stacked', 'Stack the series')}</span>
+      </div>
+      <button type="button" class="btn-link" data-chart-reset>Reset the look</button>
+    </div>
+  </details>`;
+}
+
+const SEG_OPT = { chsort: 'sort', chtop: 'top', chnum: 'numbers', chshape: 'shape' };
+
 function wireChart() {
   const tabs = [$('#tab-table'), $('#tab-chart')];
   const select = (view) => {
@@ -1145,42 +1193,79 @@ function wireChart() {
     select(next.id === 'tab-chart' ? 'chart' : 'table');
     next.focus();
   });
-  $('#chart-panel').addEventListener('click', async (e) => {
+  const panel = $('#chart-panel');
+  panel.addEventListener('click', async (e) => {
     const b = e.target.closest('button');
     if (!b) return;
-    if (b.dataset.seg === 'charttype') {
-      state.chartType = b.dataset.val;
-      $('#chart-panel').querySelectorAll('[data-seg="charttype"]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    if (b.dataset.seg === 'charttype' || SEG_OPT[b.dataset.seg]) {
+      pressSeg(b);
+      if (b.dataset.seg === 'charttype') state.chart.type = b.dataset.val;
+      else state.chart[SEG_OPT[b.dataset.seg]] = b.dataset.seg === 'chtop' ? Number(b.dataset.val) : b.dataset.val;
+      renderChart();
+    } else if (b.dataset.palette) {
+      state.chart.palette = b.dataset.palette;
+      panel.querySelectorAll('[data-palette]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      renderChart();
+    } else if ('chartReset' in b.dataset) {
+      const { title, xTitle, yTitle, type } = state.chart; // keep the words and the type; reset the look
+      state.chart = { ...DEFAULT_OPTIONS, title, xTitle, yTitle, type };
+      $('#chart-custom').outerHTML = chartCustomiser();
       renderChart();
     } else if (b.dataset.chartSave) {
-      const data = state.pvData && chartData(state.pvData);
-      if (!data || data.error) return;
-      const svg = chartSVG(data, state.chartType, themeColors(), { background: true });
-      const stem = state.file.filename.replace(/\.[^.]+$/, '');
+      const data = chartReady();
+      if (!data) return;
+      const svg = chartSVG(data, themeColors(state.chart.palette), { ...state.chart, background: true });
+      const stem = (state.chart.title || state.file.filename.replace(/\.[^.]+$/, '')).replace(/[\\/:*?"<>|]+/g, '-');
       await withBusy(b, async () => {
-        const { blob, name } = await saveChart(svg, `${stem}-${state.chartType}-chart`, b.dataset.chartSave);
+        const { blob, name } = await saveChart(svg, `${stem}-${state.chart.type}-chart`, b.dataset.chartSave);
         saveBlob(blob, name);
       });
     }
   });
+  let typing;
+  panel.addEventListener('input', (e) => {
+    const el = e.target;
+    if (el.dataset.chartText) {
+      state.chart[el.dataset.chartText] = el.value;
+      clearTimeout(typing);
+      typing = setTimeout(renderChart, 250);
+    } else if (el.dataset.chartOpt) {
+      state.chart[el.dataset.chartOpt] = el.checked;
+      renderChart();
+    }
+  });
+  panel.addEventListener('toggle', (e) => { if (e.target.id === 'chart-custom') state.chartCustomOpen = e.target.open; }, true);
   if (state.view === 'chart') renderChart();
+}
+
+/** The preview as chart data, sorted and trimmed the way the options say; null when there's nothing to draw. */
+function chartReady() {
+  const data = state.pvData ? chartData(state.pvData) : null;
+  return data && !data.error ? arrange(data, state.chart) : null;
 }
 
 function renderChart() {
   const el = $('#chart');
   if (!el) return;
   const note = $('#chart-note');
-  const data = state.pvData ? chartData(state.pvData) : { error: 'Finish the pivot options to see a chart.' };
-  $('#chart-panel').querySelectorAll('[data-chart-save]').forEach((b) => { b.disabled = Boolean(data.error); });
-  if (data.error) {
-    el.innerHTML = `<p class="empty">${esc(data.error)}</p>`;
+  const c = state.chart;
+  const raw = state.pvData ? chartData(state.pvData) : { error: 'Finish the pivot options to see a chart.' };
+  $('#chart-panel').querySelectorAll('[data-chart-save]').forEach((b) => { b.disabled = Boolean(raw.error); });
+  if (raw.error) {
+    el.innerHTML = `<p class="empty">${esc(raw.error)}</p>`;
     note.textContent = '';
     return;
   }
-  el.innerHTML = chartSVG(data, state.chartType, themeColors());
+  const data = arrange(raw, c);
+  const round = c.type === 'pie' || c.type === 'donut';
+  const stackable = data.series.length > 1 && !round && c.type !== 'line';
+  const wrap = $('#ch-stack-wrap');
+  if (wrap) wrap.hidden = !stackable;
+  el.dataset.shape = c.shape;
+  el.innerHTML = chartSVG(data, themeColors(c.palette), c);
   note.textContent = [
-    state.chartType === 'pie' && data.series.length > 1 ? `The pie shows ${data.series[0].name}.` : '',
-    data.truncated ? `Showing the first ${MAX_CATEGORIES} ${data.categoryName} values.` : '',
+    round && data.series.length > 1 ? `The ${c.type} shows ${data.series[0].name}.` : '',
+    data.truncated ? `Showing the first ${MAX_CATEGORIES} of ${num(data.total)} ${data.categoryName} values. Use Show: Top 10 to group the rest.` : '',
   ].filter(Boolean).join(' ');
 }
 

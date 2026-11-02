@@ -85,7 +85,18 @@ Conversion is not a step. Import any supported format and export as CSV (with a 
 
 **Check (1.9):** `GET /files/<id>/health` reports common problems in the data as it is now (after saved steps; `?upto=` works). These are exact copies, blank rows, empty columns, blank cells, stray spaces, the same value written differently, and columns that are almost all numbers. Each comes with a ready step (`fix.step`) or the tool to open (`fix.tool`). The app shows it from **Check** on the file card. The **Headers** picker also works for the second file in Merge and for each file in Stack.
 
-**Charts:** the pivot preview has Table / Chart tabs, with column, bar, line and pie charts drawn as SVG by `static/js/chart.js`, which has no dependencies. Charts download as SVG or PNG and follow the light/dark theme.
+**Charts:** the pivot preview has Table / Chart tabs. Charts are drawn as SVG by `static/js/chart.js`, which has no dependencies.
+- Types: column, bar, line, area, pie and donut; several series can be stacked.
+- **Customise the chart** (1.10):
+  - a title and axis titles
+  - colour sets (Gridglass follows light and dark mode; Ocean, Sunset, Forest, Berry and Grey work on both)
+  - order (as in table, largest or smallest first, or A → Z)
+  - top 5, 10 or 20, with the rest summed as "Other"
+  - value labels, legend and grid lines
+  - short (1.2L) or full numbers
+  - wide, square or tall shape
+- Downloads (SVG, or PNG at 2×) match the preview.
+- The **Make a chart** card (`op: 'chart'`, `opens: 'pivot'`) opens the Pivot table tool on its Chart tab.
 
 ## Frontend
 

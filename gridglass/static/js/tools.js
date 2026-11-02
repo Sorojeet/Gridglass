@@ -27,6 +27,7 @@ const P = {
   addcol: '<rect x="3" y="4" width="11" height="16" rx="2"/><path d="M19 9v6M16 12h6"/>',
   group: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
   pivot: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9.5h16M9.5 4v16"/>',
+  chart: '<path d="M4 20h16"/><rect x="5.5" y="11" width="3" height="6" rx="1"/><rect x="10.5" y="6" width="3" height="11" rx="1"/><rect x="15.5" y="13" width="3" height="4" rx="1"/>',
   unpivot: '<path d="M6 4v16h14M10 8h8M10 12h8M10 16h8"/>',
   convert: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
   merge: '<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/>',
@@ -467,6 +468,13 @@ export const TOOLS = [
     done: (b, a) => `Pivot table ready — ${plural(a, 'row')}`,
   },
   {
+    op: 'chart', cat: 'summarize', icon: 'chart', label: 'Make a chart',
+    desc: 'Column, bar, line, area or pie', keywords: 'chart graph plot visualise visualize bar pie donut line area column diagram',
+    intro: 'Choose what to group by and what to add up, and the chart draws itself. Change the type, colours, titles and more, then download it as PNG or SVG.',
+    opens: 'pivot', // the Pivot table tool, opened on its Chart tab
+    fields: [],
+  },
+  {
     op: 'unpivot', cat: 'summarize', icon: 'unpivot', label: 'Unpivot columns',
     desc: 'Turn columns into rows', keywords: 'melt reshape long wide transpose',
     intro: 'Turns a wide table (Jan, Feb, Mar columns) into a long one with Month and Value columns.',
@@ -504,7 +512,7 @@ export const PAGE = {
   fill_blanks: 'fill-blanks', remove_blank_rows: 'remove-blank-rows', filter_rows: 'filter-rows', sort_rows: 'sort-rows',
   remove_columns: 'remove-columns', keep_columns: 'choose-columns', rename_columns: 'rename-columns', keep_rows: 'keep-top-rows',
   change_type: 'change-type', split_column: 'split-column', add_column: 'add-column', merge: 'merge-files', stack: 'stack-files',
-  pivot: 'pivot-table', unpivot: 'unpivot', convert: 'convert-file', split_pages: 'split-into-pages',
+  pivot: 'pivot-table', chart: 'make-a-chart', unpivot: 'unpivot', convert: 'convert-file', split_pages: 'split-into-pages',
 };
 
 export const FORMATS = [['xlsx', 'Spreadsheet (.xlsx)'], ['csv', 'CSV (.csv)'], ['json', 'JSON (.json)'], ['pdf', 'PDF (.pdf)']];
