@@ -1,6 +1,6 @@
 # Gridglass
 
-Simple spreadsheet tools for everyone. Pick a tool, upload a CSV or spreadsheet file, preview the change, and download the result. Gridglass is built for phones first.
+Simple spreadsheet tools for everyone. Pick a tool, upload a CSV or spreadsheet file, preview the change, and download the result.
 
 ## How it works
 
