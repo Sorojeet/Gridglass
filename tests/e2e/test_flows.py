@@ -1104,3 +1104,69 @@ def test_pdf_options_in_convert(phone):
     assert data.startswith(b"%PDF") and b"Orders for March" in data
     w, h = (float(x) for x in re.search(rb"/MediaBox \[\s*[\d.]+ [\d.]+ ([\d.]+) ([\d.]+)", data).groups())
     assert w < h
+
+
+# ----------------------------------------------------------------------------- 1.9: smarter add column, health check, headers
+
+def test_if_then_column(phone):
+    page = phone.upload_sample("add_column")
+    page.fill("#f-name", "Size")
+    page.select_option("#f-mode", "if_then")
+    page.select_option("#r0col", "Amount")
+    page.select_option("#r0op", "greater_or_equal")
+    page.fill("#r0v", "500")
+    page.fill("#r0then", "Big")
+    page.click('[data-add="rules"]')
+    page.select_option("#r1col", "City")
+    page.fill("#r1v", "Pune")
+    page.keyboard.press("Escape")
+    page.fill("#r1then", "Pune order")
+    page.fill("#f-otherwise", "Small")
+    apply(page)
+    for r in result_json(page):
+        want = "Big" if r["Amount"] >= 500 else "Pune order" if r["City"] == "Pune" else "Small"
+        assert r["Size"] == want
+
+
+def test_date_part_and_ranges(phone):
+    page = phone.upload_sample("add_column")
+    page.fill("#f-name", "FY")
+    page.select_option("#f-mode", "date_part")
+    page.select_option("#f-part", "fy")
+    expect(page.locator("#pv thead")).to_contain_text("FY")
+    apply(page)
+    assert all(r["FY"].startswith("FY 202") for r in result_json(page))
+    page.goto(phone.base + "/#/tool/add_column")
+    page.wait_for_selector("#f-mode")
+    page.fill("#f-name", "Band")
+    page.select_option("#f-mode", "ranges")
+    page.select_option("#f-left", "Amount")
+    page.fill("#f-breaks", "300, 600")
+    apply(page)
+    bands = {r["Band"] for r in result_json(page)}
+    assert bands <= {"Under 300", "300 – under 600", "600 and over"} and len(bands) == 3
+
+
+def test_health_check_and_one_tap_fix(phone):
+    page = phone.upload_sample("sort_rows")
+    page.click('[data-action="check"]')
+    expect(page.locator("#health")).to_contain_text("exact copies")
+    expect(page.locator("#health")).to_contain_text("extra spaces")
+    page.locator("#health [data-fix]", has_text="Remove copies").click()
+    expect(page.locator("#toast")).to_contain_text("Remove copies: done")
+    expect(page.locator(".file-chip")).to_contain_text("1 step applied")
+    expect(page.locator("#health")).not_to_contain_text("exact copies")
+    page.locator("#health summary").click()
+    expect(page.locator("#health table")).to_contain_text("Customer")
+
+
+def test_headers_for_a_stacked_file(phone, tmp_path):
+    extra = tmp_path / "titled.csv"
+    extra.write_text("Order report\n\nOrder ID,Customer,Amount\n9001,Zed,5\n")
+    page = phone.upload_sample("stack")
+    page.set_input_files("#file3", str(extra))
+    expect(page.locator(".stack-list li")).to_contain_text("1 row")
+    page.click('[data-stack-headers="0"]')
+    page.locator("#header-pick3 .hp-row").nth(0).click()        # use the title line as headers instead
+    expect(page.locator("#toast")).to_contain_text("row 1")
+    expect(page.locator(".stack-list li")).to_contain_text("3 rows")

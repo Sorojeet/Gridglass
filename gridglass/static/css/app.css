@@ -573,3 +573,27 @@ td.null { background: repeating-linear-gradient(135deg, transparent 0 6px, var(-
 /* Options under the download format (PDF page, title, columns) */
 .pdf-opts { display: flex; flex-direction: column; gap: 18px; }
 .pdf-opts .col-chips { margin-top: 10px; }
+
+/* If-then rules in Add column: "If [column] [is] [value] then [answer]" */
+.rule-word { font-size: 13px; font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; }
+.rule-then { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
+.rule-then span { font-size: 13px; font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* Data health check under the file card */
+.health { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius); }
+.health h2 { font-size: 16px; font-weight: 700; }
+.health-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.health-item { display: flex; gap: 10px; padding: 12px; border-radius: var(--radius-sm); background: var(--glass-strong); border: 1px solid var(--line); }
+.health-dot { flex: none; width: 10px; height: 10px; margin-top: 6px; border-radius: 50%; background: var(--warn-ink); }
+.health-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.health-body p { font-size: 14px; line-height: 1.45; }
+.health-eg { color: var(--ink2); font-size: 13px !important; overflow-wrap: anywhere; }
+.health-fix:empty { display: none; }
+.health-fix .btn { text-decoration: none; }
+.health-ok { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--accent); }
+.health-cols summary { cursor: pointer; font-weight: 600; font-size: 14px; padding: 4px 0; }
+.health-cols .table-wrap { margin-top: 8px; max-height: 280px; overflow: auto; border-radius: var(--radius-sm); border: 1px solid var(--line); }
+.health-cols table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.health-cols th, .health-cols td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.health-cols th { position: sticky; top: 0; background: var(--thead); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+.file-chip.second .file-actions { flex-wrap: wrap; }

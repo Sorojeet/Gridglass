@@ -363,6 +363,27 @@ class FilterRows(Step):
         return lf.filter(hit)
 
 
+class Rule(Condition):
+    """One line of an if-then column: when <condition>, the new column says <then>."""
+    then: Annotated[str, StringConstraints(max_length=500)] = ""
+
+
+_NUMBER = re.compile(r"-?(\d+(\.\d*)?|\.\d+)")
+
+DATE_PARTS = ("year", "month", "month_name", "quarter", "weekday", "day", "week", "year_month", "fy")
+
+
+def _indian_number(x: float) -> str:
+    """1234567.5 -> '12,34,567.5' (Indian grouping), for range labels."""
+    neg, x = x < 0, abs(x)
+    whole, frac = (f"{x:.10f}".rstrip("0").rstrip(".").split(".") + [""])[:2]
+    if len(whole) > 3:
+        head, tail = whole[:-3], whole[-3:]
+        head = ",".join([head[max(0, i - 2):i] for i in range(len(head), 0, -2)][::-1])
+        whole = f"{head},{tail}"
+    return ("-" if neg else "") + whole + (f".{frac}" if frac else "")
+
+
 class SortKey(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     column: Col
@@ -481,7 +502,7 @@ class AddColumn(Step):
     label: ClassVar[str] = "Add column"
     op: Literal["add_column"]
     name: Col
-    mode: Literal["constant", "combine", "math", "running_total", "rank", "percent"]
+    mode: Literal["constant", "combine", "math", "running_total", "rank", "percent", "if_then", "date_part", "ranges"]
     value: Scalar = None                       # constant
     columns: list[Col] | None = None           # combine
     separator: Annotated[str, StringConstraints(max_length=20)] = " "
@@ -491,11 +512,28 @@ class AddColumn(Step):
     right_value: float | None = None
     within: list[Col] | None = None           # running_total / rank / percent: restart for each group
     descending: bool = True                    # rank: largest first gets 1
+    rules: Annotated[list[Rule], Field(max_length=20)] | None = None   # if_then: first matching rule wins
+    otherwise: Annotated[str, StringConstraints(max_length=500)] = ""  # if_then: when no rule matches
+    part: Literal[DATE_PARTS] | None = None    # date_part
+    breaks: Annotated[list[float], Field(max_length=30)] | None = None  # ranges: 100, 500 -> under 100 / 100–500 / 500+
+    labels: Annotated[list[Annotated[str, StringConstraints(max_length=100)]], Field(max_length=31)] | None = None
 
     @model_validator(mode="after")
     def _mode_fields(self):
-        if self.mode in ("running_total", "rank", "percent") and not self.left:
+        if self.mode in ("running_total", "rank", "percent", "ranges") and not self.left:
             raise ValueError("Choose a number column.")
+        if self.mode == "date_part" and (not self.left or not self.part):
+            raise ValueError("Choose a date column and which part of it.")
+        if self.mode == "if_then" and not self.rules:
+            raise ValueError("Add at least one rule.")
+        if self.mode == "ranges":
+            if not self.breaks:
+                raise ValueError("Type the numbers where the ranges start, e.g. 100, 500, 1000.")
+            if sorted(set(self.breaks)) != self.breaks:
+                raise ValueError("Range numbers must go up, with no repeats, e.g. 100, 500, 1000.")
+            if self.labels is not None and len(self.labels) != len(self.breaks) + 1:
+                raise ValueError(f"{len(self.breaks)} numbers make {len(self.breaks) + 1} ranges, so give "
+                                 f"{len(self.breaks) + 1} names (or none).")
         if self.mode == "combine" and not self.columns:
             raise ValueError("Choose the columns to combine.")
         if self.mode == "math":
@@ -515,6 +553,12 @@ class AddColumn(Step):
             return lf.with_columns(pl.concat_str(parts, separator=self.separator, ignore_nulls=True).alias(self.name))
         if self.mode in ("running_total", "rank", "percent"):
             return lf.with_columns(self._totals(schema).alias(self.name))
+        if self.mode == "if_then":
+            return lf.with_columns(self._if_then(schema).alias(self.name))
+        if self.mode == "date_part":
+            return lf.with_columns(self._date_part(schema).alias(self.name))
+        if self.mode == "ranges":
+            return lf.with_columns(self._ranges(schema).alias(self.name))
         cols = [self.left] + ([self.right_column] if self.right_column else [])
         need(schema, cols)
         need_numeric(schema, cols, "Math")
@@ -525,6 +569,63 @@ class AddColumn(Step):
         else:
             res = {"+": a + b, "-": a - b, "*": a * b}[self.operator]
         return lf.with_columns(res.alias(self.name))
+
+    def _if_then(self, schema) -> pl.Expr:
+        """When … then …, checked in order; the first rule that matches wins. All-number answers make a number column."""
+        need(schema, [r.column for r in self.rules])
+        answers = [r.then for r in self.rules] + [self.otherwise]
+        filled = [a.strip() for a in answers if a.strip()]
+        numeric = bool(filled) and all(_NUMBER.fullmatch(a.replace(",", "")) for a in filled)
+
+        def value(text: str) -> pl.Expr:
+            if not text.strip():
+                return pl.lit(None, dtype=pl.Float64 if numeric else pl.String)
+            return pl.lit(float(text.replace(",", "")) if numeric else text)
+
+        expr = pl.when(self.rules[0].expr(schema)).then(value(self.rules[0].then))
+        for r in self.rules[1:]:
+            expr = expr.when(r.expr(schema)).then(value(r.then))
+        expr = expr.otherwise(value(self.otherwise))
+        if numeric and all(float(a.replace(",", "")).is_integer() for a in filled):
+            expr = expr.cast(pl.Int64)
+        return expr
+
+    def _date_part(self, schema) -> pl.Expr:
+        need(schema, [self.left])
+        if not schema[self.left].is_temporal():
+            raise ColumnError(f"'{self.left}' isn't a date column. Use Change type to make it a date first.")
+        d = pl.col(self.left)
+        if self.part == "fy":  # Indian financial year, April to March: 5 Mar 2026 -> FY 2025-26
+            start = pl.when(d.dt.month() >= 4).then(d.dt.year()).otherwise(d.dt.year() - 1)
+            return pl.concat_str([pl.lit("FY "), start.cast(pl.String), pl.lit("-"),
+                                  ((start + 1) % 100).cast(pl.String).str.zfill(2)])
+        return {
+            "year": lambda: d.dt.year().cast(pl.Int64),
+            "month": lambda: d.dt.month().cast(pl.Int64),
+            "month_name": lambda: d.dt.strftime("%B"),
+            "quarter": lambda: pl.concat_str([pl.lit("Q"), d.dt.quarter().cast(pl.String)]),
+            "weekday": lambda: d.dt.strftime("%A"),
+            "day": lambda: d.dt.day().cast(pl.Int64),
+            "week": lambda: d.dt.week().cast(pl.Int64),
+            "year_month": lambda: d.dt.strftime("%Y-%m"),
+        }[self.part]()
+
+    def _ranges(self, schema) -> pl.Expr:
+        """Group numbers into ranges. A number on a boundary goes into the higher range (100 is in 100–500)."""
+        need(schema, [self.left])
+        need_numeric(schema, [self.left], "Ranges")
+        b = self.breaks
+        labels = self.labels or (
+            [f"Under {_indian_number(b[0])}"]
+            + [f"{_indian_number(lo)} – under {_indian_number(hi)}" for lo, hi in zip(b, b[1:])]
+            + [f"{_indian_number(b[-1])} and over"])
+        if len(set(labels)) != len(labels):
+            raise ColumnError("Each range needs a different name.")
+        x = pl.col(self.left)
+        expr = pl.when(x.is_null()).then(pl.lit(None, dtype=pl.String))
+        for edge, label in zip(b, labels):
+            expr = expr.when(x < edge).then(pl.lit(label))
+        return expr.otherwise(pl.lit(labels[-1]))
 
     def _totals(self, schema) -> pl.Expr:
         """Running total (in the current row order), rank (1 = largest, ties share a rank), or % of total."""

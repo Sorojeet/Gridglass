@@ -473,14 +473,19 @@ TOOLS: list[ToolPage] = [
     ),
     ToolPage(
         slug="add-column", op="add_column", cat="shape", name="Add column",
-        title="Add a column: join, calculate, running total, rank or % of total",
-        description="Make a new column by joining columns, doing simple math (price × quantity), filling in one value, "
-                    "or adding a running total, a rank or a % of total — overall or within each group.",
+        title="Add a column: if-then rules, date parts, ranges, totals and more",
+        description="Make a new column with if-then rules, the month, quarter or financial year of a date, number ranges, "
+                    "joined columns, simple math, a running total, a rank or a % of total.",
         intro=["Add column creates a new column from what's already there, with no formulas to write.",
+               "<b>If … then …</b> rules label rows by any condition (‘if Amount is at least 500, then Big’), checked in "
+               "order. <b>Part of a date</b> pulls out the month, quarter, weekday or Indian financial year (FY 2025-26). "
+               "<b>Number ranges</b> groups numbers into bands such as ‘Under 100’ and ‘100 – under 500’.",
                "Running total, rank and % of total can count over the whole file or restart for each group, so "
                "‘rank within each city’ or ‘% of each region's sales’ is one step."],
         when=["Full name from first and last name.", "Total = Price × Quantity.", "A Country column that says ‘India’ on every row.",
-              "Rank salespeople by sales, within each branch.", "Each product's share of total sales, as a %."],
+              "Rank salespeople by sales, within each branch.", "Each product's share of total sales, as a %.",
+              "Label orders High, Medium or Low by amount.", "A Financial year column for April–March reports.",
+              "Age bands like 18–25, 25–40 and 40+."],
         steps=["Open the tool and choose your file.", "Name the new column.", "Choose <b>Join columns</b>, <b>Math</b> or <b>One value</b>.",
                "Check the preview and download."],
         example=Example(columns=["Price", "Qty"], before=[["250", "2"], ["99.5", "4"]], after_columns=["Price", "Qty", "Total"],
@@ -488,12 +493,20 @@ TOOLS: list[ToolPage] = [
         options=[("Join columns", "Pick columns in order and what goes between them."),
                  ("Math", "+, −, × or ÷ with a number or another column."),
                  ("One value", "The same text or number on every row."),
+                 ("If … then …", "Up to 20 rules using the same conditions as Filter rows; the first that matches wins, "
+                                  "with an ‘Otherwise’ value. If every answer is a number, the column is a number column."),
+                 ("Part of a date", "Month name or number, year, year-month, quarter, financial year (April–March), weekday, "
+                                    "day of the month or week of the year."),
+                 ("Number ranges", "Type where ranges start, such as 100, 500, 1000. A number on a boundary goes in the higher "
+                                   "range. Optionally give each range a name."),
                  ("Running total", "Adds up a number column row by row, in the current order. Sort first if order matters."),
                  ("Rank", "1 for the largest (or smallest); equal values share a rank, like 1, 2, 2, 4."),
                  ("% of total", "Each row's share of the column total, rounded to 2 decimals."),
                  ("Count over", "The whole file, or each group separately (choose the grouping columns).")],
         faqs=[("What happens when dividing by zero?", "The result is blank for that row."),
-              ("What about blank numbers?", "A running total treats them as 0; rank and % leave them blank.")],
+              ("What about blank numbers?", "A running total treats them as 0; rank, % and ranges leave them blank."),
+              ("My dates aren't offered for ‘Part of a date’.", "The column is probably text. Use "
+               "<a href=\"/tools/change-type\">Change type</a> to make it a date first.")],
         related=["split-column", "pivot-table", "rename-columns"],
     ),
     # ------------------------------------------------------------------ combine
@@ -522,6 +535,9 @@ TOOLS: list[ToolPage] = [
                  ("If a match appears more than once", "Use the first one (on by default), so your rows aren't repeated.")],
         faqs=[("The match column is numbers in one file and text in the other. Does it still work?",
                "Yes. The second file's key is converted to your file's type."),
+              ("The second file has a title above its table.",
+               "Gridglass usually finds the real header row on its own. If not, tap <b>Headers</b> on the second file's "
+               "card and pick the row with the column names."),
               ("How is this different from Stack files?",
                "Merge adds <i>columns</i> side by side by matching rows. <a href=\"/tools/stack-files\">Stack files</a> "
                "puts <i>rows</i> underneath.")],
@@ -691,6 +707,11 @@ GUIDES: list[Guide] = [
             ("Why lists get messy", [
                 "Lists typed by several people, or copied from forms, end up with ‘ asha@example.com’, ‘ASHA RAO’, empty "
                 "rows and the same person twice. Each problem is small, but together they spoil mailings and counts.",
+            ]),
+            ("Start with a check", [
+                "In the app, tap <b>Check</b> on the file card. Gridglass looks at every row and lists what needs "
+                "attention: exact copies, blank rows, stray spaces, the same value written differently and columns that "
+                "are almost all numbers. Many problems have a one-tap fix right there.",
             ]),
             ("The order that works", [
                 "<ol><li><a href=\"/tools/trim-spaces\">Trim spaces</a> on all text columns.</li>"

@@ -293,7 +293,7 @@ def test_index_and_static(client):
 
 def test_service_worker_at_root(client):
     r = client.get("/sw.js")
-    assert r.status_code == 200 and b"gridglass-v10" in r.data and r.headers["Cache-Control"] == "no-cache"
+    assert r.status_code == 200 and b"gridglass-v11" in r.data and r.headers["Cache-Control"] == "no-cache"
     r.close()
 
 
@@ -495,3 +495,13 @@ def test_export_options_through_the_api(client, file_id):
     assert r.status_code == 200 and r.data.startswith(b"%PDF") and b"Hello" in r.data
     r = client.get(f"/api/v1/files/{file_id}/export?format=csv&split_rows=many&files=1")
     assert r.status_code == 422 and r.get_json()["error"]["message"] == "Rows per part must be a whole number."
+
+
+def test_health_endpoint_follows_saved_steps(client):
+    fid = upload(client, b"Name,City\nAsha,Pune\nAsha,Pune\nRavi, Delhi\n", "h.csv").get_json()["file"]["id"]
+    report = client.get(f"/api/v1/files/{fid}/health").get_json()
+    assert {it["kind"] for it in report["issues"]} == {"duplicates", "spaces"} and report["rows"] == 3
+    client.post(f"/api/v1/files/{fid}/steps", json={"op": "remove_duplicates"})
+    report = client.get(f"/api/v1/files/{fid}/health").get_json()
+    assert {it["kind"] for it in report["issues"]} == {"spaces"} and report["rows"] == 2
+    assert client.get(f"/api/v1/files/{fid}/health?upto=0").get_json()["rows"] == 3

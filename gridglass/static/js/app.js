@@ -197,14 +197,16 @@ function fileChip() {
       state.editIndex !== null ? ` · editing step ${state.editIndex + 1} of ${f.steps.length}`
         : f.steps.length ? ` · ${plural(f.steps.length, 'step')} applied` : ''}${headerNote(f)}</small></span>
     <span class="file-actions">${sheets}
+    <button class="btn-link" type="button" data-action="check" aria-expanded="false" aria-controls="health">Check</button>
     ${hasHeaderRow(f) ? `<button class="btn-link" type="button" data-action="headers" aria-expanded="false" aria-controls="header-pick">Headers</button>` : ''}
     <button class="btn-link" type="button" data-action="newfile">Change</button></span>
   </div>
-  <section class="header-pick glass" id="header-pick" aria-labelledby="hp-title" hidden></section>`;
+  <section class="header-pick glass" id="header-pick" aria-labelledby="header-pick-title" hidden></section>
+  <section class="health glass" id="health" aria-labelledby="health-title" hidden></section>`;
 }
 
 const HEADER_FORMATS = ['csv', 'tsv', 'xlsx', 'xls'];
-const hasHeaderRow = (f) => HEADER_FORMATS.includes(f.format);
+const hasHeaderRow = (f) => HEADER_FORMATS.includes(f.format ?? (f.name || f.filename || '').split('.').pop().toLowerCase());
 
 /** "· 3 top rows skipped" / "· no header row": what Gridglass did with the top of the file. */
 function headerNote(f) {
@@ -215,16 +217,16 @@ function headerNote(f) {
 
 // ---------------------------------------------------------------------------- header row
 
-async function toggleHeaders() {
-  const panel = $('#header-pick');
-  const btn = $('[data-action="headers"]');
+/** Open or close a header-row picker in `panel` for the upload `fileId`; `then(meta, row)` runs after a pick. */
+async function toggleHeaderPanel(panel, btn, fileId, { steps = 0, then }) {
   if (!panel.hidden) { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); return; }
   btn.setAttribute('aria-expanded', 'true');
   panel.hidden = false;
-  panel.innerHTML = '<p class="hint">Reading the top of your file…</p>';
+  panel.innerHTML = '<p class="hint">Reading the top of the file…</p>';
+  panel.pick = { fileId, then };
+  panel.onclick = pickHeader;
   try {
-    const { rows, header_row: current } = await api(`/files/${state.file.id}/top`);
-    const steps = state.file.steps.length;
+    const { rows, header_row: current } = await api(`/files/${fileId}/top`);
     const cells = (r) => {
       const filled = r.filter((v) => v !== null);
       return filled.length
@@ -232,13 +234,13 @@ async function toggleHeaders() {
         : '<em>blank row</em>';
     };
     panel.innerHTML = `
-      <h2 id="hp-title">Which row has the column names?</h2>
+      <h2 id="${panel.id}-title">Which row has the column names?</h2>
       <p class="hint">Tap it. Rows above it are skipped.${steps ? ` Your ${plural(steps, 'applied step')} will be cleared.` : ''}</p>
       <ol class="hp-rows">${rows.map((r, i) => `<li><button type="button" class="hp-row" data-row="${i}" aria-pressed="${i === current}"
         aria-label="Row ${i + 1}${i === current ? ' (current headers)' : ''}: ${esc(r.filter((v) => v !== null).slice(0, 6).join(', ') || 'blank row')}">
         <b>${i + 1}</b><span class="hp-cells">${cells(r)}</span></button></li>`).join('')}</ol>
       <button type="button" class="btn btn-secondary btn-sm" data-row="none" aria-pressed="${current === null}">No header row (name them Column 1, 2, 3…)</button>`;
-    panel.querySelector(`[aria-pressed="true"]`)?.focus();
+    panel.querySelector('[aria-pressed="true"]')?.focus();
   } catch (err) {
     panel.hidden = true;
     btn.setAttribute('aria-expanded', 'false');
@@ -246,22 +248,97 @@ async function toggleHeaders() {
   }
 }
 
+function toggleHeaders() {
+  closePanels('#header-pick');
+  return toggleHeaderPanel($('#header-pick'), $('[data-action="headers"]'), state.file.id, {
+    steps: state.file.steps.length,
+    then: async (meta) => { remember(meta); await enterOptions(); },
+  });
+}
+
 async function pickHeader(e) {
+  const panel = e.currentTarget;
   const pick = e.target.closest('[data-row]');
   if (!pick || pick.getAttribute('aria-pressed') === 'true') return;
+  e.stopPropagation(); // the panel may sit inside the options form
   const row = pick.dataset.row === 'none' ? null : Number(pick.dataset.row);
-  $('#header-pick').querySelectorAll('button').forEach((b) => { b.disabled = true; });
+  panel.querySelectorAll('button').forEach((b) => { b.disabled = true; });
   try {
-    const res = await api(`/files/${state.file.id}/header`, { method: 'PUT', body: { row } });
-    remember(res.file);
-    await enterOptions();
+    const res = await api(`/files/${panel.pick.fileId}/header`, { method: 'PUT', body: { row } });
+    await panel.pick.then(res.file, row);
     toast(row === null ? 'Columns are now named Column 1, 2, 3…' : `Using row ${row + 1} as the column names.`);
   } catch (err) {
-    $('#header-pick')?.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+    panel.querySelectorAll('button').forEach((b) => { b.disabled = false; });
     toast(err.message, 'error');
   }
 }
 
+/** Only one panel under the file card at a time. */
+function closePanels(except) {
+  ['#header-pick', '#health'].filter((sel) => sel !== except).forEach((sel) => {
+    const panel = $(sel);
+    if (panel && !panel.hidden) {
+      panel.hidden = true;
+      $(`[aria-controls="${panel.id}"]`)?.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------- data health check
+
+async function toggleHealth() {
+  const panel = $('#health');
+  const btn = $('[data-action="check"]');
+  if (!panel.hidden) { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); return; }
+  closePanels('#health');
+  btn.setAttribute('aria-expanded', 'true');
+  panel.hidden = false;
+  panel.innerHTML = '<p class="hint">Checking every row…</p>';
+  try {
+    const report = await api(`/files/${state.file.id}/health?${upto()}`);
+    renderHealth(panel, report);
+  } catch (err) {
+    panel.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    toast(err.message, 'error');
+  }
+}
+
+function renderHealth(panel, report) {
+  const editing = state.editIndex !== null; // fixes would land after later steps, so only point to tools
+  const fix = (it, i) => (it.fix.step && !editing
+    ? `<button type="button" class="btn btn-primary btn-sm" data-fix="${i}">${esc(it.fix.label)}</button>`
+    : it.fix.tool && TOOL[it.fix.tool] ? `<a class="btn btn-secondary btn-sm" href="#/tool/${it.fix.tool}">Open ${esc(TOOL[it.fix.tool].label)}</a>` : '');
+  const examples = (it) => {
+    if (!it.examples?.length) return '';
+    const shown = it.examples.map((x) => (Array.isArray(x) ? x.map((v) => `“${esc(v)}”`).join(' = ') : `“${esc(x)}”`));
+    return `<p class="health-eg">For example: ${shown.join(' · ')}</p>`;
+  };
+  panel.innerHTML = `
+    <h2 id="health-title">Check this file</h2>
+    <p class="hint">Looked at all ${plural(report.rows, 'row')} and ${plural(report.columns.length, 'column')}.</p>
+    ${report.issues.length ? `<ul class="health-list">${report.issues.map((it, i) => `<li class="health-item">
+        <span class="health-dot" aria-hidden="true"></span>
+        <div class="health-body"><p>${esc(it.message)}</p>${examples(it)}<div class="health-fix">${fix(it, i)}</div></div></li>`).join('')}</ul>`
+      : `<p class="health-ok">${ui('check')} No common problems found.</p>`}
+    <details class="health-cols"><summary>Column details</summary>
+      <div class="table-wrap"><table><thead><tr><th scope="col">Column</th><th scope="col">Type</th><th scope="col">Blank</th><th scope="col">Different values</th></tr></thead>
+      <tbody>${report.columns.map((c) => `<tr><td>${esc(c.name)}</td><td>${esc(c.type)}</td><td>${num(c.blanks)}</td><td>${num(c.distinct)}</td></tr>`).join('')}</tbody></table></div>
+    </details>`;
+  panel.onclick = async (e) => {
+    const b = e.target.closest('[data-fix]');
+    if (!b) return;
+    const it = report.issues[Number(b.dataset.fix)];
+    await withBusy(b, async () => {
+      const res = await api(`/files/${state.file.id}/steps`, { method: 'POST', body: it.fix.step });
+      remember(res.file);
+      state.result = null;
+      await enterOptions();
+      toast(`${it.fix.label}: done. You can undo it on the result screen.`);
+      await toggleHealth();
+    });
+  };
+}
 function table(pv) {
   if (!pv.columns.length) return '<p class="empty">No columns left.</p>';
   const head = pv.columns.map((c) => `<th scope="col"><span>${esc(c.name)}</span><small>${esc(c.type)}</small></th>`).join('');
@@ -481,7 +558,7 @@ function renderOptions() {
     </div>`;
   $('[data-action="newfile"]').addEventListener('click', newFile);
   $('[data-action="headers"]')?.addEventListener('click', toggleHeaders);
-  $('#header-pick').addEventListener('click', pickHeader);
+  $('[data-action="check"]').addEventListener('click', toggleHealth);
   $('#sheet')?.addEventListener('change', (e) => changeSheet(e.target.value));
   $('#pv-pager').addEventListener('click', onPager);
   if (pivot) wireChart();
@@ -666,7 +743,8 @@ function formatSelect() {
 // ---------------------------------------------------------------------------- form
 
 const colsFor = (filter, source) => (source === 'other' ? state.otherCols : state.cols).filter((c) => !filter
-  || (filter === 'text' ? c.type === 'text' : filter === 'number' ? ['integer', 'decimal'].includes(c.type) : true));
+  || (filter === 'text' ? c.type === 'text' : filter === 'number' ? ['integer', 'decimal'].includes(c.type)
+    : filter === 'date' ? ['date', 'datetime'].includes(c.type) : true));
 
 const opt = (v, l, sel) => `<option value="${esc(v)}" ${v === sel ? 'selected' : ''}>${esc(l)}</option>`;
 const colOptions = (filter, sel, placeholder = 'Choose a column', source) =>
@@ -703,26 +781,32 @@ const FIELD = {
     ${f.min !== undefined ? `min="${f.min}"` : ''} ${f.max !== undefined ? `max="${f.max}"` : ''} step="${f.step || 1}">`,
   toggle: (f, v) => `<label class="toggle"><input type="checkbox" data-key="${f.key}" ${v ? 'checked' : ''}><span class="switch" aria-hidden="true"></span><span>${esc(f.label)}</span></label>`,
   conditions(f, rows) {
-    return `${rows.map((c, i) => `<div class="row-card glass">
+    const key = f.key;
+    const p = key === 'conditions' ? 'c' : 'r'; // element ids: c0col (filter), r0col (if-then rules)
+    const noun = f.then ? 'rule' : 'condition';
+    return `${rows.map((c, i) => `<div class="row-card glass${f.then ? ' rule' : ''}">
       <div class="row-grid">
-        <label class="sr-only" for="c${i}col">Column</label>
-        <select class="input" id="c${i}col" data-list="conditions" data-i="${i}" data-prop="column" data-rerender>${colOptions(null, c.column)}</select>
-        <label class="sr-only" for="c${i}op">Condition</label>
-        <select class="input" id="c${i}op" data-list="conditions" data-i="${i}" data-prop="operator" data-rerender>${OPERATORS.map(([o, l]) => opt(o, l, c.operator)).join('')}</select>
-        ${NO_VALUE_OPS.has(c.operator) ? '' : `<label class="sr-only" for="c${i}v">Value</label>
+        ${f.then ? `<span class="rule-word" aria-hidden="true">${i ? 'Else if' : 'If'}</span>` : ''}
+        <label class="sr-only" for="${p}${i}col">Column</label>
+        <select class="input" id="${p}${i}col" data-list="${key}" data-i="${i}" data-prop="column" data-rerender>${colOptions(null, c.column)}</select>
+        <label class="sr-only" for="${p}${i}op">Condition</label>
+        <select class="input" id="${p}${i}op" data-list="${key}" data-i="${i}" data-prop="operator" data-rerender>${OPERATORS.map(([o, l]) => opt(o, l, c.operator)).join('')}</select>
+        ${NO_VALUE_OPS.has(c.operator) ? '' : `<label class="sr-only" for="${p}${i}v">Value</label>
         <div class="combo">
-          <input class="input" id="c${i}v" data-list="conditions" data-i="${i}" data-prop="value" value="${esc(c.value)}"
-            role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="c${i}list" autocomplete="off"
+          <input class="input" id="${p}${i}v" data-list="${key}" data-i="${i}" data-prop="value" value="${esc(c.value)}"
+            role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${p}${i}list" autocomplete="off"
             data-values-for="${esc(c.column)}" data-multi="${c.operator === 'in_list'}"
             placeholder="${c.operator === 'in_list' ? 'Pick or type: Pune, Delhi…' : 'Pick or type a value'}">
-          <button type="button" class="combo-btn" data-combo-toggle="c${i}v" aria-label="Show values for ${esc(c.column)}" tabindex="-1">
+          <button type="button" class="combo-btn" data-combo-toggle="${p}${i}v" aria-label="Show values for ${esc(c.column)}" tabindex="-1">
             <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
-          <ul class="combo-list glass" id="c${i}list" role="listbox" aria-label="Values in ${esc(c.column)}" hidden></ul>
+          <ul class="combo-list glass" id="${p}${i}list" role="listbox" aria-label="Values in ${esc(c.column)}" hidden></ul>
         </div>`}
+        ${f.then ? `<label class="rule-then" for="${p}${i}then"><span>then</span>
+          <input class="input" id="${p}${i}then" data-list="${key}" data-i="${i}" data-prop="then" value="${esc(c.then ?? '')}" placeholder="e.g. High" autocomplete="off"></label>` : ''}
       </div>
-      ${rows.length > 1 ? `<button type="button" class="icon-btn small" data-remove="conditions" data-i="${i}" aria-label="Remove condition ${i + 1}">${ui('trash')}</button>` : ''}
+      ${rows.length > 1 ? `<button type="button" class="icon-btn small" data-remove="${key}" data-i="${i}" aria-label="Remove ${noun} ${i + 1}">${ui('trash')}</button>` : ''}
     </div>`).join('')}
-    <button type="button" class="btn btn-secondary btn-sm" data-add="conditions">${ui('plus')} Add condition</button>`;
+    <button type="button" class="btn btn-secondary btn-sm" data-add="${key}">${ui('plus')} Add ${noun}</button>`;
   },
   sortkeys(f, rows) {
     return `${rows.map((k, i) => `<div class="row-card glass"><div class="row-grid two">
@@ -770,17 +854,22 @@ const FIELD = {
       <span class="file-icon combine">${icon('merge')}</span>
       <span class="file-text"><strong>${esc(o?.filename || state.draft.other_name || 'Second file')}</strong>
         <small>${o ? `${plural(o.rows, 'row')} · ${plural(state.otherCols.length, 'column')}` : 'Loading…'}</small></span>
-      ${sheets}
-      <button class="btn-link" type="button" data-action="other-change">Change</button>
-    </div>`;
+      <span class="file-actions">${sheets}
+      ${o && hasHeaderRow(o) ? '<button class="btn-link" type="button" data-action="other-headers" aria-expanded="false" aria-controls="header-pick2">Headers</button>' : ''}
+      <button class="btn-link" type="button" data-action="other-change">Change</button></span>
+    </div>
+    <section class="header-pick glass" id="header-pick2" aria-labelledby="header-pick2-title" hidden></section>`;
   },
   stackfiles(f, files) {
     const list = files.map((x, i) => `<li class="file-chip glass second">
       <span class="file-icon combine">${icon('stack')}</span>
       <span class="file-text"><strong>${esc(x.name)}</strong><small>${x.rows != null ? `${plural(x.rows, 'row')} · ${plural(x.columns, 'column')}` : 'Added'}</small></span>
-      <button class="btn-link" type="button" data-stack-remove="${i}" aria-label="Remove ${esc(x.name)}">Remove</button>
+      <span class="file-actions">${hasHeaderRow(x) ? `<button class="btn-link" type="button" data-stack-headers="${i}"
+        aria-expanded="false" aria-controls="header-pick3" aria-label="Headers of ${esc(x.name)}">Headers</button>` : ''}
+      <button class="btn-link" type="button" data-stack-remove="${i}" aria-label="Remove ${esc(x.name)}">Remove</button></span>
     </li>`).join('');
-    return `${files.length ? `<ol class="stack-list">${list}</ol>` : ''}
+    return `${files.length ? `<ol class="stack-list">${list}</ol>
+      <section class="header-pick glass" id="header-pick3" aria-labelledby="header-pick3-title" hidden></section>` : ''}
       <div class="mini-drop glass" id="drop3">
         <span class="drop-icon small">${ui('upload')}</span>
         <span class="mini-drop-text"><strong>${files.length ? 'Add another file' : 'Add the files to put underneath'}</strong><small>Choose one or several · CSV, XLSX or JSON</small></span>
@@ -811,6 +900,7 @@ const FIELD = {
 const NEW_ROW = {
   keys: () => ({ left: state.cols[0]?.name ?? '', right: state.otherCols[0]?.name ?? '' }),
   conditions: () => ({ column: state.cols[0]?.name ?? '', operator: 'equals', value: '' }),
+  rules: () => ({ column: state.cols[0]?.name ?? '', operator: 'equals', value: '', then: '' }),
   by: () => ({ column: state.cols[0]?.name ?? '', order: 'asc' }),
   aggs: () => ({ func: 'sum', column: colsFor('number')[0]?.name ?? '' }),
   types: () => ({ column: state.cols[0]?.name ?? '', to: 'text' }),
@@ -855,6 +945,22 @@ function onFormClick(e) {
   if (!b) return;
   if (b.dataset.action === 'sample2') { startOtherUpload(sampleLookupFile()); return; }
   if (b.dataset.action === 'other-change') { changeOther(); return; }
+  if (b.dataset.action === 'other-headers') {
+    toggleHeaderPanel($('#header-pick2'), b, state.draft.other, { then: (meta) => useOther(meta) });
+    return;
+  }
+  if (b.dataset.stackHeaders) {
+    const i = Number(b.dataset.stackHeaders);
+    const f = state.draft.files[i];
+    toggleHeaderPanel($('#header-pick3'), b, f.id, {
+      then: (meta) => {
+        Object.assign(state.draft.files[i], { rows: meta.rows, columns: meta.columns.length });
+        renderForm();
+        schedulePreview(0);
+      },
+    });
+    return;
+  }
   if (b.dataset.action === 'sample3') { startStackUpload([sampleFile('sample-orders-next-month.csv', 41)]); return; }
   if (b.dataset.stackRemove) { removeStackFile(Number(b.dataset.stackRemove)); return; }
   if (b.dataset.comboToggle) {

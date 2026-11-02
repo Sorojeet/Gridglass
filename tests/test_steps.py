@@ -523,3 +523,94 @@ def test_totals_need_a_number_column():
         run(SALES, [{"op": "add_column", "name": "X", "mode": "rank", "left": "City"}])
     with pytest.raises(InvalidStepsError):
         parse_steps([{"op": "add_column", "name": "X", "mode": "rank"}])
+
+
+# --------------------------------------------------------------------------- add column: if-then, date parts, ranges
+
+from datetime import date as _date  # noqa: E402
+
+PEOPLE = pl.LazyFrame({"City": ["Pune", "Delhi", "Goa", None], "Amt": [50.0, 150000.0, 500.0, None],
+                       "D": [_date(2026, 3, 5), _date(2026, 4, 1), _date(2025, 12, 31), None]})
+
+
+def col(**kw):
+    return run(PEOPLE, [{"op": "add_column", "name": "X", **kw}])["X"].to_list()
+
+
+def test_if_then_first_matching_rule_wins():
+    rules = [{"column": "Amt", "operator": "greater_or_equal", "value": 500, "then": "Big"},
+             {"column": "City", "operator": "equals", "value": "pune", "then": "Pune, small"}]
+    assert col(mode="if_then", rules=rules, otherwise="Other") == ["Pune, small", "Big", "Big", "Other"]
+    assert col(mode="if_then", rules=rules) == ["Pune, small", "Big", "Big", None]
+
+
+def test_if_then_numbers_make_a_number_column():
+    rules = [{"column": "Amt", "operator": "greater_than", "value": 1000, "then": "1,500"}]
+    out = run(PEOPLE, [{"op": "add_column", "name": "Bonus", "mode": "if_then", "rules": rules, "otherwise": "0"}])
+    assert out["Bonus"].dtype == pl.Int64 and out["Bonus"].to_list() == [0, 1500, 0, 0]
+
+
+@pytest.mark.parametrize("part, values", [
+    ("year", [2026, 2026, 2025, None]), ("month", [3, 4, 12, None]), ("month_name", ["March", "April", "December", None]),
+    ("quarter", ["Q1", "Q2", "Q4", None]), ("weekday", ["Thursday", "Wednesday", "Wednesday", None]),
+    ("day", [5, 1, 31, None]), ("year_month", ["2026-03", "2026-04", "2025-12", None]),
+    ("fy", ["FY 2025-26", "FY 2026-27", "FY 2025-26", None]),
+])
+def test_date_parts(part, values):
+    assert col(mode="date_part", left="D", part=part) == values
+
+
+def test_date_part_needs_a_date_column():
+    with pytest.raises(StepError, match="isn't a date"):
+        col(mode="date_part", left="City", part="year")
+
+
+def test_number_ranges():
+    assert col(mode="ranges", left="Amt", breaks=[100, 500, 100000]) == [
+        "Under 100", "1,00,000 and over", "500 – under 1,00,000", None]  # 500 sits in the higher range
+    assert col(mode="ranges", left="Amt", breaks=[100], labels=["Small", "Large"]) == ["Small", "Large", "Large", None]
+
+
+@pytest.mark.parametrize("bad", [
+    {"breaks": [500, 100]}, {"breaks": [100, 100]}, {"breaks": [100], "labels": ["One"]}, {"breaks": []},
+])
+def test_number_ranges_validation(bad):
+    with pytest.raises(InvalidStepsError):
+        parse_steps([{"op": "add_column", "name": "X", "mode": "ranges", "left": "Amt", **bad}])
+
+
+# --------------------------------------------------------------------------- data health check
+
+def test_health_check_finds_common_problems():
+    from gridglass.engine.health import check
+
+    lf = pl.LazyFrame({"City": ["Pune", "pune ", "Delhi", "Delhi", None, "Delhi"],
+                       "Amt": ["10", "20", "N/A", "30", None, "30"], "Empty": [None] * 6})
+    report = check(lf)
+    kinds = {it["kind"]: it for it in report["issues"]}
+    assert set(kinds) == {"empty_columns", "blank_rows", "duplicates", "variants", "numbers_as_text", "spaces"}
+    assert kinds["duplicates"]["count"] == 1 and kinds["duplicates"]["fix"]["step"] == {"op": "remove_duplicates"}
+    assert kinds["empty_columns"]["fix"]["step"] == {"op": "remove_columns", "columns": ["Empty"]}
+    assert kinds["variants"]["examples"] == [["Pune", "pune "]] and kinds["variants"]["fix"] == {"tool": "change_case"}
+    assert kinds["numbers_as_text"]["examples"] == ["N/A"]
+    assert kinds["spaces"]["fix"]["step"]["columns"] == ["City"]
+    assert [c["blanks"] for c in report["columns"]] == [1, 1, 6]
+    for it in report["issues"]:  # every fix step is valid
+        if "step" in it["fix"]:
+            build(lf, parse_steps([it["fix"]["step"]])).collect()
+
+
+def test_health_check_on_a_clean_file():
+    from gridglass.engine.health import check
+
+    assert check(pl.LazyFrame({"a": [1, 2], "b": ["x", "y"]}))["issues"] == []
+
+
+
+def test_health_check_reports_gaps_but_not_blank_rows_twice():
+    from gridglass.engine.health import check
+
+    report = check(pl.LazyFrame({"Name": ["Asha", None, None], "Email": ["a@x.in", "b@x.in", None]}))
+    kinds = {it["kind"]: it for it in report["issues"]}
+    assert kinds["blanks"]["columns"] == ["Name"] and kinds["blanks"]["count"] == 1
+    assert kinds["blank_rows"]["count"] == 1 and kinds["blanks"]["fix"] == {"tool": "fill_blanks"}

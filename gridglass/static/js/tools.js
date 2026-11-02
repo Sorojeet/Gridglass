@@ -91,6 +91,13 @@ const DELIMS = [[',', 'Comma ,'], [' ', 'Space'], [';', 'Semicolon ;'], ['-', 'D
   ['|', 'Bar |'], ['custom', 'Something else']];
 
 const TOTALS = ['running_total', 'rank', 'percent'];
+/** "100, 500, 1,00,000" -> ['100', '500', '1,00,000']: with ", " or ";" those split (so Indian-style
+ *  numbers keep their commas); "100,500,1000" with no spaces splits on every comma. */
+export const splitList = (text) => {
+  const t = String(text ?? '').trim();
+  if (!t) return [];
+  return (/;|,\s/.test(t) ? t.split(/\s*;\s*|,\s+/) : t.split(',')).map((x) => x.trim()).filter(Boolean);
+};
 const n = (x) => Number(x).toLocaleString('en-IN');
 const plural = (k, word) => `${n(k)} ${word}${k === 1 ? '' : 's'}`;
 const first = (cols, type) => (cols.find((c) => !type || c.type === type) ?? cols[0])?.name ?? '';
@@ -314,13 +321,29 @@ export const TOOLS = [
       { key: 'name', type: 'text', label: 'New column name', placeholder: 'e.g. Total', default: '' },
       { key: 'mode', type: 'select', label: 'Make it from', default: 'combine',
         options: [['combine', 'Join columns'], ['math', 'Math (+ − × ÷)'], ['constant', 'One value for every row'],
+          ['if_then', 'If … then … (rules)'], ['date_part', 'Part of a date (month, year, FY…)'],
+          ['ranges', 'Number ranges (0–100, 100–500…)'],
           ['running_total', 'Running total'], ['rank', 'Rank (1, 2, 3…)'], ['percent', '% of total']] },
+      { key: 'rules', type: 'conditions', then: true, label: 'Rules (the first one that matches wins)',
+        default: (cols) => [{ column: first(cols), operator: 'equals', value: '', then: '' }], show: (d) => d.mode === 'if_then' },
+      { key: 'otherwise', type: 'text', label: 'Otherwise', placeholder: 'leave empty for a blank cell', default: '',
+        show: (d) => d.mode === 'if_then' },
+      { key: 'date_left', type: 'column', label: 'Date column', filter: 'date', default: (cols) => first(cols, 'date') || first(cols, 'datetime'),
+        show: (d) => d.mode === 'date_part' },
+      { key: 'part', type: 'select', label: 'Part', default: 'month_name', show: (d) => d.mode === 'date_part',
+        options: [['month_name', 'Month name (March)'], ['month', 'Month number (3)'], ['year', 'Year (2026)'],
+          ['year_month', 'Year and month (2026-03)'], ['quarter', 'Quarter (Q1)'], ['fy', 'Financial year (FY 2025-26)'],
+          ['weekday', 'Day of the week (Monday)'], ['day', 'Day of the month (5)'], ['week', 'Week of the year']] },
+      { key: 'breaks', type: 'text', label: 'Ranges start at', placeholder: 'e.g. 100, 500, 1000', default: '',
+        show: (d) => d.mode === 'ranges' },
+      { key: 'labels', type: 'text', label: 'Names for the ranges (optional)', placeholder: 'e.g. Small, Medium, Large, Huge',
+        default: '', show: (d) => d.mode === 'ranges' },
       { key: 'columns', type: 'columns', label: 'Columns to join, in order', ordered: true, default: [],
         show: (d) => d.mode === 'combine' },
       { key: 'separator', type: 'text', label: 'Put between them', placeholder: 'a space', default: ' ',
         show: (d) => d.mode === 'combine' },
       { key: 'left', type: 'column', label: 'Column', filter: 'number', default: (cols) => first(cols, 'decimal') || first(cols, 'integer'),
-        show: (d) => d.mode !== 'combine' && d.mode !== 'constant' },
+        show: (d) => !['combine', 'constant', 'if_then', 'date_part'].includes(d.mode) },
       { key: 'descending', type: 'choice', label: 'Rank 1 is the', default: 'true',
         options: [['true', 'Largest'], ['false', 'Smallest']], show: (d) => d.mode === 'rank' },
       { key: 'within', type: 'columns', label: 'Count over', optional: true, default: null,
@@ -339,6 +362,22 @@ export const TOOLS = [
       const base = { name: d.name.trim(), mode: d.mode };
       if (d.mode === 'combine') return { ...base, columns: d.columns, separator: d.separator };
       if (d.mode === 'constant') return { ...base, value: d.value };
+      if (d.mode === 'if_then') {
+        return {
+          ...base, otherwise: d.otherwise,
+          rules: d.rules.map((r) => ({
+            column: r.column, operator: r.operator, then: r.then ?? '',
+            ...(NO_VALUE_OPS.has(r.operator) ? {} : {
+              value: r.operator === 'in_list' ? String(r.value).split(',').map((x) => x.trim()).filter(Boolean) : r.value,
+            }),
+          })),
+        };
+      }
+      if (d.mode === 'date_part') return { ...base, left: d.date_left, part: d.part };
+      if (d.mode === 'ranges') {
+        const labels = splitList(d.labels);
+        return { ...base, left: d.left, breaks: splitList(d.breaks).map((x) => Number(x.replace(/,/g, ''))), ...(labels.length ? { labels } : {}) };
+      }
       if (TOTALS.includes(d.mode)) {
         return { ...base, left: d.left, within: d.within?.length ? d.within : null, ...(d.mode === 'rank' ? { descending: d.descending !== 'false' } : {}) };
       }
@@ -349,7 +388,11 @@ export const TOOLS = [
       };
     },
     ready: (d) => (!d.name.trim() ? 'Give the new column a name.'
-      : (d.mode === 'math' || TOTALS.includes(d.mode)) && !d.left ? 'Choose a number column.'
+      : (d.mode === 'math' || d.mode === 'ranges' || TOTALS.includes(d.mode)) && !d.left ? 'Choose a number column.'
+        : d.mode === 'date_part' && !d.date_left ? 'This file has no date column. Use Change type to make one.'
+          : d.mode === 'if_then' && d.rules.some((r) => !NO_VALUE_OPS.has(r.operator) && !String(r.value).trim()) ? 'Type a value for each rule.'
+            : d.mode === 'ranges' && !splitList(d.breaks).length ? 'Type where the ranges start, e.g. 100, 500, 1000.'
+              : d.mode === 'ranges' && splitList(d.breaks).some((x) => Number.isNaN(Number(x.replace(/,/g, '')))) ? 'Ranges start at numbers, e.g. 100, 500.'
         : TOTALS.includes(d.mode) && Array.isArray(d.within) && !d.within.length ? 'Choose the columns that make a group.'
         : d.mode === 'math' && d.rightKind === 'value' && d.right_value === '' ? 'Type a number.'
           : d.mode === 'math' && d.rightKind === 'column' && !d.right_column ? 'Choose the second column.' : null),
@@ -497,6 +540,14 @@ const LOADERS = {
     return { delim: known ? s.delimiter : 'custom', custom: known ? '' : s.delimiter, parts: str(s.parts) };
   },
   add_column: (s) => ({
+    rules: (s.rules ?? [{ column: '', operator: 'equals', value: '', then: '' }]).map((r) => ({
+      column: r.column, operator: r.operator, then: r.then ?? '',
+      value: Array.isArray(r.value) ? r.value.join(', ') : str(r.value),
+    })),
+    otherwise: s.otherwise ?? '',
+    date_left: s.mode === 'date_part' ? s.left : '',
+    breaks: (s.breaks ?? []).join(', '),
+    labels: (s.labels ?? []).join(', '),
     descending: s.descending === false ? 'false' : 'true',
     within: s.within ?? null,
     value: str(s.value),
