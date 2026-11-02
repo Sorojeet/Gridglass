@@ -419,3 +419,58 @@ def test_top_rows_show_the_file_as_it_is(tmp_path):
     assert top_rows(tmp_path / "q.csv", "q.csv") == [["Title, with comma"], ["multi\nline"], ["A", "B"], ["1", "2"]]
     res, df = _ingest(tmp_path, "q.csv", (tmp_path / "q.csv").read_bytes(), header=2)
     assert df.columns == ["A", "B"]
+
+
+# --- numbers and dates written the way people type them -------------------------------------
+
+def _types(**cols):
+    from gridglass.engine.io import infer_types
+
+    return infer_types(pl.DataFrame(cols).lazy()).collect()
+
+
+def test_money_and_commas_become_numbers():
+    out = _types(amt=["₹1,23,456.50", "Rs. 500/-", "(250)", "1,234", "", "-₹75", "(₹ 2,00,000)", "$1,234,567", "INR 10"],
+                 qty=["1,000", "2,500", "(3)", "4", "5", "6", "7", "8", "9"])
+    assert out["amt"].dtype == pl.Float64 and out["qty"].dtype == pl.Int64
+    assert out["amt"].to_list() == [123456.5, 500, -250, 1234, None, -75, -200000, 1234567, 10]
+    assert out["qty"].to_list() == [1000, 2500, -3, 4, 5, 6, 7, 8, 9]
+
+
+@pytest.mark.parametrize("values", [
+    ["1,2,3", "4"],                 # a list, not a number
+    ["12,34", "5"],                 # commas in the wrong places
+    ["₹0123", "5"],                 # leading zero: an ID
+    ["1,23,45,67,89,012", "5"],     # more than 10 digits once commas go
+    ["98765 43210", "5"],           # phone number
+    ["₹500", "free"],               # not every cell is a number
+])
+def test_text_that_only_looks_like_money_stays_text(values):
+    assert _types(v=values)["v"].dtype == pl.String
+
+
+def test_dates_in_other_formats_become_dates():
+    from datetime import date
+
+    out = _types(d=["05/03/2026", "31-12-2025", "5 Mar 2026", "March 5, 2026", "2026-03-05", "05-Mar-26", "5.3.26", None])
+    assert out["d"].dtype == pl.Date
+    assert out["d"].to_list() == [date(2026, 3, 5), date(2025, 12, 31)] + [date(2026, 3, 5)] * 5 + [None]
+
+
+def test_day_first_unless_the_dates_say_otherwise():
+    from datetime import date
+
+    assert _types(d=["05/03/2026", "04/02/2026"])["d"].to_list() == [date(2026, 3, 5), date(2026, 2, 4)]
+    assert _types(d=["03/25/2026", "05/03/2026"])["d"].to_list() == [date(2026, 3, 25), date(2026, 5, 3)]
+    assert _types(d=["25/03/2026", "03/25/2026"])["d"].dtype == pl.String  # both orders in one column
+
+
+def test_messy_values_after_a_clean_start_still_convert():
+    out = _types(amt=["10"] * 1500 + ["₹1,500"], d=["2026-01-01"] * 1500 + ["5 Mar 2026"])
+    assert out["amt"].dtype == pl.Int64 and out["amt"][-1] == 1500
+    assert out["d"].dtype == pl.Date
+
+
+def test_csv_with_money_imports_as_numbers(tmp_path):
+    res, df = _ingest(tmp_path, "m.csv", 'Item,Price,Date\nTea,"₹1,250.00",05/03/2026\nCake,Rs. 90/-,"5 Mar 2026"\n'.encode())
+    assert df["Price"].to_list() == [1250.0, 90.0] and df["Date"].dtype == pl.Date
