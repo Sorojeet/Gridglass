@@ -7,6 +7,7 @@
     DELETE /files/<id>                     delete now
     PUT    /files/<id>/sheet               switch the sheet of a .xlsx/.xls {"sheet": "..."} (clears steps)
     GET    /files/<id>/top                 the first rows exactly as in the file, to choose the header row
+    GET    /files/<id>/health              common problems (copies, blanks, stray spaces…) with one-step fixes
     PUT    /files/<id>/header              {"row": n} use row n (0 = first) as headers; {"row": null} = none (clears steps)
     GET    /files/<id>/preview             preview with the saved steps (?limit=&offset= to page)
     POST   /files/<id>/preview             preview a draft {"steps": [...]} without saving
@@ -239,6 +240,15 @@ def column_values(file_id):
 def columns(file_id):
     _, lf = _steps_and_frame(file_id, _saved_steps(file_id))
     return jsonify(columns=profile(lf))
+
+
+@bp.get("/files/<file_id>/health")
+def health(file_id):
+    """Common problems in the data as it is now (after the saved steps), each with a fix."""
+    from .engine.health import check
+
+    _, lf = _steps_and_frame(file_id, _saved_steps(file_id))
+    return jsonify(check(lf))
 
 
 # ---------------------------------------------------------------------- steps

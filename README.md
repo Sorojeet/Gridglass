@@ -81,6 +81,9 @@ Conversion is not a step. Import any supported format and export as CSV (with a 
 - `remove_duplicates` has `action`: `remove`, `show` (every copy of repeated rows) or `mark` (a Yes/No `mark_column`).
 - `replace_values` has `action: "clean"` with `clean`: `special`, `digits`, `letters`, `email_domain`, `first_word` or `last_word`.
 - `add_column` has the modes `running_total`, `rank` (ties share a rank; `descending`) and `percent` (% of total), each optionally `within` groups.
+- `add_column` (1.9) also has `if_then` (`rules`: filter conditions plus `then`, first match wins, and `otherwise`; all-number answers make a number column), `date_part` (`part`: year, month, month_name, quarter, weekday, day, week, year_month, or `fy` for the April–March financial year) and `ranges` (`breaks`, optional `labels`; boundaries go into the higher range).
+
+**Check (1.9):** `GET /files/<id>/health` reports common problems in the data as it is now (after saved steps; `?upto=` works). These are exact copies, blank rows, empty columns, blank cells, stray spaces, the same value written differently, and columns that are almost all numbers. Each comes with a ready step (`fix.step`) or the tool to open (`fix.tool`). The app shows it from **Check** on the file card. The **Headers** picker also works for the second file in Merge and for each file in Stack.
 
 **Charts:** the pivot preview has Table / Chart tabs, with column, bar, line and pie charts drawn as SVG by `static/js/chart.js`, which has no dependencies. Charts download as SVG or PNG and follow the light/dark theme.
 
