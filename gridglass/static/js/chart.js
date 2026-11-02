@@ -116,6 +116,19 @@ function frame(inner, colors, { background, label, w, h }) {
     font-family="Manrope, system-ui, -apple-system, Segoe UI, sans-serif">${background ? `<rect width="${w}" height="${h}" fill="${colors.bg}"/>` : ''}${inner}</svg>`;
 }
 
+/**
+ * Width and height. Downloads use the shape's fixed size. On screen (`fit` = the box's width in CSS pixels)
+ * the chart is drawn at that width, so text stays a readable size on phones instead of being shrunk.
+ */
+function size({ shape, fit }) {
+  const [W, H] = SHAPES[shape] ?? SHAPES.wide;
+  if (!fit) return [W, H];
+  const w = Math.round(Math.min(Math.max(fit, 300), 900));
+  if (shape === 'square') return [w, w];
+  if (shape === 'tall') return [w, Math.round(w * (H / W))];
+  return [w, Math.max(240, Math.round(w * (H / W)))]; // wide: never flatter than 240px on a phone
+}
+
 /** Cumulative bottoms and tops per series, stacking positives up and negatives down. */
 function stackOf(series, n) {
   const pos = Array(n).fill(0);
@@ -134,7 +147,7 @@ function stackOf(series, n) {
  */
 export function chartSVG(data, colors, opts = {}) {
   const o = { ...DEFAULT_OPTIONS, ...opts };
-  const [w, h] = SHAPES[o.shape] ?? SHAPES.wide;
+  const [w, h] = size(o);
   const fmt = FORMAT[o.numbers] ?? FORMAT.short;
   const exact = FORMAT.full;
   const label = `${o.title || `${o.type} chart`} of ${data.series.map((s) => s.name).join(', ')} by ${data.categoryName}`;
