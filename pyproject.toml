@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gridglass"
-version = "1.6.0"
+version = "1.7.0"
 description = "Simple spreadsheet tools for everyone — clean, reshape and convert CSV and spreadsheet files."
 requires-python = ">=3.11"
 dependencies = [
@@ -26,7 +26,7 @@ dev = ["pytest>=8", "pytest-cov>=5", "playwright>=1.48"]
 include = ["gridglass*"]
 
 [tool.setuptools.package-data]
-gridglass = ["static/**/*", "engine/fonts/*"]
+gridglass = ["static/**/*", "templates/**/*", "engine/fonts/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

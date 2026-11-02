@@ -1,0 +1,38 @@
+{% extends "site/base.html" %}
+{% block title %}Terms of use{% endblock %}
+{% block description %}The terms for using Gridglass, the free spreadsheet tools website.{% endblock %}
+{% block body %}
+<article class="prose legal">
+  <h1>Terms of use</h1>
+  <p class="hint">Last updated {{ site.UPDATED }}</p>
+  <p class="lede">By using Gridglass you agree to these terms. They're written to be short and readable.</p>
+
+  <h2>The service</h2>
+  <p>Gridglass ({{ site_url | replace('https://', '') }}) provides free online tools for working with spreadsheet and data files, run by {{ site.OPERATOR }}, {{ site.CITY }}, India. We may change, pause or stop any part of it at any time.</p>
+
+  <h2>Your files</h2>
+  <ul>
+    <li>Your files stay yours. You give us permission to process them only to provide the tools you use, as described in the <a href="/privacy">privacy policy</a>.</li>
+    <li>Only upload files you have the right to use. You are responsible for their contents and for following any laws and agreements that apply to the data in them.</li>
+    <li>Files are deleted automatically after {{ retention }} minutes, so keep your own copies. Gridglass is not a storage service.</li>
+  </ul>
+
+  <h2>Fair use</h2>
+  <p>Please don't misuse the service: no uploading malicious files, no attempts to break, overload or get around its limits (such as file size and rate limits), no automated mass use, and nothing unlawful. We may block access that harms the service or other users.</p>
+
+  <h2>Check your results</h2>
+  <p>We work hard to make the tools correct, but the service is provided “as is”, without warranties of any kind. Always check results before relying on them, especially for financial, legal or other important decisions.</p>
+
+  <h2>Liability</h2>
+  <p>To the extent the law allows, we are not liable for any indirect or consequential loss, or for loss of data, profits or business, arising from use of Gridglass. Nothing in these terms limits liability that cannot be limited by law.</p>
+
+  <h2>Ads and other websites</h2>
+  <p>Information pages may show ads, and pages may link to other websites. We aren't responsible for their content or practices.</p>
+
+  <h2>Law</h2>
+  <p>These terms are governed by the laws of India. The courts at {{ site.CITY }} have jurisdiction over any dispute.</p>
+
+  <h2>Changes and contact</h2>
+  <p>We may update these terms; the date above shows the latest version. Questions: <a href="mailto:{{ site.CONTACT_EMAIL }}">{{ site.CONTACT_EMAIL }}</a>.</p>
+</article>
+{% endblock %}

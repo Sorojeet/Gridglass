@@ -1,0 +1,24 @@
+{% extends "site/base.html" %}
+{% block title %}About Gridglass{% endblock %}
+{% block description %}Gridglass is a free set of simple spreadsheet tools that work well on phones. Who makes it, why, and how your files are handled.{% endblock %}
+{% block body %}
+<article class="prose">
+  <h1>About Gridglass</h1>
+  <p class="lede">Gridglass is a set of simple spreadsheet tools that each do one job well, made to work as nicely on a phone as on a computer.</p>
+  <h2>Why it exists</h2>
+  <p>Cleaning or reshaping a spreadsheet usually means a big desktop program, formulas and a lot of scrolling. That's hard on a phone, which is where many people receive their files today, from WhatsApp, email or a work app.</p>
+  <p>Gridglass turns each common job into one small tool: remove duplicates, filter, sort, stack files, make a pivot table, convert to PDF and {{ tools|length - 6 }} more. You choose a file, pick a few options, see a live preview and download the result. Tools can be chained, every step can be edited or undone, and steps you use often can be saved as a recipe.</p>
+  <h2>How your files are handled</h2>
+  <ul>
+    <li>Files are read on our server only to run the tools you choose.</li>
+    <li>They are deleted automatically after {{ retention }} minutes, or straight away when you tap Clear or Start over.</li>
+    <li>They are never sold, shared or used for anything else.</li>
+    <li>Ads appear only on information pages like this one, never in the app where your data is shown.</li>
+  </ul>
+  <p>The <a href="/privacy">privacy policy</a> has the details.</p>
+  <h2>Who makes it</h2>
+  <p>Gridglass is made by {{ site.OPERATOR }} in {{ site.CITY }}, India. It's free to use, with no sign-up.</p>
+  <h2>Get in touch</h2>
+  <p>Ideas, bugs and questions are welcome at <a href="mailto:{{ site.CONTACT_EMAIL }}">{{ site.CONTACT_EMAIL }}</a>. See the <a href="/contact">contact page</a>.</p>
+</article>
+{% endblock %}

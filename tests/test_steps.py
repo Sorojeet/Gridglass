@@ -317,7 +317,7 @@ def test_realistic_recipe(orders, apply):
 
 
 
-# --------------------------------------------------------------------------- merge (VLOOKUP and joins)
+# --------------------------------------------------------------------------- merge (lookup and joins)
 
 OTHER = "R" * 22
 REGIONS = pl.LazyFrame({

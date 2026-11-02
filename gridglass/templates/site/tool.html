@@ -1,0 +1,64 @@
+{% extends "site/base.html" %}
+{% block title %}{{ tool.title }}{% endblock %}
+{% block description %}{{ tool.description }}{% endblock %}
+{% block body %}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/tools">Tools</a><span aria-hidden="true">›</span><span>{{ categories[tool.cat] }}</span></nav>
+<article class="prose">
+  <header class="tool-head">
+    <span class="tool-icon big cat-{{ tool.cat }}">{{ tool_icon(tool.op) }}</span>
+    <h1>{{ tool.title }}</h1>
+  </header>
+  {% for para in tool.intro %}<p>{{ para | safe }}</p>{% endfor %}
+  <p class="cta-row"><a class="btn btn-primary btn-lg" href="/#/tool/{{ tool.op }}">Open {{ tool.name }}</a><span class="hint">Free · no sign-up · files up to {{ max_mb }} MB</span></p>
+
+  <h2>When to use it</h2>
+  <ul>{% for item in tool.when %}<li>{{ item | safe }}</li>{% endfor %}</ul>
+
+  <h2>How to use it</h2>
+  <ol class="steps">{% for step in tool.steps %}<li>{{ step | safe }}</li>{% endfor %}</ol>
+
+  {% if tool.example %}{% set ex = tool.example %}
+  <h2>Example</h2>
+  <div class="example">
+    <figure>
+      <figcaption>Before</figcaption>
+      <div class="table-wrap"><table><thead><tr>{% for c in ex.columns %}<th scope="col">{{ c }}</th>{% endfor %}</tr></thead>
+        <tbody>{% for row in ex.before %}<tr>{% for v in row %}<td>{{ v }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
+    </figure>
+    <figure>
+      <figcaption>After</figcaption>
+      <div class="table-wrap"><table><thead><tr>{% for c in (ex.after_columns or ex.columns) %}<th scope="col">{{ c }}</th>{% endfor %}</tr></thead>
+        <tbody>{% for row in ex.after %}<tr>{% for v in row %}<td>{{ v }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
+    </figure>
+  </div>
+  {% if ex.note %}<p class="hint">{{ ex.note | safe }}</p>{% endif %}
+  {% endif %}
+
+  <h2>Options</h2>
+  <dl class="options">{% for name, text in tool.options %}<dt>{{ name | safe }}</dt><dd>{{ text | safe }}</dd>{% endfor %}</dl>
+
+  <h2>Questions</h2>
+  <div class="faqs">{% for q, a in tool.faqs %}<details class="glass"><summary>{{ q | safe }}</summary><p>{{ a | safe }}</p></details>{% endfor %}</div>
+
+  <p class="cta-row"><a class="btn btn-primary btn-lg" href="/#/tool/{{ tool.op }}">Open {{ tool.name }}</a></p>
+</article>
+{% if guides_for %}
+<section class="site-section" aria-labelledby="g-title">
+  <h2 id="g-title">Guides that use it</h2>
+  <ul class="link-list">{% for gd in guides_for %}<li><a href="{{ url_for('site.guide', slug=gd.slug) }}">{{ gd.title }}</a></li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% if related %}
+<section class="site-section" aria-labelledby="rel-title">
+  <h2 id="rel-title">Often used with</h2>
+  <div class="tool-grid">
+    {% for t in related %}
+    <a class="tool-card glass" href="{{ url_for('site.tool', slug=t.slug) }}">
+      <span class="tool-icon cat-{{ t.cat }}">{{ tool_icon(t.op) }}</span>
+      <span class="tool-name">{{ t.name }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

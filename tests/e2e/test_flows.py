@@ -453,7 +453,7 @@ def test_filter_value_dropdown_pick_and_type(phone):
     page.click("#c0v")
     options = page.locator("#c0list [role=option]")
     expect(options).to_have_count(5)                            # the 5 cities, with counts
-    expect(options.first).to_contain_text("Bengaluru")          # sorted A→Z, like Excel
+    expect(options.first).to_contain_text("Bengaluru")          # sorted A→Z
     page.locator("#c0list [role=option]", has_text="Pune").click()
     expect(page.locator("#c0v")).to_have_value("Pune")
     expect(page.locator("#c0list")).to_be_hidden()
@@ -561,7 +561,7 @@ def test_edit_from_top_bar_keeps_earlier_steps(phone):
 
 
 
-# ----------------------------------------------------------------------------- merge (VLOOKUP + joins)
+# ----------------------------------------------------------------------------- merge (lookup + joins)
 
 def _merge_with_sample(phone):
     page = phone.upload_sample("merge")
@@ -1000,3 +1000,26 @@ def test_recipes_with_extra_files_cannot_be_saved(phone, tmp_path):
     apply(page)
     expect(page.locator(".recipe-note")).to_contain_text("can't be saved")
     expect(page.locator('[data-action="save-recipe"]')).to_have_count(0)
+
+
+# ----------------------------------------------------------------------------- information pages
+
+def test_tool_page_leads_into_the_app(phone):
+    page = phone.open("/tools/stack-files")
+    expect(page.locator("h1")).to_contain_text("Combine CSV and spreadsheet files")
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    before = page.evaluate("document.documentElement.dataset.theme")
+    page.click('[data-action="theme"]')
+    assert page.evaluate("document.documentElement.dataset.theme") != before
+    page.locator(".faqs summary").first.click()
+    expect(page.locator(".faqs details").first).to_have_attribute("open", "")
+    page.locator("a.btn", has_text="Open Stack files").first.click()
+    expect(page.locator(".intro h1")).to_have_text("Stack files")
+
+
+def test_app_links_to_information_pages(phone):
+    page = phone.open("/")
+    page.click('.app-links a[href="/privacy"]')
+    expect(page.locator("h1")).to_have_text("Privacy policy")
+    page.click(".site-top .brand")
+    expect(page.locator(".tool-card").first).to_be_visible()

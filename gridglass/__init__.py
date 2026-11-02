@@ -3,19 +3,20 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+import re
 import threading
 from pathlib import Path
 from typing import Any
 
 from urllib.parse import quote
 
-from flask import Flask, jsonify, redirect, request, send_from_directory
+from flask import Flask, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import Config
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 log = logging.getLogger("gridglass")
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
@@ -69,9 +70,29 @@ def create_app(config: type[Config] = Config, **overrides: Any) -> Flask:
 
         return jsonify(status="ok", version=__version__, polars=pl.__version__, tools=len(OPS))
 
+    from .site import bp as site_bp, site_url
+
+    app.register_blueprint(site_bp)
+    client = app.config.get("ADSENSE_CLIENT", "")
+    if client and not re.fullmatch(r"ca-pub-\d{10,20}", client):
+        raise ValueError("ADSENSE_CLIENT should look like ca-pub-1234567890123456.")
+
+    @app.before_request
+    def main_address():
+        """www.gridglass.in and the old onrender.com address -> https://gridglass.in, same path."""
+        host = app.config.get("CANONICAL_HOST")
+        if not host or request.method not in ("GET", "HEAD") or request.path == "/healthz":
+            return None
+        here = request.host.split(":")[0].lower()
+        if here != host and (here == f"www.{host}" or here.endswith(".onrender.com")):
+            query = f"?{request.query_string.decode()}" if request.query_string else ""
+            return redirect(f"https://{host}{request.path}{query}", 301)
+        return None
+
     @app.get("/")
     def index():
-        resp = send_from_directory(app.static_folder, "index.html", max_age=0)
+        resp = app.response_class(render_template("app.html", site_url=site_url(), adsense_client=client),
+                                  mimetype="text/html")
         resp.headers["Cache-Control"] = "no-cache"
         return resp
 
@@ -112,6 +133,13 @@ def create_app(config: type[Config] = Config, **overrides: Any) -> Flask:
         if request.path == "/share" and exc.code in messages:
             return _share_failed(messages[exc.code])
         if not request.path.startswith("/api/"):
+            if exc.code == 404 and request.method == "GET":
+                from .site import page
+
+                resp = page("site/404.html")
+                resp.status_code = 404
+                resp.headers["Cache-Control"] = "no-cache"
+                return resp
             return exc
         code = exc.name.lower().replace(" ", "_")
         return jsonify(error={"code": code, "message": messages.get(exc.code, exc.description)}), exc.code

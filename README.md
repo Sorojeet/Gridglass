@@ -130,6 +130,16 @@ Security:
 - A background thread purges expired files every 5 minutes. Set `CLEANUP_INTERVAL_SECONDS=0` and run `flask --app gridglass purge` from cron instead.
 - Export files are deleted as soon as they're sent.
 
+## Information pages
+
+Server-rendered pages (Jinja, `gridglass/site.py`, `templates/site/`, words in `gridglass/content.py`) for search engines and people deciding whether to use a tool:
+- `/tools` and `/tools/<slug>`: one page per tool, with what it does, when to use it, steps, an example, options, FAQs and related tools.
+- `/guides/<slug>`: how-tos.
+- `/about`, `/contact`, `/privacy` and `/terms`.
+- `/sitemap.xml`, `/robots.txt` and `/ads.txt`.
+
+Tool icons and short descriptions are read from `static/js/tools.js`, so they never drift from the app. With `ADSENSE_CLIENT` set, these pages load ads under a nonce-based CSP (`'strict-dynamic'`); the app itself keeps the strict CSP and never loads ad code.
+
 ## Deploy
 
 Gridglass ships as one Docker image, with ready configs for Render (`render.yaml`) and Railway (`railway.json`). See **[DEPLOY.md](DEPLOY.md)** for step-by-step setup, settings and production notes.

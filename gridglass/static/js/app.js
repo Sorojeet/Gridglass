@@ -178,7 +178,8 @@ function topbar({ back, title, close, edit } = {}) {
 }
 
 const logo = () => `<svg class="logo" viewBox="0 0 30 30" aria-hidden="true"><rect x="1" y="1" width="28" height="28" rx="8"/><path d="M8 11h14M8 15.5h14M8 20h14M12.5 8v14M17.5 8v14"/></svg>`;
-const privacy = () => `<footer class="privacy">${ui('lock')}<span>Your files are private and deleted automatically after ${config.retention_minutes} minutes.</span></footer>`;
+const privacy = () => `<footer class="privacy">${ui('lock')}<span>Your files are private and deleted automatically after ${config.retention_minutes} minutes.</span></footer>
+  <nav class="app-links" aria-label="More"><a href="/tools">Tool guides</a><a href="/guides">How-tos</a><a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/contact">Contact</a></nav>`;
 
 function fileChip() {
   const f = state.file;

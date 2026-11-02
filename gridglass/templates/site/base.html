@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en-IN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}{% endblock %} · {{ site.SITE_NAME }}</title>
+  <meta name="description" content="{% block description %}{% endblock %}">
+  {% block robots %}<link rel="canonical" href="{{ site_url }}{{ path }}">{% endblock %}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ site.SITE_NAME }}">
+  <meta property="og:title" content="{{ self.title() }}">
+  <meta property="og:description" content="{{ self.description() }}">
+  <meta property="og:url" content="{{ site_url }}{{ path }}">
+  <meta name="theme-color" content="#EEF3F6">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <script src="/static/js/theme.js" nonce="{{ nonce }}"></script>
+  <link rel="preload" href="/static/fonts/manrope-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <link rel="stylesheet" href="/static/css/site.css">
+  {% if adsense_client %}<meta name="google-adsense-account" content="{{ adsense_client }}">{% endif %}
+  {% if ads %}<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_client }}" crossorigin="anonymous" nonce="{{ nonce }}"></script>{% endif %}
+</head>
+<body class="site">
+  <a class="skip" href="#content">Skip to content</a>
+  <div class="blobs" aria-hidden="true"><i></i><i></i><i></i></div>
+  <header class="site-top">
+    <div class="site-top-in">
+      <a class="brand" href="/" aria-label="Gridglass home"><svg class="logo" viewBox="0 0 30 30" aria-hidden="true"><rect x="1" y="1" width="28" height="28" rx="8"/><path d="M8 11h14M8 15.5h14M8 20h14M12.5 8v14M17.5 8v14"/></svg><span>Gridglass</span></a>
+      <nav class="site-nav" aria-label="Site">
+        <a href="/tools" {% if path.startswith('/tools') %}aria-current="page"{% endif %}>Tools</a>
+        <a href="/guides" {% if path.startswith('/guides') %}aria-current="page"{% endif %}>Guides</a>
+      </nav>
+      <span class="spacer"></span>
+      <button class="icon-btn glass theme-btn" type="button" data-action="theme" aria-label="Switch theme">{{ icon('moon', 'when-light') }}{{ icon('sun', 'when-dark') }}</button>
+      <a class="btn btn-primary btn-sm site-open" href="/">Open app</a>
+    </div>
+  </header>
+  <main id="content" class="site-main" tabindex="-1">
+    {% block body %}{% endblock %}
+  </main>
+  <footer class="site-foot">
+    <div class="site-foot-in">
+      <p class="site-promise">{{ icon('lock') }}<span>Your files are processed on our server, never shared, and deleted automatically after {{ retention }} minutes. Ads appear only on these information pages, never in the app where your files are shown.</span></p>
+      <nav class="site-foot-links" aria-label="More">
+        <a href="/tools">All tools</a><a href="/guides">Guides</a>
+        {% for endpoint, label in pages %}<a href="{{ url_for(endpoint) }}">{{ label }}</a>{% endfor %}
+      </nav>
+      <p class="site-copy">© {{ year }} {{ site.SITE_NAME }} · Made in {{ site.CITY }}, India</p>
+    </div>
+  </footer>
+  <script src="/static/js/site.js" nonce="{{ nonce }}"></script>
+</body>
+</html>

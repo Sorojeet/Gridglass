@@ -1,0 +1,25 @@
+{% extends "site/base.html" %}
+{% block title %}{{ guide.title }}{% endblock %}
+{% block description %}{{ guide.description }}{% endblock %}
+{% block body %}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/guides">Guides</a></nav>
+<article class="prose">
+  <h1>{{ guide.title }}</h1>
+  <p class="lede">{{ guide.description }}</p>
+  {% for heading, parts in guide.sections %}
+  <h2>{{ heading }}</h2>
+  {% for part in parts %}{% if part.startswith('<') %}{{ part | safe }}{% else %}<p>{{ part | safe }}</p>{% endif %}{% endfor %}
+  {% endfor %}
+</article>
+<section class="site-section" aria-labelledby="used-title">
+  <h2 id="used-title">Tools in this guide</h2>
+  <div class="tool-grid">
+    {% for t in used %}
+    <a class="tool-card glass" href="{{ url_for('site.tool', slug=t.slug) }}">
+      <span class="tool-icon cat-{{ t.cat }}">{{ tool_icon(t.op) }}</span>
+      <span class="tool-name">{{ t.name }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

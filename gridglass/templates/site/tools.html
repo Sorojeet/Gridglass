@@ -1,0 +1,24 @@
+{% extends "site/base.html" %}
+{% block title %}Free spreadsheet tools for CSV and XLSX files{% endblock %}
+{% block description %}{{ tools|length }} simple tools to clean, reshape, combine, summarise and convert CSV, XLSX and JSON files on your phone or computer. Free, no sign-up.{% endblock %}
+{% block body %}
+<section class="site-hero">
+  <h1>Spreadsheet tools that do one job each</h1>
+  <p>Pick a tool, choose your file, watch the preview, download. Each page explains what the tool does, when to use it and how, with an example.</p>
+  <a class="btn btn-primary btn-lg" href="/">Open Gridglass</a>
+</section>
+{% for cat, label in categories.items() %}
+<section class="site-section" aria-labelledby="cat-{{ cat }}">
+  <h2 id="cat-{{ cat }}">{{ label }}</h2>
+  <div class="tool-grid">
+    {% for t in tools if t.cat == cat %}
+    <a class="tool-card glass" href="{{ url_for('site.tool', slug=t.slug) }}">
+      <span class="tool-icon cat-{{ t.cat }}">{{ tool_icon(t.op) }}</span>
+      <span class="tool-name">{{ t.name }}</span>
+      <span class="tool-desc">{{ blurb.get(t.op, '') }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% endblock %}
