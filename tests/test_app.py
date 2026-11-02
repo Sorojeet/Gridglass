@@ -39,12 +39,12 @@ def file_id(client):
 
 def test_healthz(client):
     body = client.get("/healthz").get_json()
-    assert body["status"] == "ok" and body["tools"] == 18
+    assert body["status"] == "ok" and body["tools"] == 19
 
 
 def test_tools_list(client):
     body = client.get("/api/v1/tools").get_json()
-    assert len(body["tools"]) == 18 and body["export_formats"] == ["csv", "json", "pdf", "xlsx"]
+    assert len(body["tools"]) == 19 and body["export_formats"] == ["csv", "json", "pdf", "xlsx"]
     trim = next(t for t in body["tools"] if t["op"] == "trim")
     assert trim["category"] == "clean" and trim["label"] == "Trim spaces"
     assert "collapse_spaces" in trim["schema"]["properties"]
@@ -468,3 +468,17 @@ def test_manifest_accepts_shared_files(client):
     assert m["share_target"]["action"] == "/share" and m["share_target"]["params"]["files"][0]["name"] == "file"
     assert ".xlsx" in m["share_target"]["params"]["files"][0]["accept"]
     assert m["file_handlers"][0]["accept"]["text/csv"] == [".csv"]
+
+
+def test_stack_files_through_the_api(client):
+    a = upload(client).get_json()["file"]["id"]
+    b = upload(client, b"name,City,Amount\nZara,Goa,5\n", "feb.csv").get_json()["file"]["id"]
+    r = client.post(f"/api/v1/files/{a}/steps", json={"op": "stack", "others": [b], "other_names": ["feb.csv"],
+                                                      "this_name": "orders.csv", "source_column": "File"})
+    pv = r.get_json()["preview"]
+    assert r.status_code == 200 and pv["total_rows"] == 5
+    assert [c["name"] for c in pv["columns"]] == ["Name", "City", "Amount", "File"]
+    assert pv["rows"][-1] == ["Zara", "Goa", 5.0, "feb.csv"]
+    client.delete(f"/api/v1/files/{b}")
+    r = client.get(f"/api/v1/files/{a}/preview")
+    assert r.status_code == 422 and "feb.csv has expired" in r.get_json()["error"]["message"]

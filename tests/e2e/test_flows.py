@@ -13,7 +13,7 @@ from playwright.sync_api import expect
 ALL_OPS = [
     "remove_duplicates", "trim", "change_case", "replace_values", "fill_blanks", "remove_blank_rows",
     "filter_rows", "sort_rows", "remove_columns", "keep_columns", "rename_columns", "keep_rows",
-    "change_type", "split_column", "add_column", "merge", "pivot", "unpivot", "convert", "split_pages",
+    "change_type", "split_column", "add_column", "merge", "stack", "pivot", "unpivot", "convert", "split_pages",
 ]
 SAMPLE_ROWS = 45  # the built-in sample: 40 orders + 5 exact duplicates
 
@@ -915,3 +915,26 @@ def test_shared_file_opens_on_home(phone):
 def test_shared_file_error_is_shown(phone):
     page = phone.open("/#/open?error=" + "This%20file%20is%20empty.")
     expect(page.locator("#toast")).to_contain_text("This file is empty.")
+
+
+# ----------------------------------------------------------------------------- stack files
+
+def test_stack_files(phone, tmp_path):
+    feb, mar = tmp_path / "feb.csv", tmp_path / "mar.csv"
+    feb.write_text("customer,ORDER ID,Amount\nZara,2001,10\n")
+    mar.write_text("Order ID,Customer,Amount,Note\n3001,Yash,20,late\n3002,Ira,30,\n")
+    page = phone.upload_sample("stack")
+    expect(page.locator(".file-chip").first).to_contain_text("45 rows")
+    page.set_input_files("#file3", [str(feb), str(mar)])
+    expect(page.locator(".stack-list li")).to_have_count(2)
+    expect(page.locator(".preview-head")).to_contain_text("3 more rows")
+    page.locator("label.toggle", has_text="which file").click()
+    expect(page.locator("#pv thead")).to_contain_text("Source file")
+    page.click('[data-stack-remove="0"]')
+    expect(page.locator(".stack-list li")).to_have_count(1)
+    expect(page.locator(".preview-head")).to_contain_text("2 more rows")
+    apply(page)
+    expect(page.locator(".done h1")).to_contain_text("Stacked")
+    data = download(page, "csv").read_text(encoding="utf-8-sig").splitlines()
+    assert data[0] == "Order ID,Customer,Email,City,Amount,Order date,Note,Source file"
+    assert data[-1].startswith("3002,Ira,") and data[-1].endswith(",mar.csv")

@@ -39,7 +39,7 @@ CATEGORIES = {
     "clean": ["remove_duplicates", "trim", "change_case", "replace_values", "fill_blanks", "remove_blank_rows"],
     "shape": ["remove_columns", "keep_columns", "rename_columns", "filter_rows", "sort_rows", "keep_rows",
               "change_type", "split_column", "add_column"],
-    "combine": ["merge"],
+    "combine": ["merge", "stack"],
     "summarize": ["pivot", "unpivot"],
 }
 MIMETYPES = {
@@ -62,7 +62,7 @@ def _steps_and_frame(file_id: str, raw_steps: list[dict[str, Any]]):
     steps = parse_steps(raw_steps, max_steps=_cfg("MAX_STEPS"))
     st = store()
 
-    def resolve(other_id: str):  # a second upload used by Merge; must still exist (not expired)
+    def resolve(other_id: str):  # another upload used by Merge or Stack; must still exist (not expired)
         st.meta(other_id)
         return open_source(st.source(other_id))
 

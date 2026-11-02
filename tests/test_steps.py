@@ -11,8 +11,8 @@ from gridglass.engine import OPS, InvalidStepsError, StepError, build, parse_ste
 # --------------------------------------------------------------------------- validation
 
 def test_every_tool_is_registered():
-    assert len(OPS) == 18
-    assert {"remove_duplicates", "trim", "filter_rows", "merge", "pivot", "unpivot"} <= set(OPS)
+    assert len(OPS) == 19
+    assert {"remove_duplicates", "trim", "filter_rows", "merge", "stack", "pivot", "unpivot"} <= set(OPS)
 
 
 @pytest.mark.parametrize("raw, fragment", [
@@ -395,3 +395,51 @@ def test_second_file_gone(orders):
 def test_bad_other_id_rejected():
     with pytest.raises(InvalidStepsError, match="other"):
         parse_steps([{"op": "merge", "other": "../etc", "keys": [{"left": "a", "right": "b"}]}])
+
+
+# --------------------------------------------------------------------------- stack files
+
+A_ID, B_ID = "a" * 22, "b" * 22
+
+
+def stack(lf, files, **kw):
+    step = {"op": "stack", "others": list(files), **kw}
+    return build(lf, parse_steps([step]), resolve=lambda i: files[i]).collect()
+
+
+def test_stack_puts_rows_underneath_matching_names():
+    jan = pl.LazyFrame({"Order": [1, 2], "Amount": [10.0, 20.0]})
+    feb = pl.LazyFrame({" amount ": [30.0], "ORDER": [3], "Note": ["late"]})
+    out = stack(jan, {A_ID: feb})
+    assert out.columns == ["Order", "Amount", "Note"]
+    assert out.rows() == [(1, 10.0, None), (2, 20.0, None), (3, 30.0, "late")]
+
+
+def test_stack_keeps_values_when_types_differ():
+    jan = pl.LazyFrame({"ID": [1, 2]})
+    feb = pl.LazyFrame({"ID": ["EW1"]})
+    out = stack(jan, {A_ID: feb})
+    assert out["ID"].to_list() == ["1", "2", "EW1"]
+
+
+def test_stack_many_files_with_a_source_column():
+    one, two = (pl.LazyFrame({"x": [i]}) for i in (1, 2))
+    three = pl.LazyFrame({"x": [3], "late": ["yes"]})
+    out = stack(one, {A_ID: two, B_ID: three}, other_names=["feb.csv", "mar.csv"], this_name="jan.csv",
+                source_column="Source file")
+    assert out.columns == ["x", "late", "Source file"]
+    assert out.rows() == [(1, None, "jan.csv"), (2, None, "feb.csv"), (3, "yes", "mar.csv")]
+
+
+def test_stack_errors_are_friendly():
+    lf = pl.LazyFrame({"x": [1], "Source file": ["?"]})
+    with pytest.raises(StepError, match="already a column"):
+        stack(lf, {A_ID: pl.LazyFrame({"x": [2]})}, source_column="Source file")
+    with pytest.raises(StepError, match="feb.csv has expired"):
+        def gone(_id):
+            raise FileNotFoundError
+        build(lf, parse_steps([{"op": "stack", "others": [A_ID], "other_names": ["feb.csv"]}]), resolve=gone).collect()
+    with pytest.raises(StepError, match="same name"):
+        stack(pl.LazyFrame({"x": [1]}), {A_ID: pl.LazyFrame({"X": [1], "x ": [2]})})
+    with pytest.raises(InvalidStepsError):
+        parse_steps([{"op": "stack", "others": []}])

@@ -30,6 +30,7 @@ const P = {
   unpivot: '<path d="M6 4v16h14M10 8h8M10 12h8M10 16h8"/>',
   convert: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
   merge: '<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/>',
+  stack: '<rect x="4" y="3" width="16" height="7" rx="2"/><rect x="4" y="14" width="16" height="7" rx="2"/><path d="M12 10v4"/>',
   pages: '<rect x="8" y="3" width="12" height="15" rx="2"/><path d="M5 7v12a2 2 0 0 0 2 2h9"/><path d="M11 8h6M11 12h6"/>',
 };
 
@@ -345,6 +346,27 @@ export const TOOLS = [
     done: (b, a) => `Merged — ${plural(a, 'row')}`,
   },
   {
+    op: 'stack', cat: 'combine', icon: 'stack', label: 'Stack files',
+    desc: 'Put rows from more files underneath', keywords: 'append combine stack union join monthly files together add rows one below another consolidate',
+    intro: 'Add files to put their rows under this one. Columns are matched by name, so they can be in any order.',
+    verb: 'Stack',
+    fields: [
+      { key: 'files', type: 'stackfiles', label: 'Files to add', default: () => [] },
+      { key: 'add_source', type: 'toggle', label: 'Add a column saying which file each row came from', default: false,
+        show: (d) => d.files.length > 0 },
+      { key: 'source_column', type: 'text', label: 'Name of that column', default: 'Source file',
+        show: (d) => d.files.length > 0 && d.add_source },
+    ],
+    build: (d) => ({
+      others: d.files.map((f) => f.id),
+      other_names: d.files.map((f) => f.name),
+      this_name: d.this_name || undefined,
+      source_column: d.add_source ? d.source_column.trim() || 'Source file' : null,
+    }),
+    ready: (d) => (!d.files.length ? 'Add a file to put under this one.' : null),
+    done: (b, a) => `Stacked — ${plural(a, 'row')}`,
+  },
+  {
     op: 'pivot', cat: 'summarize', icon: 'pivot', label: 'Pivot table',
     desc: 'Group, total and cross-tab your data', keywords: 'group by summary total subtotal aggregate crosstab matrix sum count average',
     intro: 'Pick the Rows and what to calculate. Add a Columns field to spread the totals across columns.',
@@ -444,6 +466,12 @@ const LOADERS = {
     operator: s.operator ?? '*',
   }),
   merge: (s) => ({ keys: s.keys.map((k) => ({ ...k })), other_name: s.other_name ?? '' }),
+  stack: (s) => ({
+    files: s.others.map((id, i) => ({ id, name: s.other_names?.[i] || `File ${i + 2}` })),
+    this_name: s.this_name ?? '',
+    add_source: !!s.source_column,
+    source_column: s.source_column ?? 'Source file',
+  }),
   pivot: (s) => ({
     pcol: s.columns ?? '',
     aggs: (s.values?.length ? s.values : [{ func: 'count_rows' }]).map((a) => ({ func: a.func, column: a.column ?? '' })),
@@ -479,6 +507,7 @@ export const RELATED = {
   split_column: ['rename_columns', 'trim', 'remove_columns', 'change_type'],
   add_column: ['rename_columns', 'keep_columns', 'change_type', 'pivot'],
   merge: ['remove_columns', 'fill_blanks', 'filter_rows', 'pivot', 'rename_columns'],
+  stack: ['remove_duplicates', 'pivot', 'filter_rows', 'sort_rows', 'convert'],
   pivot: ['sort_rows', 'filter_rows', 'rename_columns', 'split_pages'],
   unpivot: ['pivot', 'rename_columns', 'filter_rows', 'remove_blank_rows'],
 };

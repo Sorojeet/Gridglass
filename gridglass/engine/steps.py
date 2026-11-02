@@ -20,7 +20,7 @@ from .dtypes import clean_number, coerce, friendly_dtype, is_text
 Col = Annotated[str, StringConstraints(min_length=1, max_length=255)]
 FileId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{22}$")]
 
-#: While steps are being applied, this resolves another upload's id to its data (used by Merge).
+#: While steps are being applied, this resolves another upload's id to its data (Merge, Stack).
 #: The pipeline sets it; steps never touch storage directly.
 SOURCES: ContextVar[Callable[[str], pl.LazyFrame] | None] = ContextVar("gridglass_sources", default=None)
 Cols = Annotated[list[Col], Field(min_length=1, max_length=2000)]
@@ -538,6 +538,70 @@ class Merge(Step):
         return out.select(first + [c for c in names if c not in first])
 
 
+class Stack(Step):
+    """Put other files' rows under this file's rows, matching columns by name.
+
+    Names match ignoring capitals and extra spaces ('Amount' = 'amount '). A column that only
+    some files have is blank for the others. If a column's type differs between files it
+    becomes text, so nothing is lost.
+    """
+
+    label: ClassVar[str] = "Stack files"
+    op: Literal["stack"]
+    others: Annotated[list[FileId], Field(min_length=1, max_length=50)]
+    other_names: list[Annotated[str, StringConstraints(max_length=255)]] | None = None  # for display and source_column
+    this_name: Annotated[str, StringConstraints(max_length=255)] | None = None
+    source_column: Col | None = None  # add a column saying which file each row came from
+
+    def apply(self, lf, schema):
+        resolve = SOURCES.get()
+        frames = []
+        for i, other in enumerate(self.others):
+            try:
+                frame = resolve(other) if resolve else None
+            except Exception:
+                frame = None
+            if frame is None:
+                name = self._name(i)
+                raise ColumnError(f"{name} has expired or was removed. Please add it again.")
+            frames.append(frame)
+
+        if self.source_column and self.source_column in schema:
+            raise ColumnError(f"There's already a column called '{self.source_column}'. Choose another name.")
+        spelling = {_key(c): c for c in schema.names()}
+        parts = [lf]
+        for frame in frames:
+            names = frame.collect_schema().names()
+            rename = {}
+            for c in names:  # use this file's spelling for matching names
+                target = spelling.setdefault(_key(c), c)
+                if target != c:
+                    rename[c] = target
+            if len(set(rename.values()) | (set(names) - set(rename))) < len(names):
+                raise ColumnError("A file has two columns with the same name (ignoring capitals and spaces).")
+            parts.append(frame.rename(rename) if rename else frame)
+        if self.source_column:
+            if any(self.source_column in p.collect_schema().names() for p in parts[1:]):
+                raise ColumnError(f"There's already a column called '{self.source_column}'. Choose another name.")
+            names = [self.this_name or "This file"] + [self._name(i) for i in range(len(frames))]
+            parts = [p.with_columns(pl.lit(n, dtype=pl.String).alias(self.source_column)) for p, n in zip(parts, names)]
+        try:
+            out = pl.concat(parts, how="diagonal_relaxed")
+            if self.source_column:  # last, after columns that only later files have
+                out = out.select(pl.exclude(self.source_column), pl.col(self.source_column))
+            return out
+        except pl.exceptions.PolarsError as exc:
+            raise ColumnError(f"These files can't be stacked: {str(exc).splitlines()[0][:120]}") from exc
+
+    def _name(self, i: int) -> str:
+        names = self.other_names or []
+        return names[i] if i < len(names) and names[i] else f"File {i + 2}"
+
+
+def _key(name: str) -> str:
+    return " ".join(name.split()).casefold()
+
+
 # --------------------------------------------------------------------------- summarize
 
 _AGG_TITLE = {  # readable names: "Sum of Amount"
@@ -682,7 +746,7 @@ class Unpivot(Step):
 STEP_MODELS: tuple[type[Step], ...] = (
     RemoveDuplicates, Trim, ChangeCase, ReplaceValues, FillBlanks, RemoveBlankRows,
     RemoveColumns, KeepColumns, RenameColumns, FilterRows, SortRows, KeepRows,
-    ChangeType, SplitColumn, AddColumn, Merge, Pivot, Unpivot,
+    ChangeType, SplitColumn, AddColumn, Merge, Stack, Pivot, Unpivot,
 )
 
 AnyStep = Annotated[Union[STEP_MODELS], Field(discriminator="op")]
