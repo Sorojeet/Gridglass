@@ -620,9 +620,9 @@ TOOLS: list[ToolPage] = [
             ("Titles", "A chart title and titles for both axes."),
             ("Colours", "Gridglass (follows light and dark mode), Ocean, Sunset, Forest, Berry or Grey."),
             ("Order and size", "As in the table, largest first, smallest first or A → Z; all, top 5, top 10 or top 20."),
-            ("Labels", "Data labels can show the value, the percentage, or both (on pies, each slice's share; on other "
-                       "charts, each bar's share of its series, or of its stack when stacked). The legend and grid lines "
-                       "can be turned on or off."),
+            ("Labels", "Data labels can show any mix of the name (on pies and donuts), the value and the percentage "
+                       "(on pies, each slice's share; on other charts, each bar's share of its series, or of its stack when "
+                       "stacked). The legend and grid lines can be turned on or off."),
             ("Filter", "‘Only count rows where’ limits the chart to some rows, such as City is Pune, before anything is added up."),
             ("Numbers", "Short (1.2L, 3.4Cr) or full (1,23,456)."),
             ("Shape", "Wide (720 × 400), square (560 × 560) or tall (480 × 640). PNG downloads are twice that size."),

@@ -634,3 +634,4 @@ body:has(.chart-custom[open]) main[data-screen="options"] > .action-bar { positi
 @media (prefers-reduced-motion: no-preference) {
   .chart .fade { animation: fade-in 0.6s ease backwards; }
 }
+.label-parts { display: flex; flex-wrap: wrap; gap: 8px; }
