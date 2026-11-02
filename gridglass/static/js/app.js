@@ -147,10 +147,16 @@ function route() {
   if (h.startsWith('#/open')) { openShared(h); return; }
   const tool = h.match(/^#\/tool\/([a-z_]+)/);
   const edit = h.match(/^#\/edit\/(\d+)$/);
+  const recipe = h.match(/^#\/recipe\/([\w-]+)$/);
+  if (recipe) { renderRecipe(recipe[1]); return finishRoute(); }
   if (h === '#/result' && state.file) showResult();
   else if (edit && state.file) editStep(Number(edit[1]));
   else if (tool && TOOL[tool[1]]) openTool(TOOL[tool[1]]);
   else renderHome();
+  finishRoute();
+}
+
+function finishRoute() {
   window.scrollTo(0, 0);
   // Move focus to the new screen for screen readers, but not on first load (keeps "Skip to content" first).
   if (!firstRoute) view.focus({ preventScroll: true });
@@ -282,6 +288,7 @@ function renderHome() {
       <p>Clean, reshape and convert CSV and spreadsheet files on your phone or computer. Free, no sign-up.</p>
     </section>
     ${working}
+    ${recipesSection()}
     <div class="search glass">${ui('search')}
       <label class="sr-only" for="q">Search tools</label>
       <input id="q" type="search" placeholder="Search tools, e.g. duplicates" value="${esc(homeQuery)}" autocomplete="off">
@@ -300,6 +307,8 @@ function renderHome() {
     fillGrid();
   }));
   $('[data-action="startover"]')?.addEventListener('click', startOver);
+  $('#recipes')?.addEventListener('click', onRecipeClick);
+  $('#recipes')?.addEventListener('submit', onRecipeRename);
 }
 
 function fillGrid() {
@@ -1269,7 +1278,7 @@ function renderDone() {
   state.stage = 'done';
   view.dataset.screen = 'done';
   document.title = 'Your result — Gridglass';
-  const title = edited ? 'Changes saved' : t?.done ? t.done(before, after) : t ? `${t.label} done` : 'Your file is ready';
+  const title = state.result.recipe ? `Ran “${state.result.recipe}”` : edited ? 'Changes saved' : t?.done ? t.done(before, after) : t ? `${t.label} done` : 'Your file is ready';
   const steps = state.file.steps;
   const last = steps.length - 1;
   const lastTool = TOOL[steps[last]?.op];
@@ -1304,12 +1313,15 @@ function renderDone() {
         <a class="icon-btn small" href="#/edit/${i}" aria-label="Edit step ${i + 1}: ${label}">${pencil}</a>
         <button type="button" class="icon-btn small" data-undo="${i}" aria-label="Remove step ${i + 1}: ${label}">${ui('trash')}</button></li>`;
       }).join('') || '<li class="glass empty">No steps — this is your original file.</li>'}</ol>
+      ${steps.length ? recipeSaver(steps) : ''}
     </section>
     <footer class="done-foot"><button type="button" class="btn-link" data-action="startover">Start over with a new file</button></footer>`;
   wireDownload();
   $('[data-action="startover"]').addEventListener('click', startOver);
   $('[data-action="chart"]')?.addEventListener('click', () => { state.wantChart = true; });
   view.querySelectorAll('[data-undo]').forEach((b) => b.addEventListener('click', () => undo(Number(b.dataset.undo))));
+  $('#recipe-save')?.addEventListener('click', onSaverClick);
+  $('#recipe-save')?.addEventListener('submit', onSaverSubmit);
 }
 
 async function undo(i) {
@@ -1409,6 +1421,213 @@ async function changeSheet(sheet) {
     await enterOptions();
     if (res.file.header_row > 0) toast(`Skipped ${plural(res.file.header_row, 'row')} above the column names.`);
   } catch (err) { toast(err.message, 'error'); }
+}
+
+// ---------------------------------------------------------------------------- recipes (saved on this device)
+
+const RECIPES_KEY = 'gg.recipes';
+const MAX_RECIPES = 50;
+
+function loadRecipes() {
+  try {
+    const list = JSON.parse(localStorage.getItem(RECIPES_KEY) || '[]');
+    return Array.isArray(list) ? list.filter((r) => r && typeof r.name === 'string' && Array.isArray(r.steps) && r.steps.length) : [];
+  } catch { return []; }
+}
+
+function storeRecipes(list) {
+  try { localStorage.setItem(RECIPES_KEY, JSON.stringify(list)); return true; } catch {
+    toast("This browser isn't letting Gridglass save recipes. Private browsing can block it.", 'error');
+    return false;
+  }
+}
+
+const findRecipe = (id) => loadRecipes().find((r) => r.id === id);
+const stepNames = (steps) => steps.map((s) => TOOL[s.op]?.label ?? s.op);
+/** Merge and Stack use extra uploads that are deleted after an hour, so they can't be replayed later. */
+const reusable = (steps) => steps.every((s) => !otherFiles(s).length);
+const newId = () => (crypto.randomUUID?.() ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`).replace(/[^\w-]/g, '');
+
+function recipesSection() {
+  const list = loadRecipes();
+  if (!list.length) return '';
+  return `<section class="recipes" id="recipes" aria-labelledby="rc-title">
+    <h2 id="rc-title">My recipes</h2>
+    <ul class="recipe-list">${list.map((r) => `<li class="recipe glass" data-id="${esc(r.id)}">
+      <span class="file-icon">${ui('recipe')}</span>
+      <span class="file-text"><strong>${esc(r.name)}</strong><small>${plural(r.steps.length, 'step')} · ${esc(stepNames(r.steps).join(' → '))}</small></span>
+      <span class="recipe-actions">
+        <a class="btn btn-secondary btn-sm" href="#/recipe/${esc(r.id)}" aria-label="Use ${esc(r.name)}">Use</a>
+        <button class="btn-link" type="button" data-recipe-rename="${esc(r.id)}" aria-label="Rename ${esc(r.name)}">Rename</button>
+        <button class="btn-link" type="button" data-recipe-delete="${esc(r.id)}" aria-label="Delete ${esc(r.name)}">Delete</button>
+      </span></li>`).join('')}</ul>
+    <p class="hint">Saved on this device only.</p>
+  </section>`;
+}
+
+function onRecipeClick(e) {
+  const rename = e.target.closest('[data-recipe-rename]');
+  const del = e.target.closest('[data-recipe-delete]');
+  if (rename) {
+    const r = findRecipe(rename.dataset.recipeRename);
+    const li = rename.closest('li');
+    li.innerHTML = `<form class="recipe-rename" data-id="${esc(r.id)}">
+      <label class="sr-only" for="rn-${esc(r.id)}">New name</label>
+      <input class="input" id="rn-${esc(r.id)}" name="name" value="${esc(r.name)}" maxlength="80" required>
+      <button class="btn btn-primary btn-sm" type="submit">Save</button>
+      <button class="btn-link" type="button" data-recipe-cancel>Cancel</button></form>`;
+    li.querySelector('input').select();
+  } else if (e.target.closest('[data-recipe-cancel]')) {
+    renderHome();
+  } else if (del) {
+    if (del.dataset.armed) {
+      const id = del.dataset.recipeDelete;
+      const gone = findRecipe(id);
+      if (storeRecipes(loadRecipes().filter((r) => r.id !== id))) { renderHome(); toast(`Deleted “${gone?.name}”.`); }
+      return;
+    }
+    del.dataset.armed = '1';
+    del.textContent = 'Tap again to delete';
+    del.classList.add('danger');
+    setTimeout(() => { if (del.isConnected) { delete del.dataset.armed; del.textContent = 'Delete'; del.classList.remove('danger'); } }, 3500);
+  }
+}
+
+function onRecipeRename(e) {
+  e.preventDefault();
+  const name = e.target.elements.name.value.trim();
+  if (!name) return;
+  const list = loadRecipes();
+  const r = list.find((x) => x.id === e.target.dataset.id);
+  if (r) { r.name = name; storeRecipes(list); }
+  renderHome();
+}
+
+function recipeSaver(steps) {
+  if (!reusable(steps)) {
+    return '<p class="hint recipe-note">These steps can\'t be saved as a recipe, because Merge files and Stack files use extra files that are deleted after an hour.</p>';
+  }
+  return `<div class="recipe-save" id="recipe-save">
+    <button class="btn btn-secondary btn-sm" type="button" data-action="save-recipe">${ui('recipe')} Save these steps as a recipe</button>
+    <p class="hint">Run them on another file in one tap.</p></div>`;
+}
+
+function onSaverClick(e) {
+  const box = $('#recipe-save');
+  if (e.target.closest('[data-action="save-recipe"]')) {
+    const base = state.file.filename.replace(/\.[^.]+$/, '');
+    box.innerHTML = `<form class="recipe-form">
+      <label for="recipe-name">Recipe name</label>
+      <div class="recipe-form-row"><input class="input" id="recipe-name" name="name" value="${esc(`${base} steps`.slice(0, 80))}" maxlength="80" required>
+      <button class="btn btn-primary btn-sm" type="submit">Save</button>
+      <button class="btn-link" type="button" data-action="cancel-recipe">Cancel</button></div>
+      <p class="hint">Saved on this device. Use it from the home screen.</p></form>`;
+    $('#recipe-name').select();
+  } else if (e.target.closest('[data-action="cancel-recipe"]')) {
+    box.outerHTML = recipeSaver(state.file.steps);
+    $('#recipe-save')?.addEventListener('click', onSaverClick);
+    $('#recipe-save')?.addEventListener('submit', onSaverSubmit);
+  }
+}
+
+function onSaverSubmit(e) {
+  e.preventDefault();
+  const name = e.target.elements.name.value.trim();
+  if (!name) return;
+  const list = loadRecipes();
+  const same = list.find((r) => r.name.toLowerCase() === name.toLowerCase());
+  const steps = structuredClone(state.file.steps);
+  if (same) Object.assign(same, { name, steps, updated: Date.now() });
+  else {
+    if (list.length >= MAX_RECIPES) { toast(`You can keep up to ${MAX_RECIPES} recipes. Delete one on the home screen first.`, 'error'); return; }
+    list.unshift({ id: newId(), name, steps, created: Date.now() });
+  }
+  if (!storeRecipes(list)) return;
+  $('#recipe-save').innerHTML = `<p class="recipe-saved">${ui('check')} ${same ? 'Updated' : 'Saved'} “${esc(name)}”. It's on the home screen.</p>`;
+}
+
+function renderRecipe(id) {
+  const r = findRecipe(id);
+  if (!r) { history.replaceState(null, '', '#/'); renderHome(); toast("That recipe isn't saved on this device.", 'error'); return; }
+  state.tool = null;
+  view.dataset.screen = 'upload';
+  document.title = `${r.name} — Gridglass`;
+  const open = state.file;
+  view.innerHTML = `${topbar({ back: '#/', title: 'Recipe' })}
+    <section class="intro">
+      <span class="badge cat-combine">Recipe</span>
+      <h1>${esc(r.name)}</h1>
+      <p>Choose a file and these steps run on it, in order:</p>
+      <ol class="recipe-steps">${stepNames(r.steps).map((n) => `<li>${esc(n)}</li>`).join('')}</ol>
+    </section>
+    <section class="dropzone glass" id="drop">
+      <span class="drop-icon">${ui('upload')}</span>
+      <label class="btn btn-primary btn-lg" for="file">Choose a file</label>
+      <input id="file" class="sr-only" type="file" accept="${ACCEPT}">
+      <p class="hint">CSV, XLSX or JSON · up to ${config.max_upload_mb} MB</p>
+      <div class="progress" id="progress" hidden><div class="bar"><span id="bar"></span></div><p id="ptext" aria-live="polite">Uploading…</p></div>
+    </section>
+    ${open ? `<button class="btn btn-secondary btn-block" type="button" data-action="run-open">${ui('file')} Run on ${esc(open.filename)}${open.steps.length ? ' (after its steps)' : ''}</button>` : ''}
+    ${privacy()}`;
+  const input = $('#file');
+  input.addEventListener('change', () => input.files[0] && uploadForRecipe(r, input.files[0]));
+  $('[data-action="run-open"]')?.addEventListener('click', (e) => { e.target.closest('button').disabled = true; runRecipe(r, state.file); });
+  const drop = $('#drop');
+  ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.remove('over')));
+  drop.addEventListener('drop', (e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) uploadForRecipe(r, f); });
+}
+
+async function uploadForRecipe(r, file) {
+  if (file.size > config.max_upload_mb * 1024 * 1024) {
+    toast(`That file is ${(file.size / 1048576).toFixed(1)} MB. The limit is ${config.max_upload_mb} MB.`, 'error');
+    return;
+  }
+  $('#progress').hidden = false;
+  $('#drop label').classList.add('busy');
+  try {
+    const res = await uploadFile(file, (p) => {
+      $('#bar').style.width = `${Math.round(p * 100)}%`;
+      $('#ptext').textContent = p < 1 ? `Uploading… ${Math.round(p * 100)}%` : 'Reading your file…';
+    });
+    if (state.file) forget();
+    remember(res.file);
+    $('#ptext').textContent = 'Running the recipe…';
+    await runRecipe(r, res.file);
+  } catch (err) {
+    $('#progress').hidden = true;
+    $('#drop label')?.classList.remove('busy');
+    toast(err.message, 'error');
+  }
+}
+
+/** Add the recipe's steps after the file's own. If one doesn't fit, keep the ones before it and say which. */
+async function runRecipe(r, file) {
+  const base = file.steps;
+  const all = [...base, ...structuredClone(r.steps)];
+  const finish = (res, extra) => {
+    remember(res.file);
+    state.result = { before: file.rows, after: res.preview.total_rows, op: res.file.steps.at(-1)?.op ?? null, recipe: r.name };
+    location.hash = '#/result';
+    if (extra) setTimeout(() => toast(extra, 'error'), 50);
+  };
+  try {
+    finish(await api(`/files/${file.id}/steps`, { method: 'PUT', body: { steps: all } }));
+  } catch (err) {
+    const at = err.info?.step_index;
+    if (at === undefined || at < base.length) { toast(err.message, 'error'); renderRecipe(r.id); return; }
+    const n = at - base.length;
+    const why = `Step ${n + 1} of the recipe (${stepNames([r.steps[n]])[0]}) doesn't fit this file: ${err.message.replace(/^Step \d+: /, '')}`;
+    if (n === 0) {
+      toast(`${why} Nothing was changed.`, 'error');
+      if (location.hash === '#/') renderHome(); else location.hash = '#/';
+      return;
+    }
+    try {
+      finish(await api(`/files/${file.id}/steps`, { method: 'PUT', body: { steps: all.slice(0, at) } }),
+        `${why} The ${plural(n, 'step')} before it ${n === 1 ? 'was' : 'were'} applied.`);
+    } catch (err2) { toast(err2.message, 'error'); }
+  }
 }
 
 // ---------------------------------------------------------------------------- files from other apps

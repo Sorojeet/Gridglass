@@ -938,3 +938,65 @@ def test_stack_files(phone, tmp_path):
     data = download(page, "csv").read_text(encoding="utf-8-sig").splitlines()
     assert data[0] == "Order ID,Customer,Email,City,Amount,Order date,Note,Source file"
     assert data[-1].startswith("3002,Ira,") and data[-1].endswith(",mar.csv")
+
+
+# ----------------------------------------------------------------------------- recipes
+
+def test_save_and_reuse_a_recipe(phone, tmp_path):
+    page = phone.upload_sample("trim")
+    apply(page)
+    page.goto(phone.base + "/#/tool/remove_duplicates")
+    page.wait_for_selector("#apply")
+    apply(page)
+    page.click('[data-action="save-recipe"]')
+    page.fill("#recipe-name", "Monthly cleanup")
+    page.click('.recipe-form button[type="submit"]')
+    expect(page.locator(".recipe-saved")).to_contain_text("Saved “Monthly cleanup”")
+
+    page.click('[data-action="startover"]')
+    expect(page.locator(".recipe")).to_contain_text("Monthly cleanup")
+    expect(page.locator(".recipe")).to_contain_text("2 steps · Trim spaces → Remove duplicates")
+    page.click('.recipe a:has-text("Use")')
+    expect(page.locator(".recipe-steps li")).to_have_count(2)
+    nxt = tmp_path / "next.csv"
+    nxt.write_text("Name,City\n  Asha ,Pune\nAsha,Pune\nRavi,Delhi\n")
+    page.set_input_files("#file", str(nxt))
+    expect(page.locator(".done h1")).to_contain_text("Ran “Monthly cleanup”")
+    expect(page.locator(".done p")).to_contain_text("3 rows → 2 rows")
+    expect(page.locator(".step-list li")).to_have_count(2)
+
+
+def test_recipe_stops_at_a_step_that_does_not_fit(phone, tmp_path):
+    page = phone.open("/")
+    page.evaluate("""localStorage.setItem('gg.recipes', JSON.stringify([{id: 'r1', name: 'Tidy', steps: [
+        {op: 'trim'}, {op: 'sort_rows', by: [{column: 'Amount', descending: true}]}]}]))""")
+    page.goto(phone.base + "/#/recipe/r1")
+    other = tmp_path / "other.csv"
+    other.write_text("Name\n  Zed \n")
+    page.set_input_files("#file", str(other))
+    expect(page.locator(".done h1")).to_contain_text("Ran “Tidy”")
+    expect(page.locator("#toast")).to_contain_text("Step 2 of the recipe (Sort rows) doesn't fit")
+    expect(page.locator(".step-list li")).to_have_count(1)
+
+
+def test_rename_and_delete_recipes(phone):
+    page = phone.open("/")
+    page.evaluate("localStorage.setItem('gg.recipes', JSON.stringify([{id: 'r1', name: 'Old name', steps: [{op: 'trim'}]}]))")
+    page.reload()
+    page.click('[data-recipe-rename="r1"]')
+    page.fill("#rn-r1", "New name")
+    page.click('.recipe-rename button[type="submit"]')
+    expect(page.locator(".recipe strong")).to_have_text("New name")
+    page.click('[data-recipe-delete="r1"]')
+    expect(page.locator('[data-recipe-delete="r1"]')).to_have_text("Tap again to delete")
+    page.click('[data-recipe-delete="r1"]')
+    expect(page.locator(".recipes")).to_have_count(0)
+
+
+def test_recipes_with_extra_files_cannot_be_saved(phone, tmp_path):
+    page = phone.upload_sample("stack")
+    page.click('[data-action="sample3"]')
+    expect(page.locator(".stack-list li")).to_have_count(1)
+    apply(page)
+    expect(page.locator(".recipe-note")).to_contain_text("can't be saved")
+    expect(page.locator('[data-action="save-recipe"]')).to_have_count(0)
