@@ -443,3 +443,83 @@ def test_stack_errors_are_friendly():
         stack(pl.LazyFrame({"x": [1]}), {A_ID: pl.LazyFrame({"X": [1], "x ": [2]})})
     with pytest.raises(InvalidStepsError):
         parse_steps([{"op": "stack", "others": []}])
+
+
+# --------------------------------------------------------------------------- duplicates: show / mark
+
+def run(lf, steps):
+    return build(lf, parse_steps(steps)).collect()
+
+
+DUPES = pl.LazyFrame({"Email": ["a@x.in", "b@x.in", "a@x.in", "c@x.in"], "N": [1, 2, 3, 4]})
+
+
+def test_show_only_duplicates_keeps_every_copy():
+    out = run(DUPES, [{"op": "remove_duplicates", "columns": ["Email"], "action": "show"}])
+    assert out["N"].to_list() == [1, 3]
+
+
+@pytest.mark.parametrize("keep, marks", [("first", ["No", "No", "Yes", "No"]), ("last", ["Yes", "No", "No", "No"])])
+def test_mark_duplicates(keep, marks):
+    out = run(DUPES, [{"op": "remove_duplicates", "columns": ["Email"], "action": "mark", "keep": keep, "mark_column": "Repeat"}])
+    assert out["Repeat"].to_list() == marks and out.height == 4
+
+
+def test_mark_column_must_be_new():
+    with pytest.raises(StepError):
+        run(DUPES, [{"op": "remove_duplicates", "action": "mark", "mark_column": "Email"}])
+
+
+# --------------------------------------------------------------------------- replace values: clean up text
+
+@pytest.mark.parametrize("clean, out", [
+    ("special", ["Rs 1234 paid", "राम कुमार", "abMailcom", None]),
+    ("digits", ["1234", None, None, None]),
+    ("letters", ["Rs paid", "राम कुमार", "abMailcom", None]),
+    ("email_domain", [None, None, "mail.com", None]),
+    ("first_word", ["Rs.", "राम", "a.b@Mail.com", None]),
+    ("last_word", ["(paid)!", "कुमार!", "a.b@Mail.com", None]),
+])
+def test_clean_up_text(clean, out):
+    lf = pl.LazyFrame({"T": ["Rs. 1,234/- (paid)!", "  राम  कुमार! ", "a.b@Mail.com", "!!!"]})
+    got = run(lf, [{"op": "replace_values", "columns": ["T"], "action": "clean", "clean": clean}])["T"].to_list()
+    assert got[:3] == out[:3] and got[3] in (None, "!!!")
+
+
+def test_clean_up_needs_text_and_a_choice():
+    with pytest.raises(StepError):
+        run(pl.LazyFrame({"n": [1]}), [{"op": "replace_values", "columns": ["n"], "action": "clean", "clean": "digits"}])
+    with pytest.raises(InvalidStepsError):
+        parse_steps([{"op": "replace_values", "columns": ["n"], "action": "clean"}])
+
+
+# --------------------------------------------------------------------------- add column: running total, rank, %
+
+SALES = pl.LazyFrame({"City": ["Pune", "Delhi", "Pune", "Pune", "Delhi"], "Amt": [100.0, 50.0, 100.0, None, 30.0]})
+
+
+def add(mode, **kw):
+    return run(SALES, [{"op": "add_column", "name": "X", "mode": mode, "left": "Amt", **kw}])["X"].to_list()
+
+
+def test_running_total():
+    assert add("running_total") == [100, 150, 250, 250, 280]
+    assert add("running_total", within=["City"]) == [100, 50, 200, 200, 80]
+
+
+def test_rank():
+    assert add("rank") == [1, 3, 1, None, 4]                     # ties share a rank; blanks get none
+    assert add("rank", descending=False) == [3, 2, 3, None, 1]
+    assert add("rank", within=["City"]) == [1, 1, 1, None, 2]
+
+
+def test_percent_of_total():
+    assert add("percent") == [35.71, 17.86, 35.71, None, 10.71]
+    assert add("percent", within=["City"]) == [50.0, 62.5, 50.0, None, 37.5]
+
+
+def test_totals_need_a_number_column():
+    with pytest.raises(StepError):
+        run(SALES, [{"op": "add_column", "name": "X", "mode": "rank", "left": "City"}])
+    with pytest.raises(InvalidStepsError):
+        parse_steps([{"op": "add_column", "name": "X", "mode": "rank"}])

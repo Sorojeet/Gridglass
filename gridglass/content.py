@@ -53,13 +53,15 @@ TOOLS: list[ToolPage] = [
     ToolPage(
         slug="remove-duplicates", op="remove_duplicates", cat="clean", name="Remove duplicates",
         title="Remove duplicate rows from a CSV or spreadsheet",
-        description="Find and remove repeated rows in a CSV, XLSX or JSON file. Choose which columns decide a "
-                    "duplicate and whether to keep the first or last copy. Free, works on phones.",
+        description="Find repeated rows in a CSV, XLSX or JSON file and remove them, list them, or mark them in a new "
+                    "column. Choose which columns decide a duplicate. Free, works on phones.",
         intro=[
             "Duplicate rows creep in when lists are copied together, exported twice or typed by hand. "
             "They inflate totals and send the same email twice.",
             "This tool removes them in one step. A row can count as a duplicate when <b>every</b> cell "
             "matches, or only when chosen columns match, such as the same email address.",
+            "Not sure yet? Choose <b>Show only them</b> to list every repeated row side by side, or <b>Mark them</b> "
+            "to add a Duplicate column (Yes/No) and decide later.",
         ],
         when=[
             "A contact or customer list has the same person more than once.",
@@ -81,14 +83,16 @@ TOOLS: list[ToolPage] = [
         ),
         options=[
             ("A row is a duplicate when", "All columns match, or only the columns you choose."),
-            ("Which copy to keep", "The first one in the file, or the last one."),
+            ("What to do with them", "Remove them, show only them (every copy, side by side), or mark them in a new column."),
+            ("Which copy is the original", "The first one in the file, or the last one. The others are removed or marked."),
         ],
         faqs=[
             ("Does it notice ‘Asha’ and ‘asha ’ as the same?",
              "Not on its own, because they are different text. Run <a href=\"/tools/trim-spaces\">Trim spaces</a> "
              "and <a href=\"/tools/change-case\">Change case</a> first, then remove duplicates."),
             ("Can I see the duplicates before they are removed?",
-             "Yes. The live preview shows the result and how many rows will be removed before you download anything."),
+             "Yes. Choose <b>Show only them</b> to list every repeated row, or <b>Mark them</b> to add a Yes/No column. "
+             "The live preview also shows how many rows would go before you download anything."),
             ("Is the order of my rows kept?", "Yes. Rows stay in their original order."),
         ],
         related=["trim-spaces", "change-case", "filter-rows", "sort-rows"],
@@ -172,19 +176,23 @@ TOOLS: list[ToolPage] = [
     ),
     ToolPage(
         slug="replace-values", op="replace_values", cat="clean", name="Replace values",
-        title="Find and replace values in a CSV or spreadsheet",
-        description="Find and replace text in chosen columns: whole cells or part of the text, with or without "
-                    "matching capital letters. Clear values like N/A in one step.",
+        title="Find and replace values, and clean up text in a spreadsheet",
+        description="Find and replace text in chosen columns, or clean it up: remove special characters, keep only "
+                    "digits or letters, or pull out an email's domain or the first word.",
         intro=[
             "Placeholder values such as ‘N/A’, ‘-’ or ‘unknown’ get in the way of totals and filters, and "
             "spelling differences split one thing into two.",
             "Replace values swaps one value for another in the columns you pick. It can match the whole cell "
             "or any part of the text, and an empty replacement clears the cell.",
+            "Its <b>Clean up text</b> option fixes common messes in one go: remove special characters such as ₹ , . - !, "
+            "keep only the digits of a phone number, keep only letters, turn an email address into its domain, or keep "
+            "just the first or last word. Hindi and other Indian scripts are kept intact.",
         ],
         when=[
             "Clearing ‘N/A’ or ‘-’ so a column becomes numbers.",
             "Fixing a spelling everywhere, such as ‘Bangalore’ to ‘Bengaluru’.",
             "Removing a prefix such as ‘ID-’ from codes.",
+            "Keeping only the digits of phone numbers like ‘+91 98765-43210’.",
         ],
         steps=[
             "Open the tool and choose your file.",
@@ -201,6 +209,8 @@ TOOLS: list[ToolPage] = [
         options=[
             ("Match", "Whole cell, or part of the text anywhere in the cell."),
             ("Match capital letters exactly", "Off by default, so ‘n/a’ and ‘N/A’ are both found."),
+            ("Clean up text", "Remove special characters, keep only digits, keep only letters, email → domain, "
+                              "keep the first word, or keep the last word."),
         ],
         faqs=[
             ("Can I replace several different values?", "Yes. Add one Replace values step per value."),
@@ -463,19 +473,27 @@ TOOLS: list[ToolPage] = [
     ),
     ToolPage(
         slug="add-column", op="add_column", cat="shape", name="Add column",
-        title="Add a column: join columns, calculate, or fill in a value",
-        description="Make a new column by joining columns (first + last name), doing simple math (price × quantity) "
-                    "or filling in one value for every row.",
-        intro=["Add column creates a new column from what's already there, with no formulas to write."],
-        when=["Full name from first and last name.", "Total = Price × Quantity.", "A Country column that says ‘India’ on every row."],
+        title="Add a column: join, calculate, running total, rank or % of total",
+        description="Make a new column by joining columns, doing simple math (price × quantity), filling in one value, "
+                    "or adding a running total, a rank or a % of total — overall or within each group.",
+        intro=["Add column creates a new column from what's already there, with no formulas to write.",
+               "Running total, rank and % of total can count over the whole file or restart for each group, so "
+               "‘rank within each city’ or ‘% of each region's sales’ is one step."],
+        when=["Full name from first and last name.", "Total = Price × Quantity.", "A Country column that says ‘India’ on every row.",
+              "Rank salespeople by sales, within each branch.", "Each product's share of total sales, as a %."],
         steps=["Open the tool and choose your file.", "Name the new column.", "Choose <b>Join columns</b>, <b>Math</b> or <b>One value</b>.",
                "Check the preview and download."],
         example=Example(columns=["Price", "Qty"], before=[["250", "2"], ["99.5", "4"]], after_columns=["Price", "Qty", "Total"],
                         after=[["250", "2", "500"], ["99.5", "4", "398"]], note="Math: Price × Qty."),
         options=[("Join columns", "Pick columns in order and what goes between them."),
                  ("Math", "+, −, × or ÷ with a number or another column."),
-                 ("One value", "The same text or number on every row.")],
-        faqs=[("What happens when dividing by zero?", "The result is blank for that row.")],
+                 ("One value", "The same text or number on every row."),
+                 ("Running total", "Adds up a number column row by row, in the current order. Sort first if order matters."),
+                 ("Rank", "1 for the largest (or smallest); equal values share a rank, like 1, 2, 2, 4."),
+                 ("% of total", "Each row's share of the column total, rounded to 2 decimals."),
+                 ("Count over", "The whole file, or each group separately (choose the grouping columns).")],
+        faqs=[("What happens when dividing by zero?", "The result is blank for that row."),
+              ("What about blank numbers?", "A running total treats them as 0; rank and % leave them blank.")],
         related=["split-column", "pivot-table", "rename-columns"],
     ),
     # ------------------------------------------------------------------ combine
@@ -590,22 +608,30 @@ TOOLS: list[ToolPage] = [
         when=["Opening a CSV properly in a spreadsheet app.", "Sending a table as a PDF.", "Turning JSON into a spreadsheet."],
         steps=["Open the tool and choose your file.", "Pick the format to save as.", "Download, or share straight from your phone."],
         example=None,
-        options=[("Save as", "Spreadsheet (.xlsx), CSV, JSON or PDF.")],
+        options=[("Save as", "Spreadsheet (.xlsx), CSV, JSON or PDF."),
+                 ("PDF page", "Auto (landscape when there are many columns), portrait or landscape."),
+                 ("PDF title", "Your own title on the first page; the file name is used if empty."),
+                 ("PDF columns", "All columns, or only the ones you choose.")],
         faqs=[("Is there a size limit?", "Files up to 100 MB. A PDF shows up to 10,000 rows; use XLSX or CSV for more."),
               ("Which sheet is used from a workbook?", "The first one; you can switch sheets on the file card.")],
         related=["split-into-pages", "remove-columns"],
     ),
     ToolPage(
         slug="split-into-pages", op="split_pages", cat="convert", name="Split into pages",
-        title="Split a spreadsheet into one sheet or PDF page per value",
-        description="Pick a column such as City and get a workbook with one sheet per city, or a PDF with one page "
-                    "per city. Up to 200 sheets or pages.",
-        intro=["Split into pages makes a separate sheet (or PDF page) for each value in a column. It's the quick way to "
-               "send each branch, salesperson or region only its own rows."],
-        when=["One sheet per branch from a company-wide report.", "A printable PDF with a page per class or team."],
-        steps=["Open the tool and choose your file.", "Pick the column to split by.", "Choose .xlsx (sheets) or PDF (pages), then download."],
+        title="Split a spreadsheet by a column or every N rows",
+        description="Split one file into parts: one per value of a column such as City, or every N rows. Get sheets in "
+                    "one workbook, pages in one PDF, or separate CSV, XLSX or PDF files in a .zip.",
+        intro=["Split into pages makes a part for each value in a column — the quick way to send each branch, "
+               "salesperson or region only its own rows — or a part for every N rows, for sites that limit upload size.",
+               "Parts can be sheets in one .xlsx, pages in one PDF, or separate files (CSV, XLSX or PDF) in a .zip."],
+        when=["One sheet per branch from a company-wide report.", "A printable PDF with a page per class or team.",
+              "Files of 10,000 rows each for a portal with an upload limit."],
+        steps=["Open the tool and choose your file.", "Choose <b>By a column</b> and pick it, or <b>Every N rows</b> and type N.",
+               "Choose sheets, PDF pages, or separate files, then download."],
         example=None,
-        options=[("Split by", "Any column; values are sorted A→Z, with blanks last."), ("Format", "Spreadsheet sheets or PDF pages.")],
+        options=[("Split", "By a column (values sorted A→Z, blanks last) or every N rows."),
+                 ("Save as", "Sheets (.xlsx), PDF pages, or separate files in a .zip (CSV, XLSX or PDF)."),
+                 ("Limit", "Up to 200 parts.")],
         faqs=[("What if a value is too long for a sheet name?", "Sheet names are shortened and kept unique automatically.")],
         related=["filter-rows", "convert-file", "pivot-table"],
     ),

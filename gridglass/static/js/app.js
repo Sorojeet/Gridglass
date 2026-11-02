@@ -446,7 +446,7 @@ function renderOptions() {
   const t = state.tool;
   state.stage = 'options';
   view.dataset.screen = 'options';
-  const action = t.convert ? downloadFields('Save as') : t.splitter ? splitFields() : '';
+  const action = t.convert ? downloadFields('Save as', { columns: true }) : t.splitter ? splitFields() : '';
   const pivot = t.op === 'pivot';
   const chart = pivot && state.view === 'chart';
   const editing = state.editIndex !== null;
@@ -508,72 +508,152 @@ function renderOptions() {
 }
 
 /** The format picker shared by Convert and the result screen. */
-function downloadFields(label = 'Download as') {
-  return `<div class="field"><label class="field-label" for="fmt">${label}</label>${formatSelect()}</div>`;
+function downloadFields(label = 'Download as', { columns = false } = {}) {
+  const stem = state.file.filename.replace(/\.[^.]+$/, '');
+  return `<div class="field"><label class="field-label" for="fmt">${label}</label>${formatSelect()}</div>
+    <div class="pdf-opts" id="pdf-opts" hidden>
+      <div class="field"><span class="field-label">Page</span>
+        ${seg('orient', [['auto', 'Auto'], ['portrait', 'Portrait'], ['landscape', 'Landscape']], 'auto', 'Page orientation')}</div>
+      <div class="field"><label class="field-label" for="pdf-title">Title on the first page</label>
+        <input class="input" id="pdf-title" maxlength="120" placeholder="${esc(stem)}" autocomplete="off"></div>
+      ${columns && state.cols.length ? `<div class="field"><span class="field-label">Columns</span>
+        ${seg('pdfcols', [['all', 'All columns'], ['some', 'Choose columns']], 'all', 'Columns in the PDF')}
+        <div class="col-chips" id="pdf-cols" hidden>${state.cols.map((c) => `<button type="button" class="col-chip"
+          data-pdfcol="${esc(c.name)}" aria-pressed="true"><span>${esc(c.name)}</span><small>${c.type}</small></button>`).join('')}</div></div>` : ''}
+    </div>`;
+}
+
+/** Seg buttons outside the options form: keep one pressed per group. */
+function pressSeg(b) {
+  b.closest('.seg').querySelectorAll('[data-seg]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
 }
 
 function wireDownload() {
   const fmt = $('#fmt');
-  $('[data-action="download"]').addEventListener('click', (e) => download(fmt.value, e.currentTarget));
-  $('[data-action="share"]')?.addEventListener('click', (e) => share(fmt.value, e.currentTarget));
+  const box = $('#pdf-opts');
+  const sync = () => { box.hidden = fmt.value !== 'pdf'; };
+  fmt.addEventListener('change', sync);
+  sync();
+  box.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-seg], [data-pdfcol]');
+    if (!b) return;
+    if (b.dataset.pdfcol) { b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true')); return; }
+    pressSeg(b);
+    if (b.dataset.seg === 'pdfcols') $('#pdf-cols').hidden = b.dataset.val !== 'some';
+  });
+  const opts = () => {
+    if (fmt.value !== 'pdf') return {};
+    const o = { orientation: $('#pdf-opts [data-seg="orient"][aria-pressed="true"]').dataset.val, title: $('#pdf-title').value.trim() };
+    if ($('#pdf-cols') && !$('#pdf-cols').hidden) {
+      o.columns = [...view.querySelectorAll('[data-pdfcol][aria-pressed="true"]')].map((b) => b.dataset.pdfcol);
+      if (!o.columns.length) throw new ApiError({ message: 'Choose at least one column for the PDF.' }, 0);
+    }
+    return o;
+  };
+  $('[data-action="download"]').addEventListener('click', (e) => download(fmt.value, e.currentTarget, opts));
+  $('[data-action="share"]')?.addEventListener('click', (e) => share(fmt.value, e.currentTarget, opts));
 }
 
-// ---------------------------------------------------------------------------- split into pages (its own tool)
-
 const pageColumns = () => state.cols.filter((c) => c.distinct >= 1 && c.distinct <= 200);
+const MAX_PARTS = 200;
+const PART = { xlsx: 'sheet', pdf: 'page', zip: 'file' };
 
 function splitFields() {
   const usable = pageColumns();
   const pick = usable.find((c) => c.type === 'text') ?? usable[0];
-  state.split = { column: pick?.name ?? '', format: state.split?.format ?? 'xlsx', pages: 0 };
-  return `<div class="field">
-      <label class="field-label" for="split">One page for each value of</label>
+  const old = state.split ?? {};
+  state.split = { by: old.by ?? (usable.length ? 'column' : 'rows'), column: pick?.name ?? '', rows: old.rows ?? 10000,
+    format: old.format ?? 'xlsx', fileType: old.fileType ?? 'csv', pages: 0 };
+  const sp = state.split;
+  return `<div class="field" id="split-by"><span class="field-label">Split</span>
+      ${seg('splitby', [['column', 'By a column'], ['rows', 'Every N rows']], sp.by, 'Split')}</div>
+    <div class="field" id="split-col" ${sp.by === 'column' ? '' : 'hidden'}>
+      <label class="field-label" for="split">One part for each value of</label>
       ${usable.length ? `<select id="split" class="input">${usable.map((c) =>
-        `<option value="${esc(c.name)}" ${c === pick ? 'selected' : ''}>${esc(c.name)} — ${plural(c.distinct, 'page')}</option>`).join('')}</select>`
-        : '<p class="hint">No column has between 1 and 200 different values to split by.</p>'}
+        `<option value="${esc(c.name)}" ${c === pick ? 'selected' : ''}>${esc(c.name)} — ${plural(c.distinct, 'value')}</option>`).join('')}</select>`
+        : `<p class="hint">No column has between 1 and ${MAX_PARTS} different values to split by.</p>`}
     </div>
-    <div class="field" id="split-format">
-      <span class="field-label">Save as</span>
-      ${seg('splitfmt', [['xlsx', 'Sheets (.xlsx)'], ['pdf', 'PDF pages']], state.split.format, 'Save as')}
+    <div class="field" id="split-rows" ${sp.by === 'rows' ? '' : 'hidden'}>
+      <label class="field-label" for="split-n">Rows in each part</label>
+      <input id="split-n" class="input" type="number" inputmode="numeric" min="1" step="1" value="${sp.rows}">
     </div>
+    <div class="field" id="split-format"><span class="field-label">Save as</span>
+      ${seg('splitfmt', [['xlsx', 'Sheets (.xlsx)'], ['pdf', 'PDF pages'], ['zip', 'Separate files']], sp.format, 'Save as')}
+      <p class="hint" id="split-format-hint"></p></div>
+    <div class="field" id="split-type" ${sp.format === 'zip' ? '' : 'hidden'}><span class="field-label">Each file as</span>
+      ${seg('splittype', [['csv', 'CSV'], ['xlsx', 'XLSX'], ['pdf', 'PDF']], sp.fileType, 'Each file as')}</div>
     <section class="pages" aria-labelledby="pages-title">
-      <h2 id="pages-title">Pages</h2>
+      <h2 id="pages-title">Parts</h2>
       <ol class="page-list" id="page-list"><li class="glass empty">Loading…</li></ol>
     </section>`;
 }
 
 function wireSplit() {
+  const sp = state.split;
   const btn = $('[data-action="download"]');
+  const list = $('#page-list');
   const label = () => {
-    btn.innerHTML = `${ui('download')} Download ${state.split.pages ? plural(state.split.pages, state.split.format === 'pdf' ? 'page' : 'sheet') : ''}`;
-    btn.disabled = !state.split.column;
+    const unit = PART[sp.format];
+    btn.innerHTML = `${ui('download')} Download ${sp.pages ? plural(sp.pages, unit) : ''}${sp.format === 'zip' && sp.pages ? ' (.zip)' : ''}`;
+    btn.disabled = !sp.pages || sp.pages > MAX_PARTS || (sp.by === 'column' && !sp.column);
+    $('#split-format-hint').textContent = sp.format === 'zip' ? 'A .zip with one file per part — handy for upload limits.' : '';
   };
-  const load = async () => {
-    const column = state.split.column;
-    const list = $('#page-list');
-    if (!column) { list.innerHTML = ''; label(); return; }
+  const show = (pages) => {
+    sp.pages = pages.length;
+    list.innerHTML = pages.slice(0, MAX_PARTS).map(([name, n], i) => `<li class="glass"><span class="step-n">${i + 1}</span>
+      <span class="page-name">${esc(name)}</span><small>${plural(n, 'row')}</small></li>`).join('');
+    label();
+  };
+  const loadRows = () => {
+    const size = Math.floor(Number(sp.rows));
+    if (!(size >= 1)) { sp.pages = 0; list.innerHTML = '<li class="glass empty">Type how many rows go in each part.</li>'; label(); return; }
+    const total = state.before;
+    const n = Math.max(1, Math.ceil(total / size));
+    if (n > MAX_PARTS) {
+      sp.pages = n;
+      list.innerHTML = `<li class="glass empty">That makes ${num(n)} parts — the limit is ${MAX_PARTS}. Choose bigger parts.</li>`;
+      label();
+      return;
+    }
+    show(Array.from({ length: n }, (_, i) => [`Rows ${num(i * size + 1)}–${num(Math.min((i + 1) * size, total))}`,
+      Math.min(size, total - i * size)]));
+  };
+  const loadColumn = async () => {
+    const column = sp.column;
+    if (!column) { sp.pages = 0; list.innerHTML = ''; label(); return; }
+    list.innerHTML = '<li class="glass empty">Loading…</li>';
     try {
-      const data = await api(`/files/${state.file.id}/values?${new URLSearchParams({ column, limit: '200' })}`);
-      if (state.split.column !== column) return;
+      const data = await api(`/files/${state.file.id}/values?${new URLSearchParams({ column, limit: String(MAX_PARTS) })}`);
+      if (sp.column !== column || sp.by !== 'column') return;
       const blanks = state.before - data.values.reduce((sum, v) => sum + v.count, 0);
-      const pages = [...data.values.map((v) => [String(v.value), v.count]), ...(blanks > 0 ? [['(blank)', blanks]] : [])];
-      state.split.pages = pages.length;
-      list.innerHTML = pages.map(([name, n], i) => `<li class="glass"><span class="step-n">${i + 1}</span>
-        <span class="page-name">${esc(name)}</span><small>${plural(n, 'row')}</small></li>`).join('');
+      show([...data.values.map((v) => [String(v.value), v.count]), ...(blanks > 0 ? [['(blank)', blanks]] : [])]);
     } catch (err) {
       list.innerHTML = `<li class="glass empty">${esc(err.message)}</li>`;
     }
-    label();
   };
-  $('#split')?.addEventListener('change', (e) => { state.split.column = e.target.value; load(); });
-  $('#split-format').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-seg="splitfmt"]');
+  const load = () => (sp.by === 'rows' ? loadRows() : loadColumn());
+  $('#split')?.addEventListener('change', (e) => { sp.column = e.target.value; load(); });
+  $('#split-n').addEventListener('input', (e) => { sp.rows = e.target.value; loadRows(); });
+  view.querySelectorAll('#split-by, #split-format, #split-type').forEach((box) => box.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-seg]');
     if (!b) return;
-    state.split.format = b.dataset.val;
-    $('#split-format').querySelectorAll('[data-seg]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
-    label();
+    pressSeg(b);
+    if (b.dataset.seg === 'splitby') {
+      sp.by = b.dataset.val;
+      $('#split-col').hidden = sp.by !== 'column';
+      $('#split-rows').hidden = sp.by !== 'rows';
+      load();
+    } else if (b.dataset.seg === 'splitfmt') {
+      sp.format = b.dataset.val;
+      $('#split-type').hidden = sp.format !== 'zip';
+      label();
+    } else sp.fileType = b.dataset.val;
+  }));
+  btn.addEventListener('click', (e) => {
+    const opts = sp.by === 'rows' ? { split_rows: String(Math.floor(Number(sp.rows))) } : { split_by: sp.column };
+    if (sp.format === 'zip') download(sp.fileType, e.currentTarget, { ...opts, files: '1' });
+    else download(sp.format, e.currentTarget, opts);
   });
-  btn.addEventListener('click', (e) => download(state.split.format, e.currentTarget, state.split.column));
   load();
 }
 
@@ -1285,7 +1365,7 @@ function renderDone() {
   state.stage = 'done';
   view.dataset.screen = 'done';
   document.title = 'Your result — Gridglass';
-  const title = state.result.recipe ? `Ran “${state.result.recipe}”` : edited ? 'Changes saved' : t?.done ? t.done(before, after) : t ? `${t.label} done` : 'Your file is ready';
+  const title = state.result.recipe ? `Ran “${state.result.recipe}”` : edited ? 'Changes saved' : t?.done ? t.done(before, after, state.file.steps.at(-1)) : t ? `${t.label} done` : 'Your file is ready';
   const steps = state.file.steps;
   const last = steps.length - 1;
   const lastTool = TOOL[steps[last]?.op];
@@ -1374,8 +1454,13 @@ async function editStep(i) {
 
 // ---------------------------------------------------------------------------- download & share
 
-async function fetchExport(fmt, split = '') {
-  const qs = new URLSearchParams({ format: fmt, ...(split ? { split_by: split } : {}) });
+/** `opts`: extra export settings (split_by, split_rows, files, orientation, title, columns), or a function returning them. */
+async function fetchExport(fmt, opts = {}) {
+  const qs = new URLSearchParams({ format: fmt });
+  for (const [k, v] of Object.entries(typeof opts === 'function' ? opts() : opts)) {
+    if (Array.isArray(v)) v.forEach((x) => qs.append(k, x));
+    else if (v !== '' && v !== undefined && v !== null) qs.set(k, v);
+  }
   const res = await fetch(`${API}/files/${state.file.id}/export?${qs}`).catch(() => null);
   if (!res) throw new ApiError({ message: "Can't reach Gridglass. Check your connection." }, 0);
   if (!res.ok) throw new ApiError((await res.json().catch(() => null))?.error, res.status);
@@ -1403,16 +1488,16 @@ function saveBlob(blob, name) {
   toast(`Saved ${name}`);
 }
 
-function download(fmt, btn, split = '') {
+function download(fmt, btn, opts = {}) {
   return withBusy(btn, async () => {
-    const { blob, name } = await fetchExport(fmt, split);
+    const { blob, name } = await fetchExport(fmt, opts);
     saveBlob(blob, name);
   });
 }
 
-function share(fmt, btn, split = '') {
+function share(fmt, btn, opts = {}) {
   return withBusy(btn, async () => {
-    const { blob, name } = await fetchExport(fmt, split);
+    const { blob, name } = await fetchExport(fmt, opts);
     const file = new File([blob], name, { type: blob.type });
     if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: name });
     else toast("This browser can't share files — use Download instead.");

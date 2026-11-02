@@ -88,16 +88,29 @@ class Step(BaseModel):
 # --------------------------------------------------------------------------- clean
 
 class RemoveDuplicates(Step):
-    """Drop repeated rows. Compares the given columns, or every column."""
+    """Repeated rows: remove them, show only them, or mark them in a new column.
+
+    Rows are compared on the given columns, or on every column. `keep` decides which copy is the
+    original: the first or the last. "mark" says Yes on the copies that "remove" would drop.
+    """
 
     label: ClassVar[str] = "Remove duplicates"
     op: Literal["remove_duplicates"]
     columns: Cols | None = None
     keep: Literal["first", "last"] = "first"
+    action: Literal["remove", "show", "mark"] = "remove"
+    mark_column: Col = "Duplicate"
 
     def apply(self, lf, schema):
         if self.columns:
             need(schema, self.columns)
+        key = pl.struct(self.columns or list(schema.names()))
+        if self.action == "show":  # every copy of a repeated row, so they can be checked side by side
+            return lf.filter(key.is_duplicated())
+        if self.action == "mark":
+            no_clash(list(schema.names()), [self.mark_column])
+            original = key.is_first_distinct() if self.keep == "first" else key.is_last_distinct()
+            return lf.with_columns(pl.when(original).then(pl.lit("No")).otherwise(pl.lit("Yes")).alias(self.mark_column))
         return lf.unique(subset=self.columns, keep=self.keep, maintain_order=True)
 
 
@@ -135,17 +148,44 @@ class ChangeCase(Step):
         return lf.with_columns(e)
 
 
+#: Clean-up actions for Replace values. Letters include accents and Indian scripts (with their vowel signs).
+CLEANERS: dict[str, Callable[[pl.Expr], pl.Expr]] = {
+    "special": lambda c: c.str.replace_all(r"[^\p{L}\p{M}\p{N}\s]", "").str.replace_all(r"\s{2,}", " ").str.strip_chars(),
+    "digits": lambda c: c.str.replace_all(r"\D", ""),
+    "letters": lambda c: c.str.replace_all(r"[^\p{L}\p{M}\s]", "").str.replace_all(r"\s{2,}", " ").str.strip_chars(),
+    "email_domain": lambda c: c.str.extract(r"@\s*([^\s@>]+)", 1).str.to_lowercase(),
+    "first_word": lambda c: c.str.strip_chars().str.extract(r"^(\S+)", 1),
+    "last_word": lambda c: c.str.strip_chars().str.extract(r"(\S+)$", 1),
+}
+
+
 class ReplaceValues(Step):
+    """Find and replace, or clean up text (remove special characters, keep only digits, …)."""
+
     label: ClassVar[str] = "Replace values"
     op: Literal["replace_values"]
     columns: Cols
-    find: str
+    action: Literal["replace", "clean"] = "replace"
+    find: str = ""
     replace: str = ""
     match: Literal["whole", "part"] = "whole"
     case_sensitive: bool = True
+    clean: Literal["special", "digits", "letters", "email_domain", "first_word", "last_word"] | None = None
+
+    @model_validator(mode="after")
+    def _action_fields(self):
+        if self.action == "clean" and not self.clean:
+            raise ValueError("Choose how to clean the text.")
+        return self
 
     def apply(self, lf, schema):
         need(schema, self.columns)
+        if self.action == "clean":
+            need_text(schema, self.columns, "Cleaning text")
+            fix = CLEANERS[self.clean]
+            # Blank results become empty cells, not empty text, so 'is blank' filters find them.
+            return lf.with_columns([pl.when(fix(pl.col(c)) == "").then(None).otherwise(fix(pl.col(c))).alias(c)
+                                    for c in self.columns])
         if self.match == "part":
             need_text(schema, self.columns, "Replace part of a value")
         exprs = []
@@ -441,7 +481,7 @@ class AddColumn(Step):
     label: ClassVar[str] = "Add column"
     op: Literal["add_column"]
     name: Col
-    mode: Literal["constant", "combine", "math"]
+    mode: Literal["constant", "combine", "math", "running_total", "rank", "percent"]
     value: Scalar = None                       # constant
     columns: list[Col] | None = None           # combine
     separator: Annotated[str, StringConstraints(max_length=20)] = " "
@@ -449,9 +489,13 @@ class AddColumn(Step):
     operator: Literal["+", "-", "*", "/"] | None = None
     right_column: Col | None = None
     right_value: float | None = None
+    within: list[Col] | None = None           # running_total / rank / percent: restart for each group
+    descending: bool = True                    # rank: largest first gets 1
 
     @model_validator(mode="after")
     def _mode_fields(self):
+        if self.mode in ("running_total", "rank", "percent") and not self.left:
+            raise ValueError("Choose a number column.")
         if self.mode == "combine" and not self.columns:
             raise ValueError("Choose the columns to combine.")
         if self.mode == "math":
@@ -469,6 +513,8 @@ class AddColumn(Step):
             need(schema, self.columns)
             parts = [pl.col(c).cast(pl.String) for c in self.columns]
             return lf.with_columns(pl.concat_str(parts, separator=self.separator, ignore_nulls=True).alias(self.name))
+        if self.mode in ("running_total", "rank", "percent"):
+            return lf.with_columns(self._totals(schema).alias(self.name))
         cols = [self.left] + ([self.right_column] if self.right_column else [])
         need(schema, cols)
         need_numeric(schema, cols, "Math")
@@ -479,6 +525,21 @@ class AddColumn(Step):
         else:
             res = {"+": a + b, "-": a - b, "*": a * b}[self.operator]
         return lf.with_columns(res.alias(self.name))
+
+    def _totals(self, schema) -> pl.Expr:
+        """Running total (in the current row order), rank (1 = largest, ties share a rank), or % of total."""
+        need(schema, [self.left] + (self.within or []))
+        need_numeric(schema, [self.left], {"running_total": "A running total", "rank": "Rank",
+                                           "percent": "% of total"}[self.mode])
+        x = pl.col(self.left)
+        if self.mode == "running_total":
+            expr = x.fill_null(0).cum_sum()
+        elif self.mode == "rank":
+            expr = x.rank(method="min", descending=self.descending).cast(pl.Int64)
+        else:
+            total = x.sum()
+            expr = pl.when(total == 0).then(None).otherwise((x / total * 100).round(2))
+        return expr.over(self.within) if self.within else expr
 
 
 class JoinKey(BaseModel):
