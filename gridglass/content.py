@@ -594,7 +594,7 @@ TOOLS: list[ToolPage] = [
                  ("Chart", "Column, bar, line or pie; follows light and dark mode.")],
         faqs=[("How many columns can the Columns field make?", "Up to 200."),
               ("Can I edit the pivot after making it?", "Yes. Tap Edit on the result screen; the preview updates live.")],
-        related=["make-a-chart", "filter-rows", "unpivot", "sort-rows"],
+        related=["make-a-chart", "filter-rows", "transpose", "sort-rows"],
     ),
     ToolPage(
         slug="make-a-chart", op="chart", cat="summarize", name="Make a chart",
@@ -634,20 +634,35 @@ TOOLS: list[ToolPage] = [
         related=["pivot-table", "filter-rows", "sort-rows", "convert-file"],
     ),
     ToolPage(
-        slug="unpivot", op="unpivot", cat="summarize", name="Unpivot columns",
-        title="Unpivot: turn columns into rows (wide to long)",
-        description="Reshape a wide table with columns like Jan, Feb, Mar into a long table with Month and Value "
-                    "columns, ready for filtering, pivoting and charts.",
-        intro=["Reports often put each month or year in its own column. That's easy to read but hard to total or filter. "
-               "Unpivot turns those columns into rows: one row per item per month."],
-        when=["Monthly columns into a Month column.", "Preparing data for a pivot table or chart."],
-        steps=["Open the tool and choose your file.", "Choose the columns to keep as they are (for example Product).",
-               "Name the new columns, then check the preview."],
-        example=Example(columns=["Product", "Jan", "Feb"], before=[["Tea", "120", "135"]],
-                        after_columns=["Product", "Attribute", "Value"], after=[["Tea", "Jan", "120"], ["Tea", "Feb", "135"]]),
-        options=[("Keep these columns", "Columns that stay as they are."), ("Names", "For the new attribute and value columns.")],
-        faqs=[("Is this the opposite of a pivot table?", "Yes, roughly. <a href=\"/tools/pivot-table\">Pivot table</a> goes from long to wide.")],
-        related=["pivot-table", "rename-columns"],
+        slug="transpose", op="unpivot", cat="summarize", name="Transpose or unpivot",
+        title="Transpose rows and columns",
+        description="Flip a table so rows become columns and columns become rows, or unpivot month columns into rows.",
+        intro=["Transpose turns each row into a column and each column into a row, so a list of products down the side "
+               "becomes a row of products across the top. Choose a column whose values name the new columns, such as "
+               "Product, or let them be named Column 1, 2, 3.",
+               "The same tool can also unpivot: when each month or year has its own column, it turns those columns into "
+               "rows (one row per item per month), which is easier to total, filter and chart."],
+        when=["A table that was typed the wrong way round.", "Products down the side that you want across the top.",
+              "Monthly columns into a Month column, ready for a pivot table or chart (unpivot)."],
+        steps=["Open the tool and choose your file.", "Choose Flip rows and columns, or Columns into rows.",
+               "For a flip, choose the column that names the new columns. For columns into rows, choose the columns to "
+               "keep as they are.", "Check the preview, then save."],
+        example=Example(columns=["Product", "Jan", "Feb"], before=[["Tea", "120", "135"], ["Coffee", "90", "80"]],
+                        after_columns=["Product", "Tea", "Coffee"], after=[["Jan", "120", "90"], ["Feb", "135", "80"]]),
+        options=[("I want to", "Flip rows and columns (transpose), or turn columns into rows (unpivot)."),
+                 ("New column names from", "Transpose: the column whose values become the new column names. Blank "
+                  "values become Column 3 and so on, and repeats get (2)."),
+                 ("Keep these as they are", "Unpivot: columns that stay as they are, such as Product."),
+                 ("Names", "Unpivot: names for the new label and value columns.")],
+        faqs=[("How many rows can I transpose?", "Up to 500, because each row becomes a column. Filter or keep fewer "
+               "rows first for bigger files."),
+              ("Are numbers kept as numbers?", "Yes. After the flip each column is checked again, so a column of numbers "
+               "is a number column and a mixed column stays text."),
+              ("What is the difference between transpose and unpivot?", "Transpose swaps the whole table. Unpivot keeps "
+               "some columns, such as Product, and stacks the rest into two columns: a label (Jan, Feb) and a value."),
+              ("Is unpivot the opposite of a pivot table?", "Yes, roughly. <a href=\"/tools/pivot-table\">Pivot "
+               "table</a> goes from long to wide.")],
+        related=["pivot-table", "rename-columns", "keep-top-rows"],
     ),
     # ------------------------------------------------------------------ convert
     ToolPage(
@@ -810,12 +825,11 @@ SEARCH: dict[str, tuple[str, str, str]] = {  # slug: (phrase, first paragraph, m
         "column, bar, line, area, pie or donut.",
         "Make a chart from CSV or Excel data online: column, bar, line, area, pie or donut, with titles, colours and "
         "data labels. Download PNG or SVG."),
-    "unpivot": (
-        "Convert columns to rows (unpivot)",
-        "Convert columns to rows (unpivot): turn a wide table with Jan, Feb and Mar columns into a long one with "
-        "Month and Value columns.",
-        "Convert columns to rows (unpivot) online: wide tables with month or year columns become long tables, ready "
-        "to filter and chart. Free."),
+    "transpose": (
+        "Transpose rows and columns in a CSV or Excel file",
+        "Transpose rows and columns in a CSV or Excel file: each row becomes a column and each column becomes a row.",
+        "Transpose rows and columns in a CSV or Excel file online, or unpivot month columns into rows. Free, works on "
+        "phones."),
     "convert-file": (
         "Convert Excel files to CSV online",
         "Convert Excel files to CSV online, keeping long IDs exact and Indian text readable. It also converts CSV to "
@@ -839,6 +853,7 @@ def _for_search(t: ToolPage) -> ToolPage:
 
 
 TOOLS = [_for_search(t) for t in TOOLS]
+MOVED = {"unpivot": "transpose"}  # old tool page addresses, forwarded permanently
 TOOL_BY_SLUG = {t.slug: t for t in TOOLS}
 
 #: Shown on every information page. Other products are named only to describe what Gridglass works with.

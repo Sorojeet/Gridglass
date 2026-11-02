@@ -39,7 +39,7 @@ tests/               pytest suite
 | Clean | Shape | Summarize |
 |---|---|---|
 | `remove_duplicates` | `remove_columns` | `pivot`: Rows, optional Columns, several Values, Grand Total. With no Columns it works as a group-by. |
-| `trim` | `keep_columns` (choose and reorder) | `unpivot` |
+| `trim` | `keep_columns` (choose and reorder) | `unpivot`: columns into rows, or `mode: "transpose"` to flip rows and columns (up to 500 rows; `header` names the new columns) |
 | `change_case` | `rename_columns` | |
 | `replace_values` | `filter_rows` (13 operators, all/any) | |
 | `fill_blanks` (value, down, up) | `sort_rows` | |

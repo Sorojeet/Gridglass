@@ -483,17 +483,25 @@ export const TOOLS = [
     fields: [],
   },
   {
-    op: 'unpivot', cat: 'summarize', icon: 'unpivot', label: 'Unpivot columns',
-    desc: 'Turn columns into rows', keywords: 'melt reshape long wide transpose',
-    intro: 'Turns a wide table (Jan, Feb, Mar columns) into a long one with Month and Value columns.',
-    verb: 'Unpivot',
+    op: 'unpivot', cat: 'summarize', icon: 'unpivot', label: 'Transpose or unpivot',
+    desc: 'Flip rows and columns, or columns into rows', keywords: 'transpose flip swap rows columns rotate melt reshape long wide unpivot',
+    intro: 'Transpose swaps rows and columns, so each row becomes a column. Unpivot turns a wide table (Jan, Feb, Mar columns) into a long one with Month and Value columns.',
+    verb: 'Apply',
     fields: [
-      { key: 'keep', type: 'columns', label: 'Keep these as they are', default: (cols) => cols.slice(0, 1).map((c) => c.name) },
-      { key: 'columns', type: 'columns', label: 'Turn into rows', optional: true, allLabel: 'All other columns', default: null },
-      { key: 'attribute_name', type: 'text', label: 'Name for the new label column', default: 'Attribute' },
-      { key: 'value_name', type: 'text', label: 'Name for the new value column', default: 'Value' },
+      { key: 'mode', type: 'choice', label: 'I want to', default: 'transpose',
+        options: [['transpose', 'Flip rows and columns'], ['unpivot', 'Columns into rows']] },
+      { key: 'header', type: 'column', label: 'New column names from', optional: true, emptyLabel: 'None — name them Column 1, 2, 3…',
+        default: (cols) => first(cols, 'text') || '', show: (d) => d.mode === 'transpose' },
+      { key: 'keep', type: 'columns', label: 'Keep these as they are', default: (cols) => cols.slice(0, 1).map((c) => c.name),
+        show: (d) => d.mode === 'unpivot' },
+      { key: 'columns', type: 'columns', label: 'Turn into rows', optional: true, allLabel: 'All other columns', default: null,
+        show: (d) => d.mode === 'unpivot' },
+      { key: 'attribute_name', type: 'text', label: 'Name for the new label column', default: 'Attribute', show: (d) => d.mode === 'unpivot' },
+      { key: 'value_name', type: 'text', label: 'Name for the new value column', default: 'Value', show: (d) => d.mode === 'unpivot' },
     ],
-    build: (d) => ({ keep: d.keep, columns: d.columns, attribute_name: d.attribute_name, value_name: d.value_name }),
+    build: (d) => (d.mode === 'transpose' ? { mode: 'transpose', header: d.header || null }
+      : { mode: 'unpivot', keep: d.keep, columns: d.columns, attribute_name: d.attribute_name, value_name: d.value_name }),
+    ready: (d) => (d.mode === 'unpivot' && !d.keep?.length ? 'Choose the columns to keep as they are.' : null),
   },
   {
     op: 'convert', cat: 'convert', icon: 'convert', label: 'Convert file',
@@ -520,7 +528,7 @@ export const PAGE = {
   fill_blanks: 'fill-blanks', remove_blank_rows: 'remove-blank-rows', filter_rows: 'filter-rows', sort_rows: 'sort-rows',
   remove_columns: 'remove-columns', keep_columns: 'choose-columns', rename_columns: 'rename-columns', keep_rows: 'keep-top-rows',
   change_type: 'change-type', split_column: 'split-column', add_column: 'add-column', merge: 'merge-files', stack: 'stack-files',
-  pivot: 'pivot-table', chart: 'make-a-chart', unpivot: 'unpivot', convert: 'convert-file', split_pages: 'split-into-pages',
+  pivot: 'pivot-table', chart: 'make-a-chart', unpivot: 'transpose', convert: 'convert-file', split_pages: 'split-into-pages',
 };
 
 export const FORMATS = [['xlsx', 'Spreadsheet (.xlsx)'], ['csv', 'CSV (.csv)'], ['json', 'JSON (.json)'], ['pdf', 'PDF (.pdf)']];
@@ -581,6 +589,7 @@ const LOADERS = {
     add_source: !!s.source_column,
     source_column: s.source_column ?? 'Source file',
   }),
+  unpivot: (s) => ({ mode: s.mode ?? 'unpivot', header: s.header ?? '' }),  // steps saved before transpose are unpivots
   pivot: (s) => ({
     filters: (s.filters ?? []).map((c) => ({ column: c.column, operator: c.operator, value: Array.isArray(c.value) ? c.value.join(', ') : str(c.value) })),
     filter_match: s.filter_match ?? 'all',

@@ -889,16 +889,32 @@ class Pivot(Step):
 
 
 class Unpivot(Step):
-    """Turn columns into rows (wide table to long table)."""
+    """Reshape a table: unpivot (columns into rows, wide to long) or transpose (flip rows and columns).
 
-    label: ClassVar[str] = "Unpivot columns"
+    Transpose turns every row into a column. The new column names come from `header` (a column whose
+    values become the headers, e.g. Product) or are Column 1, 2, 3…; the old column names become the
+    first column. Types are worked out again afterwards, so a column of numbers stays numbers.
+    """
+
+    label: ClassVar[str] = "Transpose or unpivot"
     op: Literal["unpivot"]
-    keep: Cols                         # identifier columns that stay as they are
-    columns: Cols | None = None        # columns to turn into rows; None = all the others
+    mode: Literal["unpivot", "transpose"] = "unpivot"
+    keep: Cols | None = None           # unpivot: identifier columns that stay as they are
+    columns: Cols | None = None        # unpivot: columns to turn into rows; None = all the others
     attribute_name: Col = "Attribute"
     value_name: Col = "Value"
+    header: Col | None = None          # transpose: its values become the new column names
+    max_rows: ClassVar[int] = 500      # transpose: one new column per row
+
+    @model_validator(mode="after")
+    def _mode_fields(self):
+        if self.mode == "unpivot" and not self.keep:
+            raise ValueError("Choose the columns to keep as they are.")
+        return self
 
     def apply(self, lf, schema):
+        if self.mode == "transpose":
+            return self._transpose(lf, schema)
         on = self.columns or [c for c in schema.names() if c not in self.keep]
         need(schema, self.keep + on)
         if not on:
@@ -907,6 +923,30 @@ class Unpivot(Step):
         if len({schema[c] for c in on}) > 1:  # mixed types can't share one column
             lf = lf.with_columns(pl.col(on).cast(pl.String))
         return lf.unpivot(on=on, index=self.keep, variable_name=self.attribute_name, value_name=self.value_name)
+
+    def _transpose(self, lf, schema):
+        from .io import _clean_names, infer_types
+
+        if self.header:
+            need(schema, [self.header])
+        rows = lf.select(pl.len()).collect().item()
+        if rows > self.max_rows:
+            raise ColumnError(f"Transpose makes one column for each row, so it works on up to {self.max_rows:,} rows; "
+                              f"this has {rows:,}. Filter or keep fewer rows first.")
+        df = lf.collect()
+        body = [c for c in df.columns if c != self.header]
+        if not body:
+            raise ColumnError("There's nothing to flip besides the header column.")
+        if self.header:  # each row's value names its column; blanks become Column N, repeats get (2)
+            heads = _clean_names(["" if v is None else str(v) for v in df.get_column(self.header).to_list()])
+        else:
+            heads = [f"Column {i}" for i in range(1, rows + 1)]
+        first = self.header or "Field"  # this column lists the old column names
+        while first in heads:
+            first += " (field)"
+        flipped = df.select([pl.col(c).cast(pl.String) for c in body]).transpose(
+            include_header=True, header_name=first, column_names=heads)
+        return infer_types(flipped.lazy())
 
 
 # --------------------------------------------------------------------------- registry

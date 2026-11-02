@@ -58,6 +58,13 @@ def test_internal_links_all_work(client):
     assert "/tools/stack-files" in seen and "/privacy" in seen
 
 
+def test_moved_tool_pages_forward_permanently(client):
+    r = client.get("/tools/unpivot")
+    assert r.status_code == 301 and r.location.endswith("/tools/transpose")
+    html = client.get("/tools/transpose").get_data(as_text=True)
+    assert "<h1>Transpose rows and columns in a CSV or Excel file</h1>" in html and 'href="/#/tool/unpivot"' in html
+
+
 def test_tool_pages_open_the_right_tool(client):
     html = client.get("/tools/remove-duplicates").get_data(as_text=True)
     assert 'href="/#/tool/remove_duplicates"' in html
