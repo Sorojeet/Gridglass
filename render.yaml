@@ -14,3 +14,7 @@ services:
         value: "2"
       - key: MAX_UPLOAD_MB
         value: "100"
+      - key: CANONICAL_HOST      # main address: www and onrender.com redirect here
+        value: gridglass.in
+      - key: ADSENSE_CLIENT      # ca-pub-…, set in the dashboard once AdSense gives it to you
+        sync: false

@@ -1,0 +1,94 @@
+/* Information pages (tools, guides, about, privacy…). Builds on app.css tokens and components. */
+
+body.site { display: flex; flex-direction: column; }
+main.site-main { max-width: 1080px; width: 100%; box-sizing: border-box; padding-top: 16px; gap: 28px; flex: 1; }
+@media (min-width: 1024px) { main.site-main { padding-top: 36px; gap: 36px; } }
+
+/* ----------------------------------------------------------------- header */
+.site-top { position: sticky; top: 0; z-index: 10; background: var(--bar); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-bottom: 1px solid var(--glass-border); }
+.site-top-in { max-width: 1080px; margin: 0 auto; padding: calc(8px + env(safe-area-inset-top)) var(--gutter) 8px; display: flex; align-items: center; gap: 4px; box-sizing: border-box; }
+.site-top .brand { margin-left: -8px; font-size: 18px; }
+.site-top .spacer { flex: 1; }
+.site-nav { display: flex; gap: 2px; margin-left: 6px; }
+.site-nav a { padding: 8px 10px; border-radius: 10px; color: var(--ink2); font-weight: 600; font-size: 15px; text-decoration: none; }
+.site-nav a:hover, .site-nav a[aria-current="page"] { color: var(--ink); background: var(--track); }
+.site-open { margin-left: 6px; align-self: center; }
+@media (max-width: 420px) {
+  .site-top .brand span { display: none; }  /* logo only on narrow phones */
+  .site-nav a { padding: 8px; }
+}
+
+/* ----------------------------------------------------------------- hero and sections */
+.site-hero { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; padding-top: 12px; }
+.site-hero h1 { font-size: clamp(30px, 7vw, 46px); line-height: 1.1; font-weight: 800; letter-spacing: -0.03em; max-width: 18em; }
+.site-hero p { color: var(--ink2); font-size: 16px; max-width: 38em; }
+.site-section { display: flex; flex-direction: column; gap: 12px; }
+.site-section h2 { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+.site-section .tool-card { text-decoration: none; }
+
+/* ----------------------------------------------------------------- articles */
+.crumbs { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--muted); margin-bottom: -16px; }
+.crumbs a { color: var(--ink2); text-decoration: none; font-weight: 600; }
+.prose { max-width: 720px; display: flex; flex-direction: column; gap: 14px; font-size: 16.5px; line-height: 1.65; }
+.prose h1 { font-size: clamp(28px, 6.4vw, 40px); line-height: 1.15; font-weight: 800; letter-spacing: -0.025em; }
+.prose h2 { font-size: 21px; font-weight: 800; letter-spacing: -0.01em; margin-top: 14px; }
+.prose p, .prose ul, .prose ol, .prose dl { margin: 0; }
+.prose ul, .prose ol { padding-left: 1.3em; display: flex; flex-direction: column; gap: 6px; }
+.prose .lede { font-size: 18px; color: var(--ink2); }
+.prose code { font-size: 0.92em; padding: 1px 6px; border-radius: 6px; background: var(--track); }
+.tool-head { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+.tool-icon.big { width: 56px; height: 56px; border-radius: 16px; }
+.tool-icon.big .ico { width: 30px; height: 30px; }
+.cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 4px 0; }
+.cta-row .btn { text-decoration: none; padding: 0 22px; }
+.steps { counter-reset: s; list-style: none; padding-left: 0 !important; }
+.steps li { counter-increment: s; position: relative; padding-left: 40px; min-height: 28px; }
+.steps li::before {
+  content: counter(s); position: absolute; left: 0; top: 1px; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--solid); color: var(--on-solid); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+}
+
+/* Example tables */
+.example { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 720px) { .example { grid-template-columns: 1fr 1fr; } }
+.example figure { margin: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.example figcaption { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.example .table-wrap { overflow-x: auto; border-radius: 14px; border: 1px solid var(--glass-border); background: var(--glass-strong); }
+.example table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.4; }
+.example th, .example td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.example th { background: var(--thead); font-weight: 700; }
+.example tr:last-child td { border-bottom: 0; }
+
+.options { display: grid; grid-template-columns: 1fr; gap: 4px 20px; }
+.options dt { font-weight: 700; }
+.options dd { margin: 0 0 10px; color: var(--ink2); }
+@media (min-width: 720px) { .options { grid-template-columns: minmax(180px, 34%) 1fr; } .options dd { margin: 0 0 12px; } }
+
+.faqs { display: flex; flex-direction: column; gap: 8px; }
+.faqs details { border-radius: 14px; padding: 0 16px; }
+.faqs summary { cursor: pointer; padding: 14px 0; font-weight: 700; list-style-position: outside; }
+.faqs details p { padding: 0 0 14px; color: var(--ink2); }
+
+.link-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.link-list a { font-weight: 600; }
+
+.guide-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 720px) { .guide-list { grid-template-columns: 1fr 1fr; } }
+.guide-card { display: flex; flex-direction: column; gap: 6px; padding: 18px; border-radius: var(--radius); text-decoration: none; color: var(--ink); height: 100%; box-sizing: border-box; }
+.guide-card:hover { color: var(--ink); transform: translateY(-2px); }
+.guide-card strong { font-size: 17px; line-height: 1.3; }
+.guide-card span { font-size: 14px; color: var(--ink2); }
+
+.contact-card { display: flex; align-items: center; gap: 12px; padding: 16px; border-radius: var(--radius); font-size: 17px; }
+.legal h2 { font-size: 19px; }
+
+/* ----------------------------------------------------------------- footer */
+.site-foot { position: relative; z-index: 1; border-top: 1px solid var(--line); margin-top: 24px; }
+.site-foot-in { max-width: 1080px; margin: 0 auto; padding: 20px var(--gutter) calc(28px + env(safe-area-inset-bottom)); box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; }
+.site-promise { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--ink2); max-width: 46em; }
+.site-promise .ico { margin-top: 2px; }
+.site-foot-links { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.site-foot-links a { font-weight: 600; font-size: 14px; padding: 6px 0; }
+.site-copy { font-size: 13px; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) { .guide-card:hover { transform: none; } }

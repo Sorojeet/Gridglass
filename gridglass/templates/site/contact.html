@@ -1,0 +1,19 @@
+{% extends "site/base.html" %}
+{% block title %}Contact{% endblock %}
+{% block description %}How to contact Gridglass with questions, bug reports, ideas or privacy requests.{% endblock %}
+{% block body %}
+<article class="prose">
+  <h1>Contact</h1>
+  <p class="lede">Questions, bug reports and ideas for new tools are all welcome.</p>
+  <p class="contact-card glass">{{ icon('file') }}<span>Email <a href="mailto:{{ site.CONTACT_EMAIL }}"><b>{{ site.CONTACT_EMAIL }}</b></a></span></p>
+  <h2>To help us help you</h2>
+  <ul>
+    <li>Say which tool you were using and what you expected to happen.</li>
+    <li>Mention your device and browser, for example ‘Android phone, Chrome’.</li>
+    <li>If a file caused the problem, describe it or make a small copy with made-up data. <b>Please don't email files that contain personal or confidential information.</b></li>
+  </ul>
+  <h2>Privacy requests</h2>
+  <p>For anything about your data, write to the same address with ‘Privacy’ in the subject. Because files are deleted within {{ retention }} minutes and there are no accounts, we usually hold nothing that identifies you; we'll still answer every request. See the <a href="/privacy">privacy policy</a>.</p>
+  <p>Gridglass is run by {{ site.OPERATOR }}, {{ site.CITY }}, India. We usually reply within a few working days.</p>
+</article>
+{% endblock %}

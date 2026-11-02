@@ -1,0 +1,61 @@
+{% extends "site/base.html" %}
+{% block title %}Privacy policy{% endblock %}
+{% block description %}How Gridglass handles your files and data: what is processed, how long it is kept, browser storage, advertising and your choices.{% endblock %}
+{% block body %}
+<article class="prose legal">
+  <h1>Privacy policy</h1>
+  <p class="hint">Last updated {{ site.UPDATED }}</p>
+  <p class="lede">The short version: your files are used only to run the tools you choose, are never shared or sold, and are deleted automatically within {{ retention }} minutes. There are no accounts. Ads, where shown, appear only on information pages and never in the app.</p>
+
+  <h2>Who we are</h2>
+  <p>Gridglass ({{ site_url | replace('https://', '') }}) is run by {{ site.OPERATOR }}, {{ site.CITY }}, India (“we”, “us”). Contact: <a href="mailto:{{ site.CONTACT_EMAIL }}">{{ site.CONTACT_EMAIL }}</a>. The same address is the contact for privacy questions and grievances.</p>
+
+  <h2>Files you upload</h2>
+  <ul>
+    <li><b>What:</b> files you choose in the app or share to it from another app (CSV, TSV, XLSX, XLS, JSON), and the results you create from them.</li>
+    <li><b>Why:</b> only to run the tools you ask for, show previews and give you the result.</li>
+    <li><b>Where:</b> on our hosting provider's servers in Singapore.</li>
+    <li><b>How long:</b> each upload is deleted automatically after {{ retention }} minutes. Tapping Change, Clear or Start over deletes it straight away, and downloaded results are deleted as soon as they are sent.</li>
+    <li><b>Who sees them:</b> nobody. Files are not read by people, not sold or shared, and not used for advertising, analytics or training any system. Each upload gets a random link that only your browser knows, and that link is removed from our server logs.</li>
+  </ul>
+
+  <h2>Information collected automatically</h2>
+  <p>Like any website, our server and hosting provider receive technical details with each request: your IP address, browser type, the page or address requested, and the time. We use these to deliver the site, keep it secure and limit abuse (for example, too many uploads in a minute). Server logs are kept by the hosting provider for a limited period. We don't use analytics or tracking tools in the app.</p>
+
+  <h2>Stored in your browser</h2>
+  <ul>
+    <li><b>Light or dark mode</b> you chose.</li>
+    <li><b>Saved recipes</b>: the steps you saved, on your device only. They never leave your browser except when you run one on a file.</li>
+    <li><b>The file you are working on</b>: its random link, for the current browser tab only, so a reload doesn't lose your work.</li>
+  </ul>
+  <p>You can clear these at any time in your browser's settings.</p>
+
+  <h2>Advertising</h2>
+  <p>To keep Gridglass free, our information pages (such as tool pages, guides and this page) may show ads from Google. <b>Ads never load in the app itself</b>, so ad providers cannot see your files or results.</p>
+  <ul>
+    <li>Google and its partners may use cookies or similar identifiers to show ads, including ads based on your visits to this and other websites, and to measure them.</li>
+    <li>You can turn off personalised ads in <a href="https://adssettings.google.com" rel="noopener">Google's Ads Settings</a>, or opt out of some third-party vendors at <a href="https://www.aboutads.info/choices/" rel="noopener">aboutads.info</a>.</li>
+    <li>Visitors from the European Economic Area, the UK and Switzerland are asked for consent first, through a consent message.</li>
+    <li>Learn more in <a href="https://policies.google.com/technologies/partner-sites" rel="noopener">how Google uses information from sites that use its services</a>.</li>
+  </ul>
+
+  <h2>Service providers</h2>
+  <ul>
+    <li><b>Render</b> hosts the website and processes files on our behalf.</li>
+    <li><b>Google</b> provides ads on information pages, as described above.</li>
+  </ul>
+  <p>We don't sell personal data, and we share it only with these providers to run the service, or when the law requires it.</p>
+
+  <h2>Email</h2>
+  <p>If you email us, we use your message and address only to reply, and delete them when they are no longer needed.</p>
+
+  <h2>Children</h2>
+  <p>Gridglass is a general-purpose tool and isn't aimed at children. We don't knowingly collect personal data from children.</p>
+
+  <h2>Your choices and rights</h2>
+  <p>You can delete your file at any time in the app, clear browser storage, and control ad personalisation as described above. Depending on where you live, including under India's Digital Personal Data Protection Act, 2023, you may have rights to access, correct or erase personal data and to raise a grievance. Write to <a href="mailto:{{ site.CONTACT_EMAIL }}">{{ site.CONTACT_EMAIL }}</a> and we will respond.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, we'll update this page and the date at the top.</p>
+</article>
+{% endblock %}

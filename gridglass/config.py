@@ -27,6 +27,13 @@ class Config:
     MAX_PIVOT_COLUMNS = _int("MAX_PIVOT_COLUMNS", 200)
     MAX_PDF_ROWS = _int("MAX_PDF_ROWS", 10_000)
 
+    # The site's main address, e.g. gridglass.in. www.<it> and *.onrender.com then redirect there,
+    # and links in the sitemap, canonical tags and robots.txt use it. Empty: no redirects.
+    CANONICAL_HOST = os.environ.get("CANONICAL_HOST", "").strip().lower()
+    # AdSense client id, e.g. ca-pub-1234567890123456. Empty: no ads and no ads.txt. Ads only ever
+    # load on the content pages (/tools, /guides, /about…), never in the app where files are shown.
+    ADSENSE_CLIENT = os.environ.get("ADSENSE_CLIENT", "").strip()
+
     # Behind a hosting proxy (Render, Railway, nginx) set TRUST_PROXY=1 so client IPs and https are seen correctly.
     TRUST_PROXY = _int("TRUST_PROXY", 0)
 

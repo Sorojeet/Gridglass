@@ -10,6 +10,8 @@
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
   <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="canonical" href="{{ site_url }}/">
+  {% if adsense_client %}<meta name="google-adsense-account" content="{{ adsense_client }}">{% endif %}
   <script src="/static/js/theme.js"></script>
   <link rel="preload" href="/static/fonts/manrope-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/css/app.css">
@@ -18,7 +20,10 @@
   <a class="skip" href="#view">Skip to content</a>
   <div class="blobs" aria-hidden="true"><i></i><i></i><i></i></div>
   <main id="view" tabindex="-1">
-    <noscript><p class="empty">Gridglass needs JavaScript turned on.</p></noscript>
+    <noscript>
+      <p class="empty">Gridglass needs JavaScript turned on.</p>
+      <p><a href="/tools">All tools</a> · <a href="/guides">Guides</a> · <a href="/about">About</a> · <a href="/privacy">Privacy</a></p>
+    </noscript>
   </main>
   <div id="toast" role="status" aria-live="polite" hidden></div>
   <script type="module" src="/static/js/app.js"></script>

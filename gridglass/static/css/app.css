@@ -203,6 +203,9 @@ select.input {
 .cat-combine { background: var(--chip-combine); color: var(--ink-combine); }
 .privacy { display: flex; align-items: center; gap: 10px; padding: 16px 0 4px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 .privacy .ico { width: 18px; height: 18px; }
+.app-links { display: flex; flex-wrap: wrap; gap: 2px 16px; margin-top: -10px; }
+.app-links a { font-size: 13px; font-weight: 600; padding: 6px 0; }
+@media (min-width: 1024px) { main[data-screen] > .app-links { grid-column: 1 / -1; } }
 
 /* ----------------------------------------------------------------- file chip / working banner */
 .file-chip, .working { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--radius); }

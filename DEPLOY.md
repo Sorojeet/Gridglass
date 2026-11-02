@@ -35,6 +35,21 @@ Plans:
 - For the full 100 MB, use an instance with 2 GB or more (Standard) and `WEB_CONCURRENCY=1`.
 - With 4 GB, `WEB_CONCURRENCY=2` is fine.
 
+### Your own domain and ads
+
+1. **Domain:** in Render, open **Settings → Custom Domains** and add both `gridglass.in` and `www.gridglass.in`, then add the DNS records Render shows.
+2. **Main address:** set `CANONICAL_HOST=gridglass.in`. Then:
+   - `www.gridglass.in` and the onrender.com address redirect (301) to it, keeping the path.
+   - The sitemap, canonical tags and robots.txt use it.
+   - `/healthz` and uploads are never redirected.
+3. **Search Console:** add `https://gridglass.in/sitemap.xml` under Sitemaps.
+4. **AdSense:** set `ADSENSE_CLIENT=ca-pub-…`. That turns on:
+   - `/ads.txt`
+   - the account meta tag on every page
+   - Google's auto-ads script on the information pages only: `/tools`, `/guides`, `/about`, `/contact`, `/privacy` and `/terms`.
+
+   The app (`/`) never loads an ad script, so ad code can't read people's files. In AdSense, turn on **Privacy & messaging → European regulations** so visitors from the EEA, UK and Switzerland see Google's consent message.
+
 ## 2b. Railway
 
 1. Go to railway.com, then **New Project → Deploy from GitHub repo → gridglass**.
@@ -66,6 +81,8 @@ The second command runs the real browser tests against your live site. Keep it t
 | `RATELIMIT_STORAGE_URI` | `memory://` | Use `redis://…` when running several instances |
 | `DATA_DIR` | `/tmp/gridglass` in Docker | Where uploads live while they're being worked on |
 | `LOG_LEVEL` | info | gunicorn log level |
+| `CANONICAL_HOST` | (none) | Main address, e.g. `gridglass.in`; www and *.onrender.com redirect to it |
+| `ADSENSE_CLIENT` | (none) | `ca-pub-…`; enables ads.txt and ads on information pages only |
 | `GUNICORN_TIMEOUT` | 300 | Seconds a request may take (big uploads on slow connections) |
 
 ## Notes

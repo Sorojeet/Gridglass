@@ -1,0 +1,11 @@
+{% extends "site/base.html" %}
+{% block title %}Page not found{% endblock %}
+{% block description %}This page doesn't exist.{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block body %}
+<section class="site-hero">
+  <h1>Page not found</h1>
+  <p>This page doesn't exist, or it has moved.</p>
+  <p class="cta-row"><a class="btn btn-primary btn-lg" href="/">Open Gridglass</a><a class="btn btn-secondary btn-lg" href="/tools">See all tools</a></p>
+</section>
+{% endblock %}

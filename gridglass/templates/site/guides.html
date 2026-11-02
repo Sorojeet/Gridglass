@@ -1,0 +1,15 @@
+{% extends "site/base.html" %}
+{% block title %}Spreadsheet guides: clean, combine and summarise data{% endblock %}
+{% block description %}Short, practical guides for everyday spreadsheet jobs: combining monthly reports, cleaning lists, looking up values and more.{% endblock %}
+{% block body %}
+<section class="site-hero">
+  <h1>Guides</h1>
+  <p>Short walk-throughs for everyday spreadsheet jobs, using the free tools on this site.</p>
+</section>
+<ul class="guide-list">
+  {% for gd in guides %}
+  <li><a class="guide-card glass" href="{{ url_for('site.guide', slug=gd.slug) }}">
+    <strong>{{ gd.title }}</strong><span>{{ gd.description }}</span></a></li>
+  {% endfor %}
+</ul>
+{% endblock %}
