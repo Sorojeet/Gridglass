@@ -82,6 +82,8 @@ def test_json_and_ndjson(tmp_path):
     ("a.xlsx", b"Name,City\n", "real .xlsx"),
     ("a.csv", b"PK\x03\x04rest", "binary"),
     ("a.json", b"hello", "valid JSON"),
+    ("a.json", b"{nope", r"not valid JSON; Gridglass reads a list of records"),
+    ("data", b"a,b\n1,2\n", "files without an extension"),
 ])
 def test_rejects_bad_files(tmp_path, name, content, fragment):
     (tmp_path / name).write_bytes(content)
@@ -135,6 +137,13 @@ def test_export_pdf_wide_and_long(tmp_path):
     wide = pl.LazyFrame({f"Col {i}": list(range(300)) for i in range(12)})
     out = export(wide, "pdf", tmp_path / "w.pdf")
     assert out.read_bytes().count(b"/Type /Page") >= 2 or out.stat().st_size > 5000
+
+
+def test_export_pdf_with_a_huge_cell_or_header(tmp_path):
+    """One very wide column (a 5,000-letter name, a 309-digit number) used to squeeze the others to nothing."""
+    for df in (pl.DataFrame({"T": ["N"], "x" * 5000: [1]}), pl.DataFrame({"Card": ["1"], "Val": [1e308]})):
+        dest = export(df.lazy(), "pdf", tmp_path / "w.pdf")
+        assert dest.read_bytes().startswith(b"%PDF")
 
 
 def test_export_pdf_row_limit(tmp_path):

@@ -49,7 +49,8 @@ def detect_format(filename: str, path: str | Path) -> str:
     ext = Path(filename).suffix.lower().lstrip(".")
     fmt = _EXT_ALIASES.get(ext, ext)
     if fmt not in INPUT_FORMATS:
-        raise IngestError(f"Gridglass can't open .{ext or '?'} files. Try CSV, XLSX or JSON.")
+        kind = f".{ext} files" if ext else "files without an extension (like .csv)"
+        raise IngestError(f"Gridglass can't open {kind}. Try CSV, XLSX or JSON.")
     with open(path, "rb") as fh:
         head = fh.read(_SAMPLE)
     if not head.strip():
@@ -129,6 +130,9 @@ def ingest(src: str | Path, filename: str, dest: str | Path, *, sheet: str | Non
     except IngestError:
         raise
     except (pl.exceptions.PolarsError, ValueError, OSError) as exc:
+        if fmt in ("json", "ndjson"):  # the parser's own words ("ExpectedObjectContent…") help no one
+            raise IngestError(f"Couldn't read this {fmt.upper()} file. It may be cut off or not valid JSON; "
+                              "Gridglass reads a list of records, like [{\"Name\": \"Asha\"}, …].") from exc
         raise IngestError(f"Couldn't read this {fmt.upper()} file: {str(exc).splitlines()[0][:160]}") from exc
 
     meta = pl.scan_parquet(dest)

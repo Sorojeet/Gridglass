@@ -184,7 +184,7 @@ def _column_widths(names: list[str], texts: list[list[str]], numeric: list[bool]
         typical = cells[min(len(cells) - 1, int(len(cells) * 0.9))]  # 90th percentile: ignore a few very long cells
         header_word = max((measure(w, BOLD) for w in str(name).split()), default=0.0)
         numbers = cells[-1] if numeric[i] else 0.0  # numbers must never wrap
-        minimum.append(max(header_word, numbers, 24.0))
+        minimum.append(min(max(header_word, numbers, 24.0), usable / 2))  # a 5,000-letter name or a 309-digit number wraps
         natural.append(max(typical, measure(str(name), BOLD), minimum[-1]))
 
     if sum(natural) <= usable:  # everything fits on one line: spread the spare room evenly

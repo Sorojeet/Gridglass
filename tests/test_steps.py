@@ -668,3 +668,38 @@ def test_pivot_rounds_sums_and_averages_to_two_places(apply):
     assert out["Sum of F"].to_list() == [3.33, 3.3, 6.63]
     assert out["Sum of A"].dtype == pl.Int64        # whole-number totals stay whole
     assert out["Max of F"].to_list()[0] == 2.222    # min and max are values from the data, kept as they are
+
+
+# --------------------------------------------------------------------------- found by stress tests (1.14.1)
+
+def test_merge_on_a_true_false_key_with_text_in_the_other_file():
+    lf = pl.LazyFrame({"Paid": [True, False], "N": [1, 2]})
+    other = pl.LazyFrame({"Flag": [" yes", "FALSE", "maybe"], "Label": ["Paid", "Due", "?"]})
+    step = {"op": "merge", "other": OTHER, "keys": [{"left": "Paid", "right": "Flag"}]}
+    out = build(lf, parse_steps([step]), resolve=lambda _id: other).collect()
+    assert out["Label"].to_list() == ["Paid", "Due"]
+
+
+def test_unpivot_when_the_table_already_has_attribute_and_value_columns(apply):
+    lf = pl.LazyFrame({"Item": ["x"], "Attribute": [1], "Value": [2]})
+    out = apply(lf, {"op": "unpivot", "keep": ["Item"]})
+    assert out.columns == ["Item", "Attribute", "Value"]
+    assert out.rows() == [("x", "Attribute", 1), ("x", "Value", 2)]
+
+
+def test_pivot_column_value_named_like_a_rows_column(apply):
+    lf = pl.LazyFrame({"Customer": ["a", "b"], "Kind": ["Customer", "x"]})
+    out = apply(lf, {"op": "pivot", "rows": ["Customer"], "columns": "Kind", "totals": True})
+    assert out.columns == ["Customer", "Customer (2)", "x", "Grand Total"]
+
+
+def test_pivot_grand_total_name_already_taken(apply):
+    lf = pl.LazyFrame({"Grand Total": ["a"], "Kind": ["x"]})
+    with pytest.raises(StepError, match="already a column called 'Grand Total'"):
+        apply(lf, {"op": "pivot", "rows": ["Grand Total"], "columns": "Kind", "totals": True})
+
+
+def test_number_errors_name_each_column_once(apply):
+    lf = pl.LazyFrame({"A": ["x"]})
+    with pytest.raises(StepError, match=r"Not numbers: 'A'\.$"):
+        apply(lf, {"op": "pivot", "rows": ["A"], "values": [{"func": "sum", "column": "A"}, {"func": "average", "column": "A"}]})

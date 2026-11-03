@@ -150,6 +150,7 @@ function route() {
   const edit = h.match(/^#\/edit\/(\d+)$/);
   const recipe = h.match(/^#\/recipe\/([\w-]+)$/);
   if (recipe) { renderRecipe(recipe[1]); return finishRoute(); }
+  leaveRecipe();
   if (h === '#/result' && state.file) showResult();
   else if (edit && state.file) editStep(Number(edit[1]));
   else if (tool && TOOL[tool[1]]) openTool(TOOL[tool[1]]);
@@ -1905,6 +1906,7 @@ function renderRecipe(id) {
   state.tool = null;
   view.dataset.screen = 'upload';
   document.title = `${r.name} — Gridglass`;
+  leaveRecipe(); // a fresh start: files chosen on an earlier visit aren't reused
   const open = state.file;
   const slots = slotsOf(r.steps);
   pending = { recipe: r, slots, files: slots.map(() => null), main: null, busy: false };
@@ -1953,19 +1955,21 @@ async function uploadForRecipe(r, file) {
     toast(`That file is ${(file.size / 1048576).toFixed(1)} MB. The limit is ${config.max_upload_mb} MB.`, 'error');
     return;
   }
+  const mine = pending;
   $('#progress').hidden = false;
   $('#drop label').classList.add('busy');
   try {
-    const res = await uploadFile(file, (p) => {
-      $('#bar').style.width = `${Math.round(p * 100)}%`;
-      $('#ptext').textContent = p < 1 ? `Uploading… ${Math.round(p * 100)}%` : 'Reading your file…';
+    const res = await uploadFile(file, (p) => { // the screen may have been left meanwhile
+      if ($('#bar')) $('#bar').style.width = `${Math.round(p * 100)}%`;
+      if ($('#ptext')) $('#ptext').textContent = p < 1 ? `Uploading… ${Math.round(p * 100)}%` : 'Reading your file…';
     });
     if (state.file) forget();
     remember(res.file);
-    pending.main = res.file;
+    if (mine !== pending) return; // left the recipe: keep the file open, but don't run anything
+    mine.main = res.file;
     await readyToRun();
   } catch (err) {
-    $('#progress').hidden = true;
+    if ($('#progress')) $('#progress').hidden = true;
     $('#drop label')?.classList.remove('busy');
     toast(err.message, 'error');
   }
@@ -1973,6 +1977,13 @@ async function uploadForRecipe(r, file) {
 
 /** The recipe screen's choices so far: the main file and one file per Merge or Stack slot. */
 let pending = null;
+
+/** Leaving the recipe screen: its extra files won't be used, so delete them now (privacy) and stop any run. */
+function leaveRecipe() {
+  if (!pending) return;
+  pending.files.forEach((f) => f && api(`/files/${f.id}`, { method: 'DELETE' }).catch(() => {}));
+  pending = null;
+}
 
 async function uploadSlot(n, file) {
   if (file.size > config.max_upload_mb * 1024 * 1024) {
@@ -2012,11 +2023,13 @@ async function readyToRun() {
     return;
   }
   p.busy = true;
+  pending = null; // the extra files now belong to the main file's steps (Start over deletes them with it)
   $('#progress').hidden = false;
   $('#ptext').textContent = 'Running the recipe…';
   const r = p.recipe;
   await runRecipe({ ...r, steps: fillFiles(r.steps, p.slots, p.files, p.main) }, p.main);
-  p.busy = false;
+  const used = new Set((state.file?.steps ?? []).flatMap(otherFiles)); // a step that didn't fit wasn't kept
+  p.files.forEach((f) => used.has(f.id) || api(`/files/${f.id}`, { method: 'DELETE' }).catch(() => {}));
 }
 
 /** Add the recipe's steps after the file's own. If one doesn't fit, keep the ones before it and say which. */
