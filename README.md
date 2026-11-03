@@ -79,7 +79,7 @@ tests/               pytest suite
 
 **Recipes:** the applied steps can be saved by name (in the browser, on that device) and run on another file from the home screen (`#/recipe/<id>`).
 - If a step doesn't fit the new file, the steps before it are kept and the user is told which one stopped.
-- Steps that use extra uploads (Merge, Stack) can't be saved, because those uploads expire.
+- Merge and Stack steps are saved without their extra uploads, which expire (`other: null`, `others: [null, …]`; names are kept). When the recipe runs, its screen asks for one file per Merge and one per stacked file ("Last time: towns.csv"), in any order with the main file, and runs once all are in (1.14). The new files' names replace the old ones, so a Stack `source_column` says which new file each row came from.
 
 **Files from other apps:** the installed app accepts files from the phone's share sheet (`share_target` → `POST /share`) and "Open with" on computers (`file_handlers` + `launchQueue`).
 - `/share` refuses posts from other websites (`Sec-Fetch-Site`).
@@ -112,6 +112,7 @@ Conversion is not a step. Import any supported format and export as CSV (with a 
 - Downloads (SVG, or PNG at 2×) match the preview.
 - Data labels show any mix of name (pies and donuts only), value and % (1.11; `labelAs` is a list such as `['name', 'percent']`, the pie default). The % is a slice's share on pies; on other charts it's a share of the series, or of the stack when stacked.
 - Pivot `filters` (conditions, `filter_match`) limit rows before grouping (1.11).
+- Pivot sums, averages and medians are rounded to 2 places (`steps.DECIMALS`), and after a pivot every decimal is shown with exactly 2 places, in the preview and in CSV (`float_precision`), XLSX (`0.00` format) and PDF downloads (1.14). Other files keep numbers exactly as they are.
 - The **Make a chart** card (`op: 'chart'`, `opens: 'pivot'`) opens the Pivot table tool on its Chart tab.
 
 ## Frontend

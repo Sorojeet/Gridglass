@@ -657,3 +657,14 @@ def test_pivot_filters_rows_before_totalling():
     assert run(lf, [{**step, "filter_match": "any"}]).rows() == [("A", 40), ("B", 20), ("C", 40), ("Grand Total", 100)]
     with pytest.raises(StepError):
         run(lf, [{**step, "filters": [{"column": "Nope", "operator": "equals", "value": "x"}]}])
+
+
+def test_pivot_rounds_sums_and_averages_to_two_places(apply):
+    lf = pl.LazyFrame({"C": ["a", "a", "a", "b"], "A": [1, 2, 2, 5], "F": [1.111, 2.222, 0.0, 3.3]})
+    out = apply(lf, {"op": "pivot", "rows": ["C"], "totals": True, "values": [
+        {"func": "average", "column": "A"}, {"func": "sum", "column": "F"}, {"func": "sum", "column": "A"},
+        {"func": "max", "column": "F"}]})
+    assert out["Average of A"].to_list() == [1.67, 5.0, 2.5]
+    assert out["Sum of F"].to_list() == [3.33, 3.3, 6.63]
+    assert out["Sum of A"].dtype == pl.Int64        # whole-number totals stay whole
+    assert out["Max of F"].to_list()[0] == 2.222    # min and max are values from the data, kept as they are

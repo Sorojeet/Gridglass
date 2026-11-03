@@ -766,6 +766,8 @@ def _key(name: str) -> str:
 
 # --------------------------------------------------------------------------- summarize
 
+DECIMALS = 2  # pivot sums, averages and medians are rounded to this, and shown with exactly this many
+
 _AGG_TITLE = {  # readable names: "Sum of Amount"
     "sum": "Sum of {c}", "average": "Average of {c}", "min": "Min of {c}", "max": "Max of {c}",
     "median": "Median of {c}", "count": "Count of {c}", "count_distinct": "Distinct {c}",
@@ -799,6 +801,8 @@ class Aggregation(BaseModel):
             "sum": c.sum, "average": c.mean, "min": c.min, "max": c.max, "median": c.median,
             "count": c.count, "count_distinct": c.n_unique, "first": c.first, "last": c.last,
         }[self.func]()
+        if self.func in ("sum", "average", "median"):
+            e = e.round(DECIMALS)  # money-style totals: 236.67, not 236.66666666666666
         return e.alias(self.output_name())
 
 

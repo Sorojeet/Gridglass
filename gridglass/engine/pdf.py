@@ -60,10 +60,12 @@ def plain_number(v: float) -> str:
     return text
 
 
-def _fmt(v) -> str:
+def _fmt(v, decimals: int | None = None) -> str:
     if v is None:
         return ""
     if isinstance(v, float):
+        if decimals is not None and not (math.isnan(v) or math.isinf(v)):
+            return f"{v:.{decimals}f}"
         return plain_number(v)
     if isinstance(v, bool):
         return "Yes" if v else "No"
@@ -73,13 +75,15 @@ def _fmt(v) -> str:
     return text if len(text) <= MAX_CELL_CHARS else text[: MAX_CELL_CHARS - 1] + "…"
 
 
-def write_pdf(df: pl.DataFrame, dest: str | Path, *, title: str = "Gridglass export", orientation: str = "auto") -> Path:
+def write_pdf(df: pl.DataFrame, dest: str | Path, *, title: str = "Gridglass export", orientation: str = "auto",
+              decimals: int | None = None) -> Path:
     """One table, header repeated on every page."""
-    return write_pdf_sections([(title, df)], dest, title=title, first_is_title=True, orientation=orientation)
+    return write_pdf_sections([(title, df)], dest, title=title, first_is_title=True, orientation=orientation,
+                              decimals=decimals)
 
 
 def write_pdf_sections(sections: list[tuple[str, pl.DataFrame]], dest: str | Path, *, title: str = "Gridglass export",
-                       first_is_title: bool = False, orientation: str = "auto") -> Path:
+                       first_is_title: bool = False, orientation: str = "auto", decimals: int | None = None) -> Path:
     """Several tables, each starting on a new page with its own heading (one value per page)."""
     width = max(df.width for _, df in sections)
     if width > MAX_PDF_COLUMNS:
@@ -101,7 +105,7 @@ def write_pdf_sections(sections: list[tuple[str, pl.DataFrame]], dest: str | Pat
             story.append(PageBreak())
         sub = f"{df.height:,} rows · {df.width} columns" + ("" if first_is_title else f" · {title}")
         story += [Paragraph(_escape(heading), title_style), Paragraph(_escape(sub), sub_style),
-                  Spacer(1, 4 * mm), _table(df, usable)]
+                  Spacer(1, 4 * mm), _table(df, usable, decimals)]
 
     def footer(canvas, doc):
         canvas.saveState()
@@ -121,7 +125,7 @@ def write_pdf_sections(sections: list[tuple[str, pl.DataFrame]], dest: str | Pat
 PAD = 4  # left/right padding inside each cell, in points
 
 
-def _table(df: pl.DataFrame, usable: float) -> LongTable:
+def _table(df: pl.DataFrame, usable: float, decimals: int | None = None) -> LongTable:
     """A table that fits the page: columns sized by their real text width, long text wrapped inside its column."""
     font_size = 9 if df.width <= 6 else 8 if df.width <= 10 else 7 if df.width <= 16 else 6
     shaping = int(CAN_SHAPE)
@@ -131,7 +135,7 @@ def _table(df: pl.DataFrame, usable: float) -> LongTable:
                                 shaping=shaping, splitLongWords=1)
     complex_style = ParagraphStyle("cx", parent=cell_style, leading=font_size * 1.6)  # Indic marks need room
     numeric = [t.is_numeric() for t in df.dtypes]
-    texts = [[_fmt(v) for v in row] for row in df.iter_rows()]
+    texts = [[_fmt(v, decimals) for v in row] for row in df.iter_rows()]
     widths = _column_widths(df.columns, texts, numeric, usable, font_size)
 
     data = [[Paragraph(_escape(c), header_style) for c in df.columns]]
