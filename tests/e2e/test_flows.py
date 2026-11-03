@@ -1003,13 +1003,54 @@ def test_rename_and_delete_recipes(phone):
     expect(page.locator(".recipes")).to_have_count(0)
 
 
-def test_recipes_with_extra_files_cannot_be_saved(phone, tmp_path):
-    page = phone.upload_sample("stack")
-    page.click('[data-action="sample3"]')
-    expect(page.locator(".stack-list li")).to_have_count(1)
+def test_recipe_with_merge_asks_for_the_other_file(phone, tmp_path):
+    towns = tmp_path / "towns.csv"
+    towns.write_text("Town,Zone\nPune,W\nDelhi,N\n")
+    page = phone.upload_sample("merge")
+    page.set_input_files("#file2", str(towns))
+    expect(page.locator(".file-chip.second")).to_contain_text("towns.csv")
+    page.select_option("#k0l", "City")
+    page.select_option("#k0r", "Town")
     apply(page)
-    expect(page.locator(".recipe-note")).to_contain_text("can't be saved")
-    expect(page.locator('[data-action="save-recipe"]')).to_have_count(0)
+    expect(page.locator(".recipe-save .hint")).to_contain_text("choose the file to merge or stack each time")
+    page.click('[data-action="save-recipe"]')
+    page.fill("#recipe-name", "Add zones")
+    page.click('.recipe-form button[type="submit"]')
+    stored = page.evaluate("JSON.parse(localStorage.getItem('gg.recipes'))[0].steps[0]")
+    assert stored["op"] == "merge" and stored["other"] is None  # the expiring upload isn't kept
+
+    page.click('[data-action="startover"]')
+    page.click('.recipe a:has-text("Use")')
+    expect(page.locator(".recipe-slot")).to_contain_text("Last time: towns.csv")
+    main = tmp_path / "april.csv"
+    main.write_text("Name,City\nAsha,Pune\nRavi,Delhi\nMeena,Goa\n")
+    page.set_input_files("#file", str(main))
+    expect(page.locator("#ptext")).to_contain_text("Now choose the other file")
+    zones = tmp_path / "zones-new.csv"
+    zones.write_text("Town,Zone\nPune,West\nGoa,South\n")
+    page.set_input_files("#slot-0", str(zones))
+    expect(page.locator(".done h1")).to_contain_text("Ran “Add zones”")
+    rows = result_json(page)
+    assert {r["Name"]: r["Zone"] for r in rows} == {"Asha": "West", "Ravi": None, "Meena": "South"}
+
+
+def test_recipe_with_stack_asks_for_each_file(phone, tmp_path):
+    page = phone.open("/")
+    page.evaluate("""localStorage.setItem('gg.recipes', JSON.stringify([{id: 'r1', name: 'Combine', steps: [
+        {op: 'stack', others: [null, null], other_names: ['feb.csv', 'mar.csv'], this_name: 'jan.csv',
+         source_column: 'Month file'}]}]))""")
+    page.goto(phone.base + "/#/recipe/r1")
+    expect(page.locator(".recipe-slot")).to_have_count(2)
+    for name, body in (("may.csv", "Item\nB\n"), ("jun.csv", "Item\nC\n")):
+        (tmp_path / name).write_text(body)
+    page.set_input_files("#slot-0", str(tmp_path / "may.csv"))
+    page.set_input_files("#slot-1", str(tmp_path / "jun.csv"))
+    expect(page.locator(".recipe-slot.done")).to_have_count(2)
+    (tmp_path / "apr.csv").write_text("Item\nA\n")
+    page.set_input_files("#file", str(tmp_path / "apr.csv"))
+    expect(page.locator(".done h1")).to_contain_text("Ran “Combine”")
+    rows = result_json(page)
+    assert [(r["Item"], r["Month file"]) for r in rows] == [("A", "apr.csv"), ("B", "may.csv"), ("C", "jun.csv")]
 
 
 # ----------------------------------------------------------------------------- information pages

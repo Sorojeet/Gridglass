@@ -217,6 +217,29 @@ def test_export_applies_steps(client, file_id):
     r.close()
 
 
+def test_pivot_exports_show_two_decimal_places(client, file_id):
+    client.post(f"/api/v1/files/{file_id}/steps", json={"op": "pivot", "rows": ["City"],
+                                                         "values": [{"func": "sum", "column": "Amount"}]})
+    r = client.get(f"/api/v1/files/{file_id}/export?format=csv")
+    assert r.data.decode("utf-8-sig").splitlines() == ["City,Sum of Amount", "Pune,180.00", "Delhi,501.00"]
+    r.close()
+    r = client.get(f"/api/v1/files/{file_id}/export?format=xlsx")
+    import zipfile
+    styles = zipfile.ZipFile(io.BytesIO(r.data)).read("xl/styles.xml").decode()
+    assert 'formatCode="0.00"' in styles
+    r.close()
+    client.post(f"/api/v1/files/{file_id}/steps", json={"op": "sort_rows", "by": [{"column": "City"}]})
+    r = client.get(f"/api/v1/files/{file_id}/export?format=csv")  # still a summary after more steps
+    assert "Delhi,501.00" in r.data.decode("utf-8-sig").splitlines()
+    r.close()
+
+
+def test_other_exports_keep_numbers_as_they_are(client, file_id):
+    r = client.get(f"/api/v1/files/{file_id}/export?format=csv")
+    assert "Ravi,Delhi,250.5" in r.data.decode("utf-8-sig") and "Meera,Pune,80" in r.data.decode("utf-8-sig")
+    r.close()
+
+
 def test_export_file_is_cleaned_up(client, app, file_id):
     r = client.get(f"/api/v1/files/{file_id}/export?format=csv")
     r.close()
@@ -293,7 +316,7 @@ def test_index_and_static(client):
 
 def test_service_worker_at_root(client):
     r = client.get("/sw.js")
-    assert r.status_code == 200 and b"gridglass-v17" in r.data and r.headers["Cache-Control"] == "no-cache"
+    assert r.status_code == 200 and b"gridglass-v18" in r.data and r.headers["Cache-Control"] == "no-cache"
     r.close()
 
 

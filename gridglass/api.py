@@ -30,6 +30,7 @@ from flask import Blueprint, current_app, jsonify, request, send_file
 from .engine import (OPS, ExportError, GridglassError, IngestError, InvalidStepsError, build, distinct_values,
                      open_source, parse_steps, preview, profile)
 from .engine.io import EXPORT_FORMATS, export
+from .engine.steps import DECIMALS
 from .limits import from_config, limiter
 from .storage import NotFound, Store
 
@@ -281,6 +282,11 @@ def remove_step(file_id, index):
 
 # ---------------------------------------------------------------------- export
 
+def _decimals(steps: list[dict]) -> int | None:
+    """After a pivot table, decimals are written with exactly two places (1250.50), as the app shows them."""
+    return DECIMALS if any(s.get("op") == "pivot" for s in steps) else None
+
+
 @bp.get("/files/<file_id>/export")
 @limiter.limit(from_config("RATE_LIMIT_EXPORTS"))
 def download(file_id):
@@ -295,7 +301,8 @@ def download(file_id):
     title = (request.args.get("title") or "").strip()[:120] or stem
     columns = request.args.getlist("columns") or None
     export(lf, fmt, dest, title=title, max_pdf_rows=_cfg("MAX_PDF_ROWS"), split_by=split_by, split_rows=split_rows,
-           files=files, orientation=request.args.get("orientation") or "auto", columns=columns)
+           files=files, orientation=request.args.get("orientation") or "auto", columns=columns,
+           decimals=_decimals(meta["steps"]))
     fh = open(dest, "rb")
     try:
         dest.unlink()  # the open handle keeps the data readable; nothing is left on disk

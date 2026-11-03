@@ -540,13 +540,14 @@ def _clean_names(names: list[str]) -> list[str]:
 def export(lf: pl.LazyFrame, fmt: str, dest: str | Path, *, title: str = "Gridglass export",
            max_pdf_rows: int = 10_000, split_by: str | None = None, split_rows: int | None = None,
            files: bool = False, orientation: str = "auto", columns: list[str] | None = None,
-           max_pages: int = MAX_SPLIT_PAGES) -> Path:
+           max_pages: int = MAX_SPLIT_PAGES, decimals: int | None = None) -> Path:
     """Write the result as CSV, XLSX, JSON or PDF.
 
     - `split_by` makes one part per value of that column; `split_rows` one part per N rows.
       Parts become sheets (.xlsx) or pages (PDF), or with `files` separate files in a .zip.
     - `columns` keeps only those columns, in that order.
     - `orientation` (PDF): auto (landscape when wide), portrait or landscape.
+    - `decimals` writes every decimal number with exactly that many places (236.50); pivot results use 2.
     """
     fmt = fmt.lower()
     if fmt not in EXPORT_FORMATS:
@@ -571,7 +572,7 @@ def export(lf: pl.LazyFrame, fmt: str, dest: str | Path, *, title: str = "Gridgl
                 raise ExportError(f"Column not found: '{missing[0]}'.")
             lf = lf.select(columns)
         if not split and fmt == "csv":
-            lf.collect().write_csv(dest, include_bom=True)  # BOM: spreadsheet apps then open UTF-8 correctly
+            lf.collect().write_csv(dest, include_bom=True, float_precision=decimals)  # BOM: spreadsheet apps then open UTF-8 correctly
             return dest
         if not split and fmt == "json":
             lf.collect().write_json(dest)
@@ -579,20 +580,21 @@ def export(lf: pl.LazyFrame, fmt: str, dest: str | Path, *, title: str = "Gridgl
         df = lf.collect()
         parts = (_split(df, split_by, max_pages) if split_by else _chunks(df, split_rows, max_pages)) if split else None
         if files:
-            _write_zip(dest, parts, fmt, title=title, orientation=orientation, max_pdf_rows=max_pdf_rows)
+            _write_zip(dest, parts, fmt, title=title, orientation=orientation, max_pdf_rows=max_pdf_rows,
+                       decimals=decimals)
             return dest
         _check_size(df, fmt, max_pdf_rows)
         if fmt == "xlsx":
-            _write_xlsx(dest, parts or [("Data", df)])
+            _write_xlsx(dest, parts or [("Data", df)], decimals=decimals)
         else:
             from .pdf import write_pdf, write_pdf_sections
 
             if parts:
                 heading = (lambda label: f"{split_by}: {label}") if split_by else (lambda label: label)
                 write_pdf_sections([(heading(label), part) for label, part in parts], dest, title=title,
-                                   orientation=orientation)
+                                   orientation=orientation, decimals=decimals)
             else:
-                write_pdf(df, dest, title=title, orientation=orientation)
+                write_pdf(df, dest, title=title, orientation=orientation, decimals=decimals)
     except ExportError:
         raise
     except pl.exceptions.PolarsError as exc:
@@ -620,7 +622,7 @@ _BAD_FILE_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 
 
 def _write_zip(dest: Path, parts: list[tuple[str, pl.DataFrame]], fmt: str, *, title: str, orientation: str,
-               max_pdf_rows: int) -> None:
+               max_pdf_rows: int, decimals: int | None = None) -> None:
     """One file per part, in a .zip. Names: '<title> - <part>.<fmt>', made safe and unique."""
     import io as _io
     import zipfile
@@ -636,18 +638,18 @@ def _write_zip(dest: Path, parts: list[tuple[str, pl.DataFrame]], fmt: str, *, t
             used.add(name.lower())
             buf = _io.BytesIO()
             if fmt == "csv":
-                part.write_csv(buf, include_bom=True)
+                part.write_csv(buf, include_bom=True, float_precision=decimals)
             elif fmt == "json":
                 part.write_json(buf)
             else:
                 tmp = Path(tempfile.mkstemp(suffix=f".{fmt}", dir=dest.parent)[1])
                 try:
                     if fmt == "xlsx":
-                        _write_xlsx(tmp, [("Data", part)])
+                        _write_xlsx(tmp, [("Data", part)], decimals=decimals)
                     else:
                         from .pdf import write_pdf
 
-                        write_pdf(part, tmp, title=f"{title} — {label}", orientation=orientation)
+                        write_pdf(part, tmp, title=f"{title} — {label}", orientation=orientation, decimals=decimals)
                     buf.write(tmp.read_bytes())
                 finally:
                     tmp.unlink(missing_ok=True)
@@ -695,10 +697,13 @@ PLAIN_NUMBERS = {dtype: "General" for dtype in (pl.Int8, pl.Int16, pl.Int32, pl.
                                                 pl.UInt32, pl.UInt64, pl.Float32, pl.Float64, pl.Decimal)}
 
 
-def _write_xlsx(dest: Path, parts: list[tuple[str, pl.DataFrame]]) -> None:
+def _write_xlsx(dest: Path, parts: list[tuple[str, pl.DataFrame]], decimals: int | None = None) -> None:
     import xlsxwriter
+
+    formats = PLAIN_NUMBERS if decimals is None else {
+        **PLAIN_NUMBERS, **{t: "0." + "0" * decimals if decimals else "0" for t in (pl.Float32, pl.Float64, pl.Decimal)}}
 
     with xlsxwriter.Workbook(dest) as wb:
         for name, (_, part) in zip(sheet_names([label for label, _ in parts]), parts):
             part.write_excel(workbook=wb, worksheet=name, autofit=True, freeze_panes=(1, 0),
-                             header_format={"bold": True}, dtype_formats=PLAIN_NUMBERS)
+                             header_format={"bold": True}, dtype_formats=formats)

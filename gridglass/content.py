@@ -593,7 +593,10 @@ TOOLS: list[ToolPage] = [
                                            "so totals and the Grand Total only count matching rows."),
                  ("Chart", "Column, bar, line or pie; follows light and dark mode.")],
         faqs=[("How many columns can the Columns field make?", "Up to 200."),
-              ("Can I edit the pivot after making it?", "Yes. Tap Edit on the result screen; the preview updates live.")],
+              ("Can I edit the pivot after making it?", "Yes. Tap Edit on the result screen; the preview updates live."),
+              ("How are decimals shown?", "Sums, averages and medians are rounded to two decimal places, and decimals "
+               "are shown with exactly two (1250.50) in the preview and in CSV, XLSX and PDF downloads. Counts stay "
+               "whole numbers.")],
         related=["make-a-chart", "filter-rows", "transpose", "sort-rows"],
     ),
     ToolPage(
@@ -898,8 +901,8 @@ GUIDES: list[Guide] = [
                 "<i>Month file</i> as Rows and <i>Sum of Amount</i> as the Value, and switch to Chart for a quick picture.",
             ]),
             ("Do it again next year in one tap", [
-                "On the result screen, tap <b>Save these steps as a recipe</b>. Steps that use extra files can't be "
-                "saved, so save the cleaning steps you run after stacking (for example on the stacked file next time).",
+                "On the result screen, tap <b>Save these steps as a recipe</b>. Next year, open the recipe from the "
+                "home screen: it asks for each month's file in turn, then stacks, cleans and summarises them in one go.",
             ]),
         ],
         tools=["stack-files", "remove-duplicates", "pivot-table"],

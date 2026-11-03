@@ -340,13 +340,18 @@ function renderHealth(panel, report) {
     });
   };
 }
-function table(pv) {
+/** After a pivot table, decimals show with exactly this many places (236.50), as the downloads do. */
+const PIVOT_DECIMALS = 2;
+
+function table(pv, decimals = null) {
   if (!pv.columns.length) return '<p class="empty">No columns left.</p>';
   const head = pv.columns.map((c) => `<th scope="col"><span>${esc(c.name)}</span><small>${esc(c.type)}</small></th>`).join('');
+  const fixed = pv.columns.map((c) => decimals !== null && c.type === 'decimal');
+  const show = (v, i) => (typeof v === 'boolean' ? (v ? 'true' : 'false') : fixed[i] && typeof v === 'number' ? v.toFixed(decimals) : v);
   const body = pv.rows.length
-    ? pv.rows.map((r) => `<tr>${r.map((v) => (v === null
+    ? pv.rows.map((r) => `<tr>${r.map((v, i) => (v === null
       ? '<td class="null"><span class="sr-only">blank</span></td>'
-      : `<td title="${esc(v)}">${esc(typeof v === 'boolean' ? (v ? 'true' : 'false') : v)}</td>`)).join('')}</tr>`).join('')
+      : `<td title="${esc(show(v, i))}">${esc(show(v, i))}</td>`)).join('')}</tr>`).join('')
     : `<tr><td class="empty" colspan="${pv.columns.length}">No rows match.</td></tr>`;
   return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
@@ -1467,7 +1472,7 @@ async function showPreview(steps, step, hint = null) {
       return;
     }
     box.classList.remove('loading', 'error');
-    box.innerHTML = table(preview);
+    box.innerHTML = table(preview, steps.some((x) => x.op === 'pivot') ? PIVOT_DECIMALS : null);
     state.pvData = hint ? null : preview;
     if (state.view === 'chart') renderChart();
     const diff = preview.total_rows - state.before;
@@ -1764,8 +1769,37 @@ function storeRecipes(list) {
 
 const findRecipe = (id) => loadRecipes().find((r) => r.id === id);
 const stepNames = (steps) => steps.map((s) => TOOL[s.op]?.label ?? s.op);
-/** Merge and Stack use extra uploads that are deleted after an hour, so they can't be replayed later. */
-const reusable = (steps) => steps.every((s) => !otherFiles(s).length);
+/**
+ * Merge and Stack use extra uploads, which are deleted after an hour. A recipe keeps those steps
+ * without the files, and asks for a file in each place when it runs.
+ */
+const withoutFiles = (steps) => steps.map((s) => (s.op === 'merge' ? { ...s, other: null }
+  : s.op === 'stack' ? { ...s, others: s.others.map(() => null) } : s));
+/** The extra files a recipe asks for: one per Merge, one per file in a Stack. */
+function slotsOf(steps) {
+  const out = [];
+  steps.forEach((s, i) => {
+    if (s.op === 'merge') out.push({ step: i, k: 0, label: 'Merge files', was: s.other_name || '' });
+    if (s.op === 'stack') s.others.forEach((_, k) => out.push({ step: i, k, label: 'Stack files', was: s.other_names?.[k] || '' }));
+  });
+  return out;
+}
+/** Put the newly chosen files into the recipe's steps. */
+function fillFiles(steps, slots, files, main) {
+  const out = structuredClone(steps);
+  slots.forEach((sl, n) => {
+    const s = out[sl.step];
+    const f = files[n];
+    if (s.op === 'merge') Object.assign(s, { other: f.id, other_name: f.filename });
+    else {
+      s.others[sl.k] = f.id;
+      s.other_names = s.others.map((_, k) => s.other_names?.[k] ?? '');
+      s.other_names[sl.k] = f.filename;
+      if (s.this_name) s.this_name = main.filename;
+    }
+  });
+  return out;
+}
 const newId = () => (crypto.randomUUID?.() ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`).replace(/[^\w-]/g, '');
 
 function recipesSection() {
@@ -1824,12 +1858,11 @@ function onRecipeRename(e) {
 }
 
 function recipeSaver(steps) {
-  if (!reusable(steps)) {
-    return '<p class="hint recipe-note">These steps can\'t be saved as a recipe, because Merge files and Stack files use extra files that are deleted after an hour.</p>';
-  }
+  const extra = slotsOf(steps).length;
   return `<div class="recipe-save" id="recipe-save">
     <button class="btn btn-secondary btn-sm" type="button" data-action="save-recipe">${ui('recipe')} Save these steps as a recipe</button>
-    <p class="hint">Run them on another file in one tap.</p></div>`;
+    <p class="hint">${extra ? `Run them on another file in one tap. You'll choose the ${extra === 1 ? 'file to merge or stack' : `${extra} files to merge or stack`} each time, because extra files are deleted after an hour.`
+    : 'Run them on another file in one tap.'}</p></div>`;
 }
 
 function onSaverClick(e) {
@@ -1856,7 +1889,7 @@ function onSaverSubmit(e) {
   if (!name) return;
   const list = loadRecipes();
   const same = list.find((r) => r.name.toLowerCase() === name.toLowerCase());
-  const steps = structuredClone(state.file.steps);
+  const steps = withoutFiles(structuredClone(state.file.steps));
   if (same) Object.assign(same, { name, steps, updated: Date.now() });
   else {
     if (list.length >= MAX_RECIPES) { toast(`You can keep up to ${MAX_RECIPES} recipes. Delete one on the home screen first.`, 'error'); return; }
@@ -1873,6 +1906,8 @@ function renderRecipe(id) {
   view.dataset.screen = 'upload';
   document.title = `${r.name} — Gridglass`;
   const open = state.file;
+  const slots = slotsOf(r.steps);
+  pending = { recipe: r, slots, files: slots.map(() => null), main: null, busy: false };
   view.innerHTML = `${topbar({ back: '#/', title: 'Recipe' })}
     <section class="intro">
       <span class="badge cat-combine">Recipe</span>
@@ -1880,18 +1915,33 @@ function renderRecipe(id) {
       <p>Choose a file and these steps run on it, in order:</p>
       <ol class="recipe-steps">${stepNames(r.steps).map((n) => `<li>${esc(n)}</li>`).join('')}</ol>
     </section>
+    ${slots.length ? `<section class="recipe-files" aria-labelledby="rf-title">
+      <h2 id="rf-title">${slots.length === 1 ? 'The other file' : 'The other files'}</h2>
+      <ul class="recipe-slots">${slots.map((sl, n) => `<li class="recipe-slot glass" data-slot="${n}">
+        <span class="file-icon">${ui('file')}</span>
+        <span class="file-text"><strong>Step ${sl.step + 1}: ${esc(sl.label)}</strong>
+          <small id="slot-${n}-text">${sl.was ? `Last time: ${esc(sl.was)}` : 'Choose a file'}</small></span>
+        <label class="btn btn-secondary btn-sm" for="slot-${n}">Choose</label>
+        <input id="slot-${n}" class="sr-only" type="file" accept="${ACCEPT}" data-slot-input="${n}"
+          aria-label="File for step ${sl.step + 1}, ${esc(sl.label)}">
+      </li>`).join('')}</ul></section>` : ''}
     <section class="dropzone glass" id="drop">
       <span class="drop-icon">${ui('upload')}</span>
       <label class="btn btn-primary btn-lg" for="file">Choose a file</label>
       <input id="file" class="sr-only" type="file" accept="${ACCEPT}">
-      <p class="hint">CSV, XLSX or JSON · up to ${config.max_upload_mb} MB</p>
+      <p class="hint">${slots.length ? 'The file to run the recipe on · ' : ''}CSV, XLSX or JSON · up to ${config.max_upload_mb} MB</p>
       <div class="progress" id="progress" hidden><div class="bar"><span id="bar"></span></div><p id="ptext" aria-live="polite">Uploading…</p></div>
     </section>
     ${open ? `<button class="btn btn-secondary btn-block" type="button" data-action="run-open">${ui('file')} Run on ${esc(open.filename)}${open.steps.length ? ' (after its steps)' : ''}</button>` : ''}
     ${privacy()}`;
   const input = $('#file');
   input.addEventListener('change', () => input.files[0] && uploadForRecipe(r, input.files[0]));
-  $('[data-action="run-open"]')?.addEventListener('click', (e) => { e.target.closest('button').disabled = true; runRecipe(r, state.file); });
+  $('[data-action="run-open"]')?.addEventListener('click', (e) => {
+    e.target.closest('button').disabled = true;
+    pending.main = state.file;
+    readyToRun();
+  });
+  view.querySelectorAll('[data-slot-input]').forEach((el) => el.addEventListener('change', () => el.files[0] && uploadSlot(Number(el.dataset.slotInput), el.files[0])));
   const drop = $('#drop');
   ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.remove('over')));
@@ -1912,13 +1962,61 @@ async function uploadForRecipe(r, file) {
     });
     if (state.file) forget();
     remember(res.file);
-    $('#ptext').textContent = 'Running the recipe…';
-    await runRecipe(r, res.file);
+    pending.main = res.file;
+    await readyToRun();
   } catch (err) {
     $('#progress').hidden = true;
     $('#drop label')?.classList.remove('busy');
     toast(err.message, 'error');
   }
+}
+
+/** The recipe screen's choices so far: the main file and one file per Merge or Stack slot. */
+let pending = null;
+
+async function uploadSlot(n, file) {
+  if (file.size > config.max_upload_mb * 1024 * 1024) {
+    toast(`That file is ${(file.size / 1048576).toFixed(1)} MB. The limit is ${config.max_upload_mb} MB.`, 'error');
+    return;
+  }
+  const p = pending;
+  const text = $(`#slot-${n}-text`);
+  const row = $(`[data-slot="${n}"]`);
+  row.classList.add('busy');
+  try {
+    const res = await uploadFile(file, (x) => { text.textContent = x < 1 ? `Uploading… ${Math.round(x * 100)}%` : 'Reading the file…'; });
+    if (p !== pending) { api(`/files/${res.file.id}`, { method: 'DELETE' }).catch(() => {}); return; } // left the screen
+    if (p.files[n]) api(`/files/${p.files[n].id}`, { method: 'DELETE' }).catch(() => {}); // replaced
+    p.files[n] = res.file;
+    text.textContent = `${res.file.filename} · ${plural(res.file.rows, 'row')}`;
+    row.classList.add('done');
+    await readyToRun();
+  } catch (err) {
+    text.textContent = 'Choose a file';
+    toast(err.message, 'error');
+  } finally { row.classList.remove('busy'); }
+}
+
+/** Run once the main file and every extra file are in; until then say what's still needed. */
+async function readyToRun() {
+  const p = pending;
+  if (!p?.main || p.busy) return;
+  const missing = p.files.filter((f) => !f).length;
+  if (missing) {
+    $('#progress').hidden = false;
+    $('#bar').style.width = '100%';
+    $('#drop label')?.classList.remove('busy');
+    $('[data-action="run-open"]')?.remove(); // the main file is chosen
+    $('#ptext').textContent = `${p.main.filename} is ready. Now choose ${missing === 1 ? 'the other file' : `the ${missing} other files`} above.`;
+    $('.recipe-slot:not(.done) label')?.focus();
+    return;
+  }
+  p.busy = true;
+  $('#progress').hidden = false;
+  $('#ptext').textContent = 'Running the recipe…';
+  const r = p.recipe;
+  await runRecipe({ ...r, steps: fillFiles(r.steps, p.slots, p.files, p.main) }, p.main);
+  p.busy = false;
 }
 
 /** Add the recipe's steps after the file's own. If one doesn't fit, keep the ones before it and say which. */
