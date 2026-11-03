@@ -49,7 +49,7 @@ def need_text(schema: pl.Schema, cols: list[str], tool: str) -> None:
 
 
 def need_numeric(schema: pl.Schema, cols: list[str], tool: str) -> None:
-    bad = [c for c in cols if not schema[c].is_numeric()]
+    bad = list(dict.fromkeys(c for c in cols if not schema[c].is_numeric()))  # each name once
     if bad:
         raise ColumnError(f"{tool} needs number columns. Not numbers: {_q(bad)}.")
 
@@ -684,10 +684,8 @@ class Merge(Step):
             self.columns if self.columns is not None else [c for c in rschema.names() if c not in rights])
         right = right.select(list(dict.fromkeys(rights + bring)))
         # Keys must have the same type to match: convert the second file's keys to this file's types.
-        right = right.with_columns([
-            (pl.col(r).cast(pl.String) if is_text(schema[l]) else pl.col(r).cast(schema[l], strict=False)).alias(r)
-            for l, r in zip(lefts, rights) if rschema[r] != schema[l]
-        ])
+        right = right.with_columns([_as_type(pl.col(r), rschema[r], schema[l]).alias(r)
+                                    for l, r in zip(lefts, rights) if rschema[r] != schema[l]])
         if self.first_match and self.how not in ("anti", "semi"):
             right = right.unique(subset=rights, keep="first", maintain_order=True)
         # Give the second file's keys this file's names, so every join type shows one key column named as here.
@@ -698,6 +696,16 @@ class Merge(Step):
         names = out.collect_schema().names()  # keep this file's column order, new columns after
         first = [c for c in schema.names() if c in names]
         return out.select(first + [c for c in names if c not in first])
+
+
+def _as_type(col: pl.Expr, have: pl.DataType, want: pl.DataType) -> pl.Expr:
+    """Convert a key column to another file's type; values that don't fit become blank (they can't match)."""
+    if is_text(want):
+        return col.cast(pl.String)
+    if want == pl.Boolean and not have.is_numeric():  # text can't be cast to true/false directly
+        text = col.cast(pl.String).str.strip_chars().str.to_lowercase()
+        return pl.when(text.is_in(["true", "yes"])).then(True).when(text.is_in(["false", "no"])).then(False)
+    return col.cast(want, strict=False)
 
 
 class Stack(Step):
@@ -857,6 +865,7 @@ class Pivot(Step):
         # Column values become headers, so blanks get a "(blank)" label instead of "null".
         c = pl.col(self.columns).cast(pl.String)
         lf = lf.with_columns(pl.when(c.is_null() | (c.str.strip_chars() == "")).then(pl.lit(self.BLANK))
+                             .when(c.is_in(self.rows)).then(c + " (2)")  # a value named like a Rows column
                              .otherwise(c).alias(self.columns))
         long = lf.group_by(keys, maintain_order=True).agg(exprs).collect()
         n = long.get_column(self.columns).n_unique()
@@ -872,6 +881,10 @@ class Pivot(Step):
 
         # Grand totals: a column (per row) and a row (per column).
         total_name = (lambda n: self.TOTAL_LABEL) if len(names) == 1 else (lambda n: f"{n}{self.SEP}{self.TOTAL_LABEL}")
+        taken = [total_name(n) for n in names if total_name(n) in wide.columns]
+        if taken:
+            raise ColumnError(f"There's already a column called {_q(taken)}, so the Grand Total column can't use "
+                              "that name. Rename it first, or turn off Grand Total.")
         row_totals = (lf.group_by(self.rows, maintain_order=True).agg(exprs)
                       .rename({n: total_name(n) for n in names}).collect())
         wide = wide.join(row_totals, on=self.rows, how="left", nulls_equal=True, maintain_order="left")
@@ -926,7 +939,10 @@ class Unpivot(Step):
         no_clash(self.keep, [self.attribute_name, self.value_name])
         if len({schema[c] for c in on}) > 1:  # mixed types can't share one column
             lf = lf.with_columns(pl.col(on).cast(pl.String))
-        return lf.unpivot(on=on, index=self.keep, variable_name=self.attribute_name, value_name=self.value_name)
+        # Temporary names: the table may already have columns called Attribute or Value among those turned into rows.
+        attr, val = "__gridglass_attr__", "__gridglass_value__"
+        return (lf.unpivot(on=on, index=self.keep, variable_name=attr, value_name=val)
+                .rename({attr: self.attribute_name, val: self.value_name}))
 
     def _transpose(self, lf, schema):
         from .io import _clean_names, infer_types

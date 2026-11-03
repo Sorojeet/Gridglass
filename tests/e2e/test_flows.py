@@ -1034,6 +1034,20 @@ def test_recipe_with_merge_asks_for_the_other_file(phone, tmp_path):
     assert {r["Name"]: r["Zone"] for r in rows} == {"Asha": "West", "Ravi": None, "Meena": "South"}
 
 
+def test_leaving_a_recipe_deletes_its_unused_files(phone, tmp_path):
+    page = phone.open("/")
+    page.evaluate("""localStorage.setItem('gg.recipes', JSON.stringify([{id: 'r1', name: 'Zones', steps: [
+        {op: 'merge', other: null, other_name: 'towns.csv', keys: [{left: 'City', right: 'Town'}]}]}]))""")
+    page.goto(phone.base + "/#/recipe/r1")
+    (tmp_path / "towns.csv").write_text("Town,Zone\nPune,W\n")
+    page.set_input_files("#slot-0", str(tmp_path / "towns.csv"))
+    expect(page.locator(".recipe-slot.done")).to_have_count(1)
+    with page.expect_response(lambda r: r.request.method == "DELETE" and "/api/v1/files/" in r.url) as gone:
+        page.click('a[aria-label="Back"]')
+    assert gone.value.ok and page.request.get(gone.value.url).status == 404   # the merge file is gone
+    expect(page.locator("#toast")).not_to_be_visible()
+
+
 def test_recipe_with_stack_asks_for_each_file(phone, tmp_path):
     page = phone.open("/")
     page.evaluate("""localStorage.setItem('gg.recipes', JSON.stringify([{id: 'r1', name: 'Combine', steps: [
