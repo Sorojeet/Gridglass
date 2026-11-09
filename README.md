@@ -54,6 +54,12 @@ tests/               pytest suite
 | | `split_column` | |
 | | `add_column` (constant, combine, math, part of a text and more, see below) | |
 
+**Search that understands questions (1.16):** the home search box (`static/js/search.js`) ranks tools for questions like "I want to extract a number from text", entirely in the browser.
+- Filler words are dropped, endings trimmed and synonyms mapped (extract/get/pull → take, vlookup → lookup, per/by → group).
+- Each tool scores by its name, keywords, description and intro; `INTENTS` (everyday tasks) add a strong match, a hint ("Part of a text → Text after “@”") and options to open with.
+- Results link to `#/tool/<op>?<field>=<value>`; the options are applied once to the new form (unknown keys and values are ignored). Enter opens the first result; a clear winner gets a "Best match" badge.
+- The last word may be unfinished (dup → duplicates); one-letter typos in longer words still match. `test_search_understands_questions` holds the expected answers.
+
 **Add column → Part of a text (1.15):** `mode: "text"` with `left` (any column, read as text) and `func`:
 `first` / `last` (`count` characters), `middle` (`start`, 1-based, and `count`), `before` / `after` / `between` (`find_text`, `end_text` for between; `from_end` uses the last match; `if_missing`: `blank` or `all`; `ignore_case`), `word` (`count`, `from_end` counts from the end), `length`, `find` (1-based position, blank if absent) and `pad` (`count`, `pad_with`). Typed text is matched literally, never as a pattern. Results are text, except `length` and `find`.
 

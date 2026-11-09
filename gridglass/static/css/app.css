@@ -196,6 +196,10 @@ select.input {
 .tool-icon .ico { width: 22px; height: 22px; }
 .tool-name { font-weight: 700; font-size: 16px; line-height: 1.25; }
 .tool-desc { font-size: 13px; color: var(--ink2); line-height: 1.4; }
+.tool-hint { color: var(--accent); font-weight: 600; }
+.tool-card.best { position: relative; outline: 2px solid var(--accent); outline-offset: -2px; }
+.best-badge { position: absolute; top: 10px; right: 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
+  padding: 3px 8px; border-radius: 999px; background: var(--solid); color: var(--on-solid); }
 .cat-clean { background: var(--chip-clean); color: var(--ink-clean); }
 .cat-shape { background: var(--chip-shape); color: var(--ink-shape); }
 .cat-summarize { background: var(--chip-summarize); color: var(--ink-summarize); }

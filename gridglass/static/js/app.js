@@ -2,6 +2,7 @@ import {
   AGG_FUNCS, CATS, FORMATS, JOINS, NO_VALUE_OPS, OPERATORS, PAGE, TOOL, TOOLS, TYPES, UI, defaults, icon, incomplete, suggestFor,
   toDraft, toStep,
 } from './tools.js';
+import { hrefFor, searchTools } from './search.js';
 import { DEFAULT_OPTIONS, MAX_CATEGORIES, PALETTES, arrange, chartData, chartSVG, labelParts, saveChart, themeColors } from './chart.js';
 
 const API = '/api/v1';
@@ -146,14 +147,17 @@ let firstRoute = true;
 function route() {
   const h = location.hash;
   if (h.startsWith('#/open')) { openShared(h); return; }
-  const tool = h.match(/^#\/tool\/([a-z_]+)/);
+  const tool = h.match(/^#\/tool\/([a-z_]+)(?:\?(.*))?$/);
   const edit = h.match(/^#\/edit\/(\d+)$/);
   const recipe = h.match(/^#\/recipe\/([\w-]+)$/);
   if (recipe) { renderRecipe(recipe[1]); return finishRoute(); }
   leaveRecipe();
   if (h === '#/result' && state.file) showResult();
   else if (edit && state.file) editStep(Number(edit[1]));
-  else if (tool && TOOL[tool[1]]) openTool(TOOL[tool[1]]);
+  else if (tool && TOOL[tool[1]]) {
+    state.preset = tool[2] ? Object.fromEntries(new URLSearchParams(tool[2])) : null; // from a search result
+    openTool(TOOL[tool[1]]);
+  }
   else renderHome();
   finishRoute();
 }
@@ -381,8 +385,10 @@ function renderHome() {
     ${recipesSection()}
     <div class="search glass">${ui('search')}
       <label class="sr-only" for="q">Search tools</label>
-      <input id="q" type="search" placeholder="Search tools, e.g. duplicates" value="${esc(homeQuery)}" autocomplete="off">
+      <input id="q" type="search" placeholder="Search or ask, e.g. extract a number from text" value="${esc(homeQuery)}"
+        autocomplete="off" enterkeyhint="go" aria-describedby="q-help">
     </div>
+    <p class="sr-only" id="q-help">Type a tool name or describe what you want to do. The best match comes first; press Enter to open it.</p>
     <nav class="chips" aria-label="Tool categories">
       ${[['all', 'All'], ...Object.entries(CATS)].map(([k, l]) =>
         `<button type="button" class="chip" data-cat="${k}" aria-pressed="${k === homeCat}">${l}</button>`).join('')}
@@ -391,6 +397,10 @@ function renderHome() {
     ${privacy()}`;
   fillGrid();
   $('#q').addEventListener('input', (e) => { homeQuery = e.target.value; fillGrid(); });
+  $('#q').addEventListener('keydown', (e) => { // Enter opens the best match
+    const top = $('#grid .tool-card');
+    if (e.key === 'Enter' && homeQuery.trim() && top) { e.preventDefault(); location.hash = top.getAttribute('href'); }
+  });
   view.querySelectorAll('[data-cat]').forEach((b) => b.addEventListener('click', () => {
     homeCat = b.dataset.cat;
     view.querySelectorAll('[data-cat]').forEach((x) => x.setAttribute('aria-pressed', x === b));
@@ -402,18 +412,44 @@ function renderHome() {
 }
 
 function fillGrid() {
-  const q = homeQuery.trim().toLowerCase();
-  const list = TOOLS.filter((t) => (homeCat === 'all' || t.cat === homeCat)
-    && (!q || `${t.label} ${t.desc} ${t.keywords}`.toLowerCase().includes(q)));
-  $('#grid').innerHTML = list.length ? list.map((t) => `
-    <a class="tool-card glass" href="#/tool/${t.op}">
-      <span class="tool-icon cat-${t.cat}">${icon(t.icon)}</span>
-      <span class="tool-name">${t.label}</span>
-      <span class="tool-desc">${t.desc}</span>
-    </a>`).join('') : `<p class="empty">No tool matches “${esc(q)}”.</p>`;
+  const q = homeQuery.trim();
+  const inCat = (t) => homeCat === 'all' || t.cat === homeCat;
+  let list;
+  if (!q) list = TOOLS.filter(inCat).map((tool) => ({ tool }));
+  else { // ranked by what was asked; weak leftovers are dropped
+    const found = searchTools(homeQuery).filter((r) => inCat(r.tool));
+    const top = found[0]?.score ?? 0;
+    list = found.filter((r) => r.score >= Math.max(2, top * 0.25)).slice(0, 8);
+  }
+  const clear = list.length > 0 && q && (list.length === 1 || list[0].score >= 1.4 * list[1].score);
+  const grid = $('#grid');
+  grid.classList.toggle('ranked', !!q);
+  grid.innerHTML = list.length ? list.map((r, i) => `
+    <a class="tool-card glass${clear && i === 0 ? ' best' : ''}" href="${q ? hrefFor(r) : `#/tool/${r.tool.op}`}">
+      ${clear && i === 0 ? '<span class="best-badge">Best match</span>' : ''}
+      <span class="tool-icon cat-${r.tool.cat}">${icon(r.tool.icon)}</span>
+      <span class="tool-name">${r.tool.label}</span>
+      <span class="tool-desc">${r.hint ? `<span class="tool-hint">${esc(r.hint)}</span>` : r.tool.desc}</span>
+    </a>`).join('')
+    : `<p class="empty">No tool matches “${esc(q)}”. Try a few words about what you want to do, like “remove duplicates”,
+      “total by city” or “text before a dash”.${homeCat !== 'all' ? ' Or look in All tools.' : ''}</p>`;
 }
 
 // ============================================================================ tool flow
+
+/** Options chosen by a search result ("extract a number" → Part of a text), applied once to the new draft. */
+function applyPreset() {
+  const p = state.preset;
+  state.preset = null;
+  if (!p) return;
+  for (const f of state.tool.fields) {
+    if (!(f.key in p)) continue;
+    const v = p[f.key];
+    if (f.type === 'toggle') state.draft[f.key] = v === 'true';
+    else if ((f.type === 'select' || f.type === 'choice') && !f.options.some(([o]) => String(o) === v)) continue;
+    else if (['text', 'select', 'choice', 'number'].includes(f.type)) state.draft[f.key] = v;
+  }
+}
 
 async function openTool(tool) {
   state.alias = tool.opens ? tool : null;
@@ -521,6 +557,7 @@ async function enterOptions() {
   }
   state.before = state.cols[0]?.rows ?? state.file.rows;
   state.draft = defaults(state.tool, state.cols);
+  applyPreset();
   if (state.tool.op === 'stack') state.draft.this_name = state.file.filename;
   state.browse = { all: false, page: 0 };
   state.other = null;
