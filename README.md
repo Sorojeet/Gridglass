@@ -52,7 +52,14 @@ tests/               pytest suite
 | `remove_blank_rows` | `keep_rows` (top/bottom) | |
 | | `change_type` | |
 | | `split_column` | |
-| | `add_column` (constant, combine, math and more, see below) | |
+| | `add_column` (constant, combine, math, part of a text and more, see below) | |
+
+**Add column → Part of a text (1.15):** `mode: "text"` with `left` (any column, read as text) and `func`:
+`first` / `last` (`count` characters), `middle` (`start`, 1-based, and `count`), `before` / `after` / `between` (`find_text`, `end_text` for between; `from_end` uses the last match; `if_missing`: `blank` or `all`; `ignore_case`), `word` (`count`, `from_end` counts from the end), `length`, `find` (1-based position, blank if absent) and `pad` (`count`, `pad_with`). Typed text is matched literally, never as a pattern. Results are text, except `length` and `find`.
+
+```json
+{"op": "add_column", "name": "Domain", "mode": "text", "left": "Email", "func": "after", "find_text": "@"}
+```
 
 **Transpose or unpivot (1.13):** one card, two modes of the `unpivot` step.
 - `mode: "transpose"` flips rows and columns. Optional `header` is a column whose values name the new columns (blank → `Column N`, repeats → `Tea (2)`); without it they are `Column 1, 2, 3…`, and the first column (`Field`) lists the old column names. It works on up to 500 rows, since each row becomes a column. All values are flipped as text, then each new column's type is checked again, so numbers stay numbers.

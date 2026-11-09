@@ -496,13 +496,17 @@ class SplitColumn(Step):
         return out.select(order)
 
 
+TEXT_FUNCS = ("first", "last", "middle", "before", "after", "between", "word", "length", "find", "pad")
+
+
 class AddColumn(Step):
-    """Add a column: a fixed value, several columns joined together, or simple math."""
+    """Add a column: a fixed value, joined columns, math, totals, rules, date parts, ranges or part of a text."""
 
     label: ClassVar[str] = "Add column"
     op: Literal["add_column"]
     name: Col
-    mode: Literal["constant", "combine", "math", "running_total", "rank", "percent", "if_then", "date_part", "ranges"]
+    mode: Literal["constant", "combine", "math", "running_total", "rank", "percent", "if_then", "date_part", "ranges",
+                  "text"]
     value: Scalar = None                       # constant
     columns: list[Col] | None = None           # combine
     separator: Annotated[str, StringConstraints(max_length=20)] = " "
@@ -517,6 +521,16 @@ class AddColumn(Step):
     part: Literal[DATE_PARTS] | None = None    # date_part
     breaks: Annotated[list[float], Field(max_length=30)] | None = None  # ranges: 100, 500 -> under 100 / 100–500 / 500+
     labels: Annotated[list[Annotated[str, StringConstraints(max_length=100)]], Field(max_length=31)] | None = None
+    # text: a piece of a text column, like a spreadsheet's LEFT, RIGHT, MID, TEXTBEFORE, TEXTAFTER, LEN, FIND
+    func: Literal[TEXT_FUNCS] | None = None
+    count: Annotated[int, Field(ge=1, le=10_000)] | None = None    # first / last / middle / word / pad: how many
+    start: Annotated[int, Field(ge=1, le=100_000)] | None = None   # middle: first character is 1
+    find_text: Annotated[str, StringConstraints(min_length=1, max_length=200)] | None = None  # before/after/between/find
+    end_text: Annotated[str, StringConstraints(min_length=1, max_length=200)] | None = None   # between: up to this
+    from_end: bool = False                       # before/after/between/find: last match; word: count from the end
+    if_missing: Literal["blank", "all"] = "blank"  # before/after/between: when the text isn't there
+    ignore_case: bool = False
+    pad_with: Annotated[str, StringConstraints(min_length=1, max_length=1)] = "0"
 
     @model_validator(mode="after")
     def _mode_fields(self):
@@ -534,6 +548,17 @@ class AddColumn(Step):
             if self.labels is not None and len(self.labels) != len(self.breaks) + 1:
                 raise ValueError(f"{len(self.breaks)} numbers make {len(self.breaks) + 1} ranges, so give "
                                  f"{len(self.breaks) + 1} names (or none).")
+        if self.mode == "text":
+            if not self.left or not self.func:
+                raise ValueError("Choose a column and what to take from it.")
+            if self.func in ("first", "last", "middle", "word", "pad") and not self.count:
+                raise ValueError("Type how many." if self.func != "word" else "Type which word (1 is the first).")
+            if self.func == "middle" and not self.start:
+                raise ValueError("Type the character to start at (1 is the first).")
+            if self.func in ("before", "after", "between", "find") and not self.find_text:
+                raise ValueError("Type the text to look for.")
+            if self.func == "between" and not self.end_text:
+                raise ValueError("Type the text it ends before.")
         if self.mode == "combine" and not self.columns:
             raise ValueError("Choose the columns to combine.")
         if self.mode == "math":
@@ -559,6 +584,8 @@ class AddColumn(Step):
             return lf.with_columns(self._date_part(schema).alias(self.name))
         if self.mode == "ranges":
             return lf.with_columns(self._ranges(schema).alias(self.name))
+        if self.mode == "text":
+            return lf.with_columns(self._text(schema).alias(self.name))
         cols = [self.left] + ([self.right_column] if self.right_column else [])
         need(schema, cols)
         need_numeric(schema, cols, "Math")
@@ -589,6 +616,36 @@ class AddColumn(Step):
         if numeric and all(float(a.replace(",", "")).is_integer() for a in filled):
             expr = expr.cast(pl.Int64)
         return expr
+
+    def _text(self, schema) -> pl.Expr:
+        """A piece of a text column. Numbers and dates are read as they're shown (236.5, 2026-03-05)."""
+        need(schema, [self.left])
+        t = pl.col(self.left).cast(pl.String)
+        n = self.count
+        if self.func == "first":
+            return t.str.head(n)
+        if self.func == "last":
+            return t.str.tail(n)
+        if self.func == "middle":
+            return t.str.slice(self.start - 1, n)
+        if self.func == "length":
+            return t.str.len_chars().cast(pl.Int64)
+        if self.func == "pad":  # 7 -> 007; longer values are left as they are
+            return t.str.pad_start(n, self.pad_with)
+        if self.func == "word":  # words are split by spaces; 1 is the first (or the last, counting from the end)
+            return t.str.extract_all(r"\S+").list.get(-n if self.from_end else n - 1, null_on_oob=True)
+        flags = "(?s" + ("i" if self.ignore_case else "") + ")"
+        a = re.escape(self.find_text)
+        lead = ".*" if self.from_end else ".*?"  # greedy: the last match; lazy: the first
+        if self.func == "find":  # position of the text, 1 for the first character; blank when it isn't there
+            return (t.str.extract(f"{flags}^({lead}){a}", 1).str.len_chars() + 1).cast(pl.Int64)
+        if self.func == "before":
+            piece = t.str.extract(f"{flags}^({lead}){a}", 1)
+        elif self.func == "after":
+            piece = t.str.extract(f"{flags}^{lead}{a}(.*)$", 1)
+        else:  # between: from the find text up to the next end text
+            piece = t.str.extract(f"{flags}^{lead}{a}(.*?){re.escape(self.end_text)}", 1)
+        return piece.fill_null(t) if self.if_missing == "all" else piece
 
     def _date_part(self, schema) -> pl.Expr:
         need(schema, [self.left])

@@ -473,19 +473,24 @@ TOOLS: list[ToolPage] = [
     ),
     ToolPage(
         slug="add-column", op="add_column", cat="shape", name="Add column",
-        title="Add a column: if-then rules, date parts, ranges, totals and more",
-        description="Make a new column with if-then rules, the month, quarter or financial year of a date, number ranges, "
-                    "joined columns, simple math, a running total, a rank or a % of total.",
+        title="Add a column: if-then rules, part of a text, date parts, ranges, totals and more",
+        description="Make a new column with if-then rules, part of a text (first or last characters, text before or "
+                    "after a symbol), the month or financial year of a date, number ranges, joined columns, simple math, "
+                    "a running total, a rank or a % of total.",
         intro=["Add column creates a new column from what's already there, with no formulas to write.",
                "<b>If … then …</b> rules label rows by any condition (‘if Amount is at least 500, then Big’), checked in "
                "order. <b>Part of a date</b> pulls out the month, quarter, weekday or Indian financial year (FY 2025-26). "
                "<b>Number ranges</b> groups numbers into bands such as ‘Under 100’ and ‘100 – under 500’.",
+               "<b>Part of a text</b> takes a piece of a text column: the first or last few characters, characters "
+               "from the middle, the text before, after or between symbols (the domain after @ in an email, the city "
+               "inside brackets), a word, the length, where something appears, or a code padded with zeros (7 → 00007).",
                "Running total, rank and % of total can count over the whole file or restart for each group, so "
                "‘rank within each city’ or ‘% of each region's sales’ is one step."],
         when=["Full name from first and last name.", "Total = Price × Quantity.", "A Country column that says ‘India’ on every row.",
               "Rank salespeople by sales, within each branch.", "Each product's share of total sales, as a %.",
               "Label orders High, Medium or Low by amount.", "A Financial year column for April–March reports.",
-              "Age bands like 18–25, 25–40 and 40+."],
+              "Age bands like 18–25, 25–40 and 40+.", "The year from an invoice number like INV-2026-001.",
+              "Email domains, surnames, or the city inside brackets.", "Employee codes padded to 00042."],
         steps=["Open the tool and choose your file.", "Name the new column.", "Choose <b>Join columns</b>, <b>Math</b> or <b>One value</b>.",
                "Check the preview and download."],
         example=Example(columns=["Price", "Qty"], before=[["250", "2"], ["99.5", "4"]], after_columns=["Price", "Qty", "Total"],
@@ -497,6 +502,11 @@ TOOLS: list[ToolPage] = [
                                   "with an ‘Otherwise’ value. If every answer is a number, the column is a number column."),
                  ("Part of a date", "Month name or number, year, year-month, quarter, financial year (April–March), weekday, "
                                     "day of the month or week of the year."),
+                 ("Part of a text", "Before, after or between (the first or last time it appears; blank or the "
+                                    "whole text when it isn't there; optionally ignoring capitals), first, last or "
+                                    "middle characters, a word counted from the start or end, length, position, or "
+                                    "pad to a length. Numbers and dates are read as they're shown. The result is "
+                                    "text; length and position are numbers."),
                  ("Number ranges", "Type where ranges start, such as 100, 500, 1000. A number on a boundary goes in the higher "
                                    "range. Optionally give each range a name."),
                  ("Running total", "Adds up a number column row by row, in the current order. Sort first if order matters."),
@@ -505,6 +515,12 @@ TOOLS: list[ToolPage] = [
                  ("Count over", "The whole file, or each group separately (choose the grouping columns).")],
         faqs=[("What happens when dividing by zero?", "The result is blank for that row."),
               ("What about blank numbers?", "A running total treats them as 0; rank, % and ranges leave them blank."),
+              ("Are these like LEFT, RIGHT, MID, TEXTBEFORE and TEXTAFTER?", "Yes. First characters is like LEFT, "
+               "Last characters like RIGHT, Characters from the middle like MID, and Text before / after like "
+               "TEXTBEFORE and TEXTAFTER. Length is LEN and Position is FIND, with no formulas to write."),
+              ("Can it get the number out of a code like INV-2026-001?", "Use Text after ‘-’ with ‘Last’ for 001, "
+               "or Characters from the middle (start at 5, 4 characters) for 2026. Then use "
+               "<a href=\"/tools/change-type\">Change type</a> if you need it as a number."),
               ("My dates aren't offered for ‘Part of a date’.", "The column is probably text. Use "
                "<a href=\"/tools/change-type\">Change type</a> to make it a date first.")],
         related=["split-column", "pivot-table", "rename-columns"],
@@ -800,10 +816,11 @@ SEARCH: dict[str, tuple[str, str, str]] = {  # slug: (phrase, first paragraph, m
         "and last name. Free."),
     "add-column": (
         "Add a calculated column without formulas",
-        "Add a calculated column without formulas: if-then rules, the month or financial year of a date, number "
-        "ranges, totals and ranks, or simple math between columns.",
-        "Add a calculated column without formulas: if-then rules, date parts, ranges, running totals, rank, % of "
-        "total or math. Free, online."),
+        "Add a calculated column without formulas: if-then rules, part of a text (first or last characters, text "
+        "before or after a symbol), the month or financial year of a date, number ranges, totals and ranks, or "
+        "simple math between columns.",
+        "Add a calculated column without formulas: if-then rules, text before/after, first/last characters, date "
+        "parts, ranges, running totals, rank, % of total or math. Free, online."),
     "merge-files": (
         "Merge two CSV files by a common column",
         "Merge two CSV files by a common column, such as Order ID or Email, and bring over the columns you need. "

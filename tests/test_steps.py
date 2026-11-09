@@ -703,3 +703,47 @@ def test_number_errors_name_each_column_once(apply):
     lf = pl.LazyFrame({"A": ["x"]})
     with pytest.raises(StepError, match=r"Not numbers: 'A'\.$"):
         apply(lf, {"op": "pivot", "rows": ["A"], "values": [{"func": "sum", "column": "A"}, {"func": "average", "column": "A"}]})
+
+
+# --------------------------------------------------------------------------- add column: part of a text
+
+TEXTS = pl.LazyFrame({"T": ["INV-2026-001", "Asha Rao (Pune)", None, "no dash", "héllo wörld"], "N": [7, 12345, None, 3, 1]})
+
+
+@pytest.mark.parametrize("kw, want", [
+    ({"func": "first", "count": 3}, ["INV", "Ash", None, "no ", "hél"]),
+    ({"func": "last", "count": 3}, ["001", "ne)", None, "ash", "rld"]),
+    ({"func": "middle", "start": 5, "count": 4}, ["2026", " Rao", None, "ash", "o wö"]),
+    ({"func": "before", "find_text": "-"}, ["INV", None, None, None, None]),
+    ({"func": "before", "find_text": "-", "from_end": True}, ["INV-2026", None, None, None, None]),
+    ({"func": "after", "find_text": "-"}, ["2026-001", None, None, None, None]),
+    ({"func": "after", "find_text": "-", "from_end": True, "if_missing": "all"},
+     ["001", "Asha Rao (Pune)", None, "no dash", "héllo wörld"]),
+    ({"func": "between", "find_text": "(", "end_text": ")"}, [None, "Pune", None, None, None]),
+    ({"func": "word", "count": 2}, [None, "Rao", None, "dash", "wörld"]),
+    ({"func": "word", "count": 1, "from_end": True}, ["INV-2026-001", "(Pune)", None, "dash", "wörld"]),
+    ({"func": "length"}, [12, 15, None, 7, 11]),
+    ({"func": "find", "find_text": "wö"}, [None, None, None, None, 7]),          # counts letters, not bytes
+    ({"func": "find", "find_text": "r", "ignore_case": True}, [None, 6, None, None, 9]),
+    ({"func": "before", "find_text": ".*"}, [None] * 5),                           # typed text, never a pattern
+])
+def test_add_column_part_of_a_text(apply, kw, want):
+    out = apply(TEXTS, {"op": "add_column", "name": "X", "mode": "text", "left": "T", **kw})
+    assert out["X"].to_list() == want
+
+
+def test_add_column_text_from_a_number_column(apply):
+    out = apply(TEXTS, {"op": "add_column", "name": "X", "mode": "text", "left": "N", "func": "pad", "count": 5})
+    assert out["X"].to_list() == ["00007", "12345", None, "00003", "00001"]
+    out = apply(TEXTS, {"op": "add_column", "name": "X", "mode": "text", "left": "N", "func": "last", "count": 2})
+    assert out["X"].to_list() == ["7", "45", None, "3", "1"]
+
+
+@pytest.mark.parametrize("kw, msg", [
+    ({"func": "first"}, "how many"), ({"func": "middle", "count": 2}, "start at"),
+    ({"func": "before"}, "text to look for"), ({"func": "between", "find_text": "("}, "ends before"),
+    ({}, "what to take"),
+])
+def test_add_column_text_needs_its_options(kw, msg):
+    with pytest.raises(Exception, match=f"(?i){msg}"):
+        parse_steps([{"op": "add_column", "name": "X", "mode": "text", "left": "T", **kw}])

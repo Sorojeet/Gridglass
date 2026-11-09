@@ -241,6 +241,25 @@ def test_add_column_math(phone):
     assert all(abs(r["With GST"] - r["Amount"] * 1.18) < 1e-6 for r in rows)
 
 
+def test_add_column_part_of_a_text(phone):
+    page = phone.upload_sample("add_column")
+    page.fill("#f-name", "Domain")
+    page.select_option("#f-mode", "text")
+    page.select_option("#f-text_left", "Email")
+    page.select_option("#f-func", "after")                      # Text after… "@"
+    page.fill("#f-find_text", "@")
+    expect(page.locator("#pv")).to_contain_text("example.com")
+    page.select_option("#f-func", "first")                      # the fields follow the choice
+    expect(page.locator("#f-find_text")).to_be_hidden()
+    page.fill("#f-count", "4")
+    page.select_option("#f-func", "word")
+    page.select_option("#f-text_left", "Customer")
+    page.click('[data-seg="word_from"][data-val="true"]')       # last word: the surname
+    apply(page)
+    rows = result_json(page)
+    assert rows[0]["Customer"] == "Ravi Kumar" and rows[0]["Domain"] == "Kumar"
+
+
 def test_change_type_and_sort(phone):
     page = phone.upload_sample("change_type")
     page.select_option("#t0c", "Order date")
