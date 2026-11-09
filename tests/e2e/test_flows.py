@@ -43,13 +43,62 @@ def test_home_lists_every_tool_and_searches(phone):
     page = phone.open("/")
     expect(page.locator(".tool-card")).to_have_count(len(ALL_OPS))
     page.fill("#q", "duplicates")
-    expect(page.locator(".tool-card")).to_have_count(1)
+    expect(page.locator(".tool-card").first).to_contain_text("Remove duplicates")
+    expect(page.locator(".tool-card.best .best-badge")).to_have_text("Best match")
     page.fill("#q", "zzz")
     expect(page.locator(".empty")).to_contain_text("No tool matches")
     page.fill("#q", "")
     page.click('[data-cat="summarize"]')
     expect(page.locator(".tool-card")).to_have_count(3)
     expect(page.locator('[data-cat="summarize"]')).to_have_attribute("aria-pressed", "true")
+
+
+# What people type → the tool that should come first (and the option it opens on, if any).
+QUESTIONS = [
+    ("I want to extract a number from text", "add_column", "mode=text"),
+    ("remove duplicates", "remove_duplicates", ""), ("dup", "remove_duplicates", ""), ("duplicats", "remove_duplicates", ""),
+    ("how do I do a vlookup", "merge", ""), ("combine first and last name", "add_column", "mode=combine"),
+    ("combine monthly files", "stack", ""), ("sum sales by city", "pivot", ""), ("how many orders per customer", "pivot", ""),
+    ("make a pie chart", "chart", ""), ("delete empty rows", "remove_blank_rows", ""), ("convert excel to csv", "convert", ""),
+    ("get the domain from email", "add_column", "find_text=%40"), ("swap rows and columns", "unpivot", "mode=transpose"),
+    ("add 18% gst", "add_column", "mode=math"), ("financial year from date", "add_column", "mode=date_part"),
+    ("keep only top 10 rows", "keep_rows", ""), ("sort by amount", "sort_rows", ""), ("remove extra spaces", "trim", ""),
+    ("capitalise names", "change_case", "case=title"), ("fill down", "fill_blanks", "method=down"),
+    ("text before dash", "add_column", "func=before"), ("split full name into first and last", "split_column", ""),
+    ("rank salespeople", "add_column", "mode=rank"), ("find which customers are missing in the other file", "merge", ""),
+    ("change text to number", "change_type", ""), ("one sheet per city", "split_pages", ""), ("leading zeros", "add_column", "func=pad"),
+    ("months columns into rows", "unpivot", "mode=unpivot"), ("percentage of total", "add_column", "mode=percent"),
+    ("remove special characters", "replace_values", "clean=special"), ("how can I delete rows that contain test", "filter_rows", ""),
+    ("cumulative total", "add_column", "mode=running_total"), ("label orders as high or low", "add_column", "mode=if_then"),
+    ("count characters", "add_column", "func=length"), ("rename headers", "rename_columns", ""), ("age groups", "add_column", "mode=ranges"),
+]
+
+
+def test_search_understands_questions(phone):
+    page = phone.open("/")
+    page.wait_for_selector("#q")
+    got = page.evaluate("""async (qs) => {
+        const { searchTools, hrefFor } = await import('/static/js/search.js');
+        return qs.map((q) => { const r = searchTools(q)[0]; return r ? hrefFor(r) : ''; });
+    }""", [q for q, _, _ in QUESTIONS])
+    wrong = [(q, href) for (q, op, opt), href in zip(QUESTIONS, got)
+             if not href.startswith(f"#/tool/{op}") or opt not in href]
+    assert not wrong
+
+
+def test_search_opens_the_best_match_with_its_options(phone):
+    page = phone.open("/")
+    page.fill("#q", "I want to extract a number from text")
+    expect(page.locator(".tool-card").first).to_contain_text("Part of a text")
+    names = page.locator(".tool-card .tool-name").all_inner_texts()
+    assert names[0] == "Add column" and "Replace values" in names
+    page.press("#q", "Enter")                                    # Enter opens the first result
+    page.click('[data-action="sample"]')
+    page.wait_for_selector("#opts")
+    expect(page.locator("#f-mode")).to_have_value("text")
+    expect(page.locator("#f-func")).to_have_value("after")
+    page.goto(phone.base + "/#/tool/change_case?case=upper&nope=1")  # unknown keys are ignored
+    expect(page.locator('[data-seg="case"][data-val="upper"]')).to_have_attribute("aria-pressed", "true")
 
 
 @pytest.mark.parametrize("device", ["iPhone SE", "iPhone 14", "Pixel 7", "Desktop Chrome"])
