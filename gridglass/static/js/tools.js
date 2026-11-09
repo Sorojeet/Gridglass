@@ -114,6 +114,13 @@ const first = (cols, type) => (cols.find((c) => !type || c.type === type) ?? col
 // field types: columns (multi), column (single), choice, select, text, number, toggle,
 //              conditions, aggs, sortkeys, types, rename.  `show(d)` hides a field.
 
+/** Add column → Part of a text: like a spreadsheet's LEFT, RIGHT, MID, TEXTBEFORE, TEXTAFTER, LEN and FIND. */
+const TEXT_FUNCS = [['before', 'Text before… (INV-001 → INV)'], ['after', 'Text after… (INV-001 → 001)'],
+  ['between', 'Text between… (Rao (Pune) → Pune)'], ['first', 'First characters'], ['last', 'Last characters'],
+  ['middle', 'Characters from the middle'], ['word', 'A word (1st, 2nd, last…)'], ['length', 'Length (number of characters)'],
+  ['find', 'Position of… (where it starts)'], ['pad', 'Pad to a length (7 → 00007)']];
+const FIND_FUNCS = ['before', 'after', 'between', 'find'];
+
 export const TOOLS = [
   {
     op: 'remove_duplicates', cat: 'clean', icon: 'copy', label: 'Remove duplicates',
@@ -317,16 +324,43 @@ export const TOOLS = [
   },
   {
     op: 'add_column', cat: 'shape', icon: 'addcol', label: 'Add column',
-    desc: 'Combine, calculate or fill in', keywords: 'new column formula calculate concat merge join math',
-    intro: 'Add a new column: join columns, do simple math, fill in one value, or add a running total, rank or % of total.',
+    desc: 'Combine, calculate or fill in', keywords: 'new column formula calculate concat merge join math text left right mid first last before after between extract length find pad substring word',
+    intro: 'Add a new column: join columns, do simple math, take part of a text (first or last characters, text before or after a dash…), or add a running total, rank or % of total.',
     verb: 'Add column',
     fields: [
       { key: 'name', type: 'text', label: 'New column name', placeholder: 'e.g. Total', default: '' },
       { key: 'mode', type: 'select', label: 'Make it from', default: 'combine',
         options: [['combine', 'Join columns'], ['math', 'Math (+ − × ÷)'], ['constant', 'One value for every row'],
+          ['text', 'Part of a text (first, last, before, after…)'],
           ['if_then', 'If … then … (rules)'], ['date_part', 'Part of a date (month, year, FY…)'],
           ['ranges', 'Number ranges (0–100, 100–500…)'],
           ['running_total', 'Running total'], ['rank', 'Rank (1, 2, 3…)'], ['percent', '% of total']] },
+      { key: 'text_left', type: 'column', label: 'Text column', default: (cols) => first(cols, 'text'),
+        show: (d) => d.mode === 'text' },
+      { key: 'func', type: 'select', label: 'Take', default: 'before', show: (d) => d.mode === 'text', options: TEXT_FUNCS },
+      { key: 'start', type: 'number', label: 'Start at character', placeholder: '1 is the first', default: 1, min: 1, step: 1,
+        show: (d) => d.mode === 'text' && d.func === 'middle' },
+      { key: 'count', type: 'number', label: 'How many characters', default: 3, min: 1, step: 1,
+        show: (d) => d.mode === 'text' && ['first', 'last', 'middle'].includes(d.func) },
+      { key: 'word', type: 'number', label: 'Which word', placeholder: '1 is the first', default: 1, min: 1, step: 1,
+        show: (d) => d.mode === 'text' && d.func === 'word' },
+      { key: 'pad_to', type: 'number', label: 'Make every value this long', placeholder: 'e.g. 5 turns 7 into 00007', default: 5, min: 1, step: 1,
+        show: (d) => d.mode === 'text' && d.func === 'pad' },
+      { key: 'pad_with', type: 'text', label: 'Fill in front with (one character)', placeholder: '0', default: '0',
+        show: (d) => d.mode === 'text' && d.func === 'pad' },
+      { key: 'find_text', type: 'text', label: 'Look for', placeholder: 'e.g. - or @ or a space', default: '-',
+        show: (d) => d.mode === 'text' && FIND_FUNCS.includes(d.func) },
+      { key: 'end_text', type: 'text', label: 'Up to', placeholder: 'e.g. )', default: '',
+        show: (d) => d.mode === 'text' && d.func === 'between' },
+      { key: 'from_end', type: 'choice', label: 'If it appears more than once, use the', default: 'false',
+        options: [['false', 'First'], ['true', 'Last']], show: (d) => d.mode === 'text' && FIND_FUNCS.includes(d.func) },
+      { key: 'word_from', type: 'choice', label: 'Count from the', default: 'false',
+        options: [['false', 'Start'], ['true', 'End']], show: (d) => d.mode === 'text' && d.func === 'word' },
+      { key: 'if_missing', type: 'choice', label: 'If it isn\u2019t there', default: 'blank',
+        options: [['blank', 'Leave blank'], ['all', 'Keep the whole text']],
+        show: (d) => d.mode === 'text' && ['before', 'after', 'between'].includes(d.func) },
+      { key: 'ignore_case', type: 'toggle', label: 'Ignore capitals (A = a)', default: false,
+        show: (d) => d.mode === 'text' && FIND_FUNCS.includes(d.func) },
       { key: 'rules', type: 'conditions', then: true, label: 'Rules (the first one that matches wins)',
         default: (cols) => [{ column: first(cols), operator: 'equals', value: '', then: '' }], show: (d) => d.mode === 'if_then' },
       { key: 'otherwise', type: 'text', label: 'Otherwise', placeholder: 'leave empty for a blank cell', default: '',
@@ -346,7 +380,7 @@ export const TOOLS = [
       { key: 'separator', type: 'text', label: 'Put between them', placeholder: 'a space', default: ' ',
         show: (d) => d.mode === 'combine' },
       { key: 'left', type: 'column', label: 'Column', filter: 'number', default: (cols) => first(cols, 'decimal') || first(cols, 'integer'),
-        show: (d) => !['combine', 'constant', 'if_then', 'date_part'].includes(d.mode) },
+        show: (d) => !['combine', 'constant', 'if_then', 'date_part', 'text'].includes(d.mode) },
       { key: 'descending', type: 'choice', label: 'Rank 1 is the', default: 'true',
         options: [['true', 'Largest'], ['false', 'Smallest']], show: (d) => d.mode === 'rank' },
       { key: 'within', type: 'columns', label: 'Count over', optional: true, default: null,
@@ -377,6 +411,20 @@ export const TOOLS = [
         };
       }
       if (d.mode === 'date_part') return { ...base, left: d.date_left, part: d.part };
+      if (d.mode === 'text') {
+        const f = d.func;
+        const out = { ...base, left: d.text_left, func: f };
+        if (['first', 'last', 'middle'].includes(f)) out.count = Number(d.count) || undefined;
+        if (f === 'middle') out.start = Number(d.start) || undefined;
+        if (f === 'word') out.count = Number(d.word) || undefined;
+        if (f === 'pad') Object.assign(out, { count: Number(d.pad_to) || undefined, pad_with: (d.pad_with || '0').slice(0, 1) });
+        if (FIND_FUNCS.includes(f)) Object.assign(out, { find_text: d.find_text, ignore_case: !!d.ignore_case });
+        if (FIND_FUNCS.includes(f)) out.from_end = d.from_end === 'true';
+        if (f === 'word') out.from_end = d.word_from === 'true';
+        if (f === 'between') out.end_text = d.end_text;
+        if (['before', 'after', 'between'].includes(f)) out.if_missing = d.if_missing;
+        return out;
+      }
       if (d.mode === 'ranges') {
         const labels = splitList(d.labels);
         return { ...base, left: d.left, breaks: splitList(d.breaks).map((x) => Number(x.replace(/,/g, ''))), ...(labels.length ? { labels } : {}) };
@@ -393,6 +441,8 @@ export const TOOLS = [
     ready: (d) => (!d.name.trim() ? 'Give the new column a name.'
       : (d.mode === 'math' || d.mode === 'ranges' || TOTALS.includes(d.mode)) && !d.left ? 'Choose a number column.'
         : d.mode === 'date_part' && !d.date_left ? 'This file has no date column. Use Change type to make one.'
+          : d.mode === 'text' && FIND_FUNCS.includes(d.func) && !d.find_text ? 'Type the text to look for.'
+            : d.mode === 'text' && d.func === 'between' && !d.end_text ? 'Type the text it ends before.'
           : d.mode === 'if_then' && d.rules.some((r) => !NO_VALUE_OPS.has(r.operator) && !String(r.value).trim()) ? 'Type a value for each rule.'
             : d.mode === 'ranges' && !splitList(d.breaks).length ? 'Type where the ranges start, e.g. 100, 500, 1000.'
               : d.mode === 'ranges' && splitList(d.breaks).some((x) => Number.isNaN(Number(x.replace(/,/g, '')))) ? 'Ranges start at numbers, e.g. 100, 500.'
@@ -570,6 +620,19 @@ const LOADERS = {
     })),
     otherwise: s.otherwise ?? '',
     date_left: s.mode === 'date_part' ? s.left : '',
+    text_left: s.mode === 'text' ? s.left : '',
+    func: s.func ?? 'before',
+    count: s.mode === 'text' && ['first', 'last', 'middle'].includes(s.func) ? s.count : 3,
+    start: s.start ?? 1,
+    word: s.func === 'word' ? s.count : 1,
+    pad_to: s.func === 'pad' ? s.count : 5,
+    pad_with: s.pad_with ?? '0',
+    find_text: s.find_text ?? '-',
+    end_text: s.end_text ?? '',
+    from_end: s.from_end && s.func !== 'word' ? 'true' : 'false',
+    word_from: s.from_end && s.func === 'word' ? 'true' : 'false',
+    if_missing: s.if_missing ?? 'blank',
+    ignore_case: !!s.ignore_case,
     breaks: (s.breaks ?? []).join(', '),
     labels: (s.labels ?? []).join(', '),
     descending: s.descending === false ? 'false' : 'true',
