@@ -16,7 +16,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import Config
 
-__version__ = "1.20.0"
+__version__ = "1.21.0"
 log = logging.getLogger("gridglass")
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
@@ -76,6 +76,24 @@ def create_app(config: type[Config] = Config, **overrides: Any) -> Flask:
     client = app.config.get("ADSENSE_CLIENT", "")
     if client and not re.fullmatch(r"ca-pub-\d{10,20}", client):
         raise ValueError("ADSENSE_CLIENT should look like ca-pub-1234567890123456.")
+
+    fingerprints = _android_fingerprints(app.config.get("ANDROID_CERT_SHA256", ""))
+    package = app.config.get("ANDROID_PACKAGE", "")
+    if fingerprints and not re.fullmatch(r"[a-zA-Z][\w]*(\.[a-zA-Z][\w]*)+", package):
+        raise ValueError("ANDROID_PACKAGE should look like com.gridglass.app.")
+
+    @app.get("/.well-known/assetlinks.json")
+    def asset_links():
+        """Digital Asset Links: lets the Play Store app show the site full-screen (Trusted Web Activity)."""
+        if not fingerprints:
+            return jsonify(error={"code": "not_found", "message": "No Android app is set up."}), 404
+        resp = jsonify([{
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {"namespace": "android_app", "package_name": package,
+                       "sha256_cert_fingerprints": fingerprints},
+        }])
+        resp.headers["Cache-Control"] = "public, max-age=3600"
+        return resp
 
     @app.before_request
     def main_address():
@@ -173,6 +191,15 @@ def create_app(config: type[Config] = Config, **overrides: Any) -> Flask:
         _start_cleaner(store, interval)
 
     return app
+
+
+def _android_fingerprints(value: str) -> list[str]:
+    """'ab:cd:…, EF:…' -> ['AB:CD:…', 'EF:…']; each must be a full SHA-256 (32 colon-separated bytes)."""
+    found = [f.strip().upper() for f in value.split(",") if f.strip()]
+    for f in found:
+        if not re.fullmatch(r"[0-9A-F]{2}(:[0-9A-F]{2}){31}", f):
+            raise ValueError("ANDROID_CERT_SHA256 should be SHA-256 fingerprints like AB:CD:…, separated by commas.")
+    return found
 
 
 def _start_cleaner(store, interval: int) -> None:

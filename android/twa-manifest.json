@@ -1,0 +1,85 @@
+{
+  "packageId": "com.gridglass.app",
+  "host": "gridglass.in",
+  "name": "Gridglass",
+  "launcherName": "Gridglass",
+  "display": "standalone",
+  "themeColor": "#0F766E",
+  "themeColorDark": "#000000",
+  "navigationColor": "#EEF3F6",
+  "navigationColorDark": "#0B1215",
+  "navigationDividerColor": "#000000",
+  "navigationDividerColorDark": "#000000",
+  "backgroundColor": "#EEF3F6",
+  "enableNotifications": false,
+  "startUrl": "/",
+  "iconUrl": "https://gridglass.in/static/icon-512.png",
+  "maskableIconUrl": "https://gridglass.in/static/icon-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./upload-key.jks",
+    "alias": "upload"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "unknown",
+  "webManifestUrl": "https://gridglass.in/static/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://gridglass.in/",
+  "minSdkVersion": 24,
+  "shareTarget": {
+    "action": "https://gridglass.in/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [
+        {
+          "name": "file",
+          "accept": [
+            "application/csv",
+            "application/json",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/x-ndjson",
+            "text/comma-separated-values",
+            "text/csv",
+            "text/plain",
+            "text/tab-separated-values"
+          ]
+        }
+      ]
+    }
+  },
+  "orientation": "default",
+  "fingerprints": [],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "protocolHandlers": [],
+  "fileHandlers": [
+    {
+      "actionUrl": "https://gridglass.in/",
+      "mimeTypes": [
+        "text/csv",
+        "text/comma-separated-values",
+        "application/csv",
+        "text/tab-separated-values",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+        "application/json",
+        "application/x-ndjson",
+        "text/plain"
+      ]
+    }
+  ],
+  "launchHandlerClientMode": "focus-existing",
+  "displayOverride": [],
+  "appVersion": "1.0.0"
+}

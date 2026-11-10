@@ -18,3 +18,5 @@ services:
         value: gridglass.in
       - key: ADSENSE_CLIENT      # ca-pub-…, set in the dashboard once AdSense gives it to you
         sync: false
+      - key: ANDROID_CERT_SHA256 # Play app signing fingerprints, see android/README.md
+        sync: false
