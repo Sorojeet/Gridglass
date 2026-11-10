@@ -58,7 +58,7 @@ android {
         minSdkVersion 24
         targetSdkVersion 36
         // CI passes ANDROID_VERSION_CODE (the workflow run number), so every upload to Play is higher.
-        versionCode (System.getenv("ANDROID_VERSION_CODE") ?: "1").toInteger()
+        versionCode Integer.parseInt(System.getenv("ANDROID_VERSION_CODE") ?: "1")
         versionName "1.0.0"
 
         // The name for the application
