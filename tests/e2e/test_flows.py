@@ -327,6 +327,34 @@ def test_change_type_and_sort(phone):
     assert amounts == sorted(amounts, reverse=True)
 
 
+def test_status_line_above_the_button_and_result_preview(phone):
+    page = phone.upload_sample("filter_rows")
+    note = page.locator("#act-note")
+    expect(note).to_have_text("Type a value to filter by.")       # what's missing, right where the button is
+    expect(note).to_have_attribute("data-kind", "needs")
+    page.fill("#c0v", "Ravi Kumar")
+    expect(note).to_contain_text("fewer rows · 6 columns")         # what the options will do
+    expect(note).to_have_attribute("data-kind", "ok")
+    note.click()                                                   # jumps to the preview
+    expect(page.locator("#pv")).to_be_in_viewport()
+    apply(page)
+    expect(page.locator(".topbar-title")).to_have_text("Back to options")
+    expect(page.locator("#peek-box")).to_be_hidden()
+    page.click('[data-action="peek"]')
+    expect(page.locator("#peek-box tbody tr").first).to_contain_text("Ravi Kumar")
+    expect(page.locator('[data-action="peek"]')).to_have_text("Hide the preview")
+    page.click('[data-action="peek"]')
+    expect(page.locator("#peek-box")).to_be_hidden()
+
+
+def test_slash_focuses_the_search(phone):
+    page = phone.open("/")
+    page.wait_for_selector(".tool-card")
+    page.locator("body").press("/")
+    expect(page.locator("#q")).to_be_focused()
+    expect(page.locator("#q")).to_have_value("")                  # the slash itself isn't typed
+
+
 def test_pivot_works_like_group_by(phone):
     page = phone.upload_sample("pivot")
     page.click('[data-col-none="rows"]')

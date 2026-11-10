@@ -55,6 +55,7 @@ export const UI = {
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   sample: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/>',
+  down: '<path d="M6 9l6 6 6-6"/>',
   alert: '<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/>',
 };
 

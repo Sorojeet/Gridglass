@@ -54,6 +54,13 @@ tests/               pytest suite
 | | `split_column` | |
 | | `add_column` (constant, combine, math, part of a text and more, see below) | |
 
+**Ease-of-use pass (1.20):**
+- A status line sits above the main button on every options screen (`#act-note`): what's still needed ("Type a value to filter by."), an error, or what the options will do ("38 fewer rows · 2 columns"). On phones, tapping it jumps to the preview under a long form.
+- On desktop the main button sticks to the bottom of the form column, so it stays in reach under long forms (pivot, add column).
+- The result screen has **Preview the result** (first 20 rows on phones, 50 on desktop) and its back arrow reads "Back to options".
+- Home: `/` focuses the search; on desktop the search box is focused on arrival.
+- No focus frame around the whole page when a screen changes.
+
 **Workbook → one file per sheet (1.19):** Split into pages offers **Each sheet** when the upload is a workbook with more than one sheet. `GET /files/<id>/sheets` lists each sheet (rows, columns, header row found automatically); `GET /files/<id>/export-sheets?format=xlsx|csv|json|pdf` returns `<name> - sheets.zip` with one file per non-empty sheet (`<name> - <sheet>.xlsx`, the sheet keeping its name). It reads the original upload (`io.workbook_tables` / `io.export_sheets`), so the saved steps aren't applied; values only, no formatting or formulas.
 
 **Search that understands questions (1.16):** the home search box (`static/js/search.js`) ranks tools for questions like "I want to extract a number from text", entirely in the browser.
