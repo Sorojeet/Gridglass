@@ -608,16 +608,19 @@ TOOLS: list[ToolPage] = [
                  ("Grand totals", "A total row and, with a Columns field, a total column."),
                  ("Sort", "As in the file, by the Rows (A → Z or Z → A), or by any value, largest or smallest first. "
                           "With a Columns field, rows sort by their total. The Grand Total row stays at the bottom."),
-                 ("One sheet for each (report filter pages)", "Pick a column such as Region: you get one pivot for each "
-                  "region, each with its own Grand Total. Download as XLSX for one sheet per region, PDF for one "
-                  "section each, or CSV/JSON for one file each in a .zip. Up to 200 pages."),
+                 ("Report filter", "Pick a column such as Region, then All values or just the ones you tick: the "
+                  "pivot counts only those rows, with no extra column."),
+                 ("One sheet for each value (show report filter pages)", "With a report filter, get one pivot for each "
+                  "value, each with its own sort and Grand Total. Download as XLSX for one sheet per value (named "
+                  "after it), PDF for one section each, or CSV/JSON for one file each in a .zip. Up to 200 pages."),
                  ("Only count rows where", "Optional filters (the same conditions as Filter rows) applied before grouping, "
                                            "so totals and the Grand Total only count matching rows."),
                  ("Chart", "Column, bar, line or pie; follows light and dark mode.")],
         faqs=[("How many columns can the Columns field make?", "Up to 200."),
-              ("Is there something like Show Report Filter Pages?", "Yes: choose a column under <b>One sheet for "
-               "each</b>. Each value gets its own pivot and, in the .xlsx download, its own sheet named after it. "
-               "Turn it off on the download screen to get everything in one table."),
+              ("Is there something like Show Report Filter Pages?", "Yes. Pick a <b>Report filter</b> column, tick "
+               "the values you want (or keep All values), and turn on <b>One sheet for each value</b>. In the .xlsx "
+               "download each value gets its own sheet named after it, with the same layout as the preview. Turn it "
+               "off on the download screen to get one table instead."),
               ("Can I sort a pivot table by the totals?", "Yes. Under <b>Sort</b>, pick a value such as ‘Sum of "
                "Amount, largest first’."),
               ("Can I edit the pivot after making it?", "Yes. Tap Edit on the result screen; the preview updates live."),

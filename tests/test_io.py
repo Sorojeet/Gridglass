@@ -139,6 +139,16 @@ def test_export_pdf_wide_and_long(tmp_path):
     assert out.read_bytes().count(b"/Type /Page") >= 2 or out.stat().st_size > 5000
 
 
+def test_split_can_leave_the_split_column_out(tmp_path):
+    import fastexcel
+
+    df = pl.DataFrame({"City": ["Pune", "Delhi", "Pune"], "Amt": [1, 2, 3]})
+    dest = export(df.lazy(), "xlsx", tmp_path / "p.xlsx", split_by="City", drop_split=True)
+    book = fastexcel.read_excel(dest)
+    assert book.sheet_names == ["Delhi", "Pune"]
+    assert book.load_sheet("Pune").to_polars().columns == ["Amt"]
+
+
 def test_export_pdf_with_a_huge_cell_or_header(tmp_path):
     """One very wide column (a 5,000-letter name, a 309-digit number) used to squeeze the others to nothing."""
     for df in (pl.DataFrame({"T": ["N"], "x" * 5000: [1]}), pl.DataFrame({"Card": ["1"], "Val": [1e308]})):

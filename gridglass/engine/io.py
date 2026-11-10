@@ -544,7 +544,7 @@ def _clean_names(names: list[str]) -> list[str]:
 def export(lf: pl.LazyFrame, fmt: str, dest: str | Path, *, title: str = "Gridglass export",
            max_pdf_rows: int = 10_000, split_by: str | None = None, split_rows: int | None = None,
            files: bool = False, orientation: str = "auto", columns: list[str] | None = None,
-           max_pages: int = MAX_SPLIT_PAGES, decimals: int | None = None) -> Path:
+           max_pages: int = MAX_SPLIT_PAGES, decimals: int | None = None, drop_split: bool = False) -> Path:
     """Write the result as CSV, XLSX, JSON or PDF.
 
     - `split_by` makes one part per value of that column; `split_rows` one part per N rows.
@@ -552,6 +552,7 @@ def export(lf: pl.LazyFrame, fmt: str, dest: str | Path, *, title: str = "Gridgl
     - `columns` keeps only those columns, in that order.
     - `orientation` (PDF): auto (landscape when wide), portrait or landscape.
     - `decimals` writes every decimal number with exactly that many places (236.50); pivot results use 2.
+    - `drop_split` leaves the `split_by` column out of each part: the sheet name already says it (pivot pages).
     """
     fmt = fmt.lower()
     if fmt not in EXPORT_FORMATS:
@@ -583,6 +584,8 @@ def export(lf: pl.LazyFrame, fmt: str, dest: str | Path, *, title: str = "Gridgl
             return dest
         df = lf.collect()
         parts = (_split(df, split_by, max_pages) if split_by else _chunks(df, split_rows, max_pages)) if split else None
+        if parts and split_by and drop_split and df.width > 1:
+            parts = [(label, part.drop(split_by)) for label, part in parts]
         if files:
             _write_zip(dest, parts, fmt, title=title, orientation=orientation, max_pdf_rows=max_pdf_rows,
                        decimals=decimals)

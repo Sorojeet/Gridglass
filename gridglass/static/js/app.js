@@ -681,7 +681,8 @@ function wireDownload() {
   fmt.addEventListener('change', pageText);
   pageText();
   const opts = () => {
-    const split = pages && $('#by-page').checked ? { split_by: pages, ...(['csv', 'json'].includes(fmt.value) ? { files: '1' } : {}) } : {};
+    const split = pages && $('#by-page').checked
+      ? { split_by: pages, drop_split: '1', ...(['csv', 'json'].includes(fmt.value) ? { files: '1' } : {}) } : {};
     if (fmt.value !== 'pdf') return split;
     const o = { ...split, orientation: $('#pdf-opts [data-seg="orient"][aria-pressed="true"]').dataset.val, title: $('#pdf-title').value.trim() };
     if ($('#pdf-cols') && !$('#pdf-cols').hidden) {
@@ -842,6 +843,24 @@ const FIELD = {
   text: (f, v) => `<input class="input" id="f-${f.key}" data-key="${f.key}" value="${esc(v)}" placeholder="${esc(f.placeholder || '')}">`,
   number: (f, v) => `<input class="input" id="f-${f.key}" data-key="${f.key}" type="number" inputmode="decimal" value="${esc(v)}"
     ${f.min !== undefined ? `min="${f.min}"` : ''} ${f.max !== undefined ? `max="${f.max}"` : ''} step="${f.step || 1}">`,
+  values(f, v) { // the values of another field's column, as chips: all of them, or the ones chosen
+    const column = state.draft[f.of];
+    if (!column) return '';
+    const data = state.values[column];
+    const all = v === null;
+    const mode = seg(`${f.key}__mode`, [['all', 'All values'], ['some', 'Choose values']], all ? 'all' : 'some', f.label);
+    if (all) return mode;
+    if (!data || typeof data.then === 'function') { // loading: draw again when they arrive
+      loadValues(column).then((d) => { state.values[column] = d; if (state.draft[f.of] === column) renderForm(); });
+      return `${mode}<p class="hint">Loading values…</p>`;
+    }
+    const chosen = new Set((v || []).map(String));
+    return `${mode}<div class="col-chips">${data.values.map((x, i) => `<button type="button" class="col-chip" data-val-toggle="${f.key}"
+      data-i="${i}" aria-pressed="${chosen.has(String(x.value))}"><span>${esc(x.value)}</span><small>${num(x.count)}</small></button>`).join('')}</div>
+      ${data.truncated ? `<p class="hint">Showing the ${num(data.values.length)} most common values.</p>` : ''}
+      <div class="row-links"><button type="button" class="btn-link" data-val-all="${f.key}">Select all</button>
+      <button type="button" class="btn-link" data-val-none="${f.key}">Clear</button></div>`;
+  },
   toggle: (f, v) => `<label class="toggle"><input type="checkbox" data-key="${f.key}" ${v ? 'checked' : ''}><span class="switch" aria-hidden="true"></span><span>${esc(f.label)}</span></label>`,
   conditions(f, rows) {
     const key = f.key;
@@ -992,6 +1011,7 @@ function onFormInput(e) {
   if (el.id === 'sheet2') { if (e.type === 'change') changeOtherSheet(el.value); return; }
   if (el.dataset.key) {
     d[el.dataset.key] = el.type === 'checkbox' ? el.checked : el.value;
+    for (const f of state.tool.fields) if (f.of === el.dataset.key) d[f.key] = f.default ?? null; // values of another column
     if (e.type === 'change' && (el.tagName === 'SELECT' || el.type === 'checkbox')) renderForm();
   } else if (el.dataset.list) {
     d[el.dataset.list][Number(el.dataset.i)][el.dataset.prop] = el.value;
@@ -1034,6 +1054,20 @@ function onFormClick(e) {
     return;
   }
   const d = state.draft;
+  if (b.dataset.valToggle || b.dataset.valAll || b.dataset.valNone) { // report filter values
+    const key = b.dataset.valToggle || b.dataset.valAll || b.dataset.valNone;
+    const f = state.tool.fields.find((x) => x.key === key);
+    const list = state.values[d[f.of]]?.values ?? [];
+    if (b.dataset.valAll) d[key] = list.map((x) => x.value);
+    else if (b.dataset.valNone) d[key] = [];
+    else {
+      const v = list[Number(b.dataset.i)].value;
+      d[key] = (d[key] || []).some((x) => String(x) === String(v)) ? d[key].filter((x) => String(x) !== String(v)) : [...(d[key] || []), v];
+    }
+    renderForm();
+    schedulePreview();
+    return;
+  }
   if (b.dataset.seg) {
     const key = b.dataset.seg;
     if (key.endsWith('__mode')) {
@@ -1505,6 +1539,12 @@ function schedulePreview(delay = 350) {
   }, delay);
 }
 
+/** "Downloads as one sheet for each City (5 sheets)." */
+function pagesNote(step) {
+  const n = step.report_values?.length || state.cols.find((c) => c.name === step.pages)?.distinct || 0;
+  return `Downloads as one sheet for each ${step.pages}${n ? ` (${plural(n, 'sheet')})` : ''}, each with this layout.`;
+}
+
 let lastPreview = null; // what's on screen, so the pager can ask for another page of it
 
 async function showPreview(steps, step, hint = null) {
@@ -1516,7 +1556,12 @@ async function showPreview(steps, step, hint = null) {
   box.classList.add('loading');
   try {
     const offset = state.browse.all ? state.browse.page * config.page_rows : 0;
-    const { preview } = await api(`/files/${state.file.id}/preview?limit=${previewRows()}&offset=${offset}`, { method: 'POST', body: { steps } });
+    // Report filter pages: preview the pivot as one table (without the page column); a note says how it splits.
+    const paged = !hint && step?.op === 'pivot' && step.pages;
+    const shown = paged ? [...steps.slice(0, -1), (({ pages, ...whole }) => whole)(step)] : steps;
+    const check = paged ? api(`/files/${state.file.id}/preview?limit=1`, { method: 'POST', body: { steps } }) : null;
+    const [{ preview }] = await Promise.all([
+      api(`/files/${state.file.id}/preview?limit=${previewRows()}&offset=${offset}`, { method: 'POST', body: { steps: shown } }), check]);
     if (seq !== previewSeq) return;
     if (state.browse.all && preview.total_rows > config.browse_max_rows) { // grew past the limit: back to quick view
       state.browse = { all: false, page: 0 };
@@ -1526,13 +1571,6 @@ async function showPreview(steps, step, hint = null) {
     box.classList.remove('loading', 'error');
     box.innerHTML = table(preview, steps.some((x) => x.op === 'pivot') ? PIVOT_DECIMALS : null);
     state.pvData = hint ? null : preview;
-    if (!hint && step?.op === 'pivot' && step.pages) { // the chart shows everything together, not page after page
-      const { pages, ...whole } = step;
-      const all = await api(`/files/${state.file.id}/preview?limit=${previewRows()}`, { method: 'POST', body: { steps: [...steps.slice(0, -1), whole] } })
-        .catch(() => null);
-      if (seq !== previewSeq) return;
-      state.pvData = all?.preview ?? null;
-    }
     if (state.view === 'chart') renderChart();
     const diff = preview.total_rows - state.before;
     badge.dataset.kind = diff < 0 ? 'warn' : 'ok';
@@ -1545,6 +1583,7 @@ async function showPreview(steps, step, hint = null) {
       preview.truncated && !state.browse.all ? `Showing the first ${num(preview.rows.length)} of ${num(preview.total_rows)} rows.` : '',
       !state.browse.all && preview.total_rows > config.browse_max_rows ? 'Download the file to see every row.' : '',
       colDiff ? `${colDiff > 0 ? '+' : '−'}${plural(Math.abs(colDiff), 'column')}.` : '',
+      paged ? pagesNote(step) : '',
     ].filter(Boolean).join(' ');
     renderPager(preview);
     state.previewOk = !hint;

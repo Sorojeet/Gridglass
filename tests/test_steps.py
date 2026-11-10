@@ -798,3 +798,36 @@ def test_pivot_pages_limit(apply):
     lf = pl.LazyFrame({"P": [str(i) for i in range(201)], "C": ["x"] * 201})
     with pytest.raises(StepError, match="too many pages"):
         apply(lf, {"op": "pivot", "rows": ["C"], "pages": "P"})
+
+
+def test_pivot_report_filter_keeps_only_the_chosen_values(apply):
+    out = apply(PIVOT_SALES, {"op": "pivot", "rows": ["City"], "values": SUM, "totals": True,
+                              "report_filter": "Region", "report_values": ["N"]})
+    assert out.columns == ["City", "Sum of Amt"]                       # no extra column
+    assert out.rows() == [("Delhi", 17), ("Agra", 5), ("Grand Total", 22)]
+    every = apply(PIVOT_SALES, {"op": "pivot", "rows": ["City"], "values": SUM, "report_filter": "Region"})
+    assert every.height == 4                                           # no values chosen: every row
+
+
+def test_pivot_report_filter_pages_only_for_the_chosen_values(apply):
+    out = apply(PIVOT_SALES, {"op": "pivot", "rows": ["City"], "values": SUM, "report_filter": "Region",
+                              "report_values": ["S", "N"], "pages": "Region"})
+    assert out["Region"].unique(maintain_order=True).to_list() == ["N", "S"]
+
+
+@pytest.mark.parametrize("col, values, want", [
+    ("Year", [2026], ["b"]), ("Price", [1.5], ["a"]), ("Day", ["2026-02-01"], ["b"]),
+    ("At", ["2026-01-01T10:30:00"], ["a"]), ("Ok", [True], ["a"]),
+])
+def test_pivot_report_filter_on_numbers_dates_and_true_false(apply, col, values, want):
+    import datetime as dt
+
+    lf = pl.LazyFrame({"K": ["a", "b"], "Year": [2025, 2026], "Price": [1.5, 2.0], "Day": [dt.date(2026, 1, 1), dt.date(2026, 2, 1)],
+                       "At": [dt.datetime(2026, 1, 1, 10, 30), dt.datetime(2026, 1, 2)], "Ok": [True, False]})
+    out = apply(lf, {"op": "pivot", "rows": ["K"], "report_filter": col, "report_values": values})
+    assert out["K"].to_list() == want
+
+
+def test_pivot_report_filter_cant_also_be_a_row(apply):
+    with pytest.raises(StepError, match="report filter"):
+        apply(PIVOT_SALES, {"op": "pivot", "rows": ["City"], "report_filter": "City"})
