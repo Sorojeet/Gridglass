@@ -549,3 +549,47 @@ def test_pdf_orientation_title_and_columns(tmp_path):
         export(lf, "pdf", tmp_path / "q.pdf", orientation="sideways")
     with pytest.raises(ExportError, match="not found"):
         export(lf, "csv", tmp_path / "q.csv", columns=["nope"])
+
+
+def _workbook(path):
+    import xlsxwriter
+
+    with xlsxwriter.Workbook(path) as wb:
+        ws = wb.add_worksheet("Jan Sales")
+        ws.write_row(0, 0, ["Monthly report"])          # a title above the table
+        ws.write_row(2, 0, ["City", "Amount"])
+        ws.write_row(3, 0, ["Pune", 100])
+        ws.write_row(4, 0, ["Delhi", 250.5])
+        ws = wb.add_worksheet("Feb & Mar")
+        ws.write_row(0, 0, ["Item", "Qty"])
+        ws.write_row(1, 0, ["A", 1])
+        wb.add_worksheet("Empty")
+    return path
+
+
+def test_workbook_tables_reads_every_sheet(tmp_path):
+    from gridglass.engine.io import workbook_tables
+
+    tables = dict(workbook_tables(_workbook(tmp_path / "b.xlsx")))
+    assert list(tables) == ["Jan Sales", "Feb & Mar", "Empty"]
+    assert tables["Jan Sales"].columns == ["City", "Amount"] and tables["Jan Sales"]["Amount"].to_list() == [100.0, 250.5]
+    assert tables["Empty"].height == 0
+
+
+@pytest.mark.parametrize("fmt", ["xlsx", "csv", "json", "pdf"])
+def test_export_each_sheet_as_its_own_file(tmp_path, fmt):
+    import zipfile
+
+    from gridglass.engine.io import export_sheets
+
+    dest = export_sheets(_workbook(tmp_path / "b.xlsx"), fmt, tmp_path / "out.zip", title="b")
+    names = zipfile.ZipFile(dest).namelist()
+    assert names == [f"b - Jan Sales.{fmt}", f"b - Feb & Mar.{fmt}"]   # the empty sheet is left out
+    if fmt == "xlsx":
+        import fastexcel
+
+        one = tmp_path / "one.xlsx"
+        one.write_bytes(zipfile.ZipFile(dest).read(names[0]))
+        book = fastexcel.read_excel(one)
+        assert book.sheet_names == ["Jan Sales"]
+        assert book.load_sheet(0).to_polars().rows() == [("Pune", 100.0), ("Delhi", 250.5)]

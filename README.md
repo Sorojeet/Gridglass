@@ -54,6 +54,8 @@ tests/               pytest suite
 | | `split_column` | |
 | | `add_column` (constant, combine, math, part of a text and more, see below) | |
 
+**Workbook → one file per sheet (1.19):** Split into pages offers **Each sheet** when the upload is a workbook with more than one sheet. `GET /files/<id>/sheets` lists each sheet (rows, columns, header row found automatically); `GET /files/<id>/export-sheets?format=xlsx|csv|json|pdf` returns `<name> - sheets.zip` with one file per non-empty sheet (`<name> - <sheet>.xlsx`, the sheet keeping its name). It reads the original upload (`io.workbook_tables` / `io.export_sheets`), so the saved steps aren't applied; values only, no formatting or formulas.
+
 **Search that understands questions (1.16):** the home search box (`static/js/search.js`) ranks tools for questions like "I want to extract a number from text", entirely in the browser.
 - Filler words are dropped, endings trimmed and synonyms mapped (extract/get/pull → take, vlookup → lookup, per/by → group).
 - Each tool scores by its name, keywords, description and intro; `INTENTS` (everyday tasks) add a strong match, a hint ("Part of a text → Text after “@”") and options to open with.
@@ -127,7 +129,7 @@ Conversion is not a step. Import any supported format and export as CSV (with a 
 - Pivot `filters` (conditions, `filter_match`) limit rows before grouping (1.11).
 - Pivot `sort_by` (`"rows"` or a value's name such as `"Sum of Amount"`) and `descending` order the rows; with a Columns field, rows sort by their total for that value. The Grand Total row stays last (1.17).
 - Pivot report filter (1.18): `report_filter` (a column) and `report_values` (the values to keep, as the app lists them: text, numbers, true/false or ISO dates; empty = all) limit the rows before grouping, with no extra column.
-- Pivot `pages` ("Show Report Filter Pages", set to the report filter column): one pivot per value (A→Z, blanks last, up to 200), each with its own sort and Grand Total, stacked with the page value in the first column. The preview shows one table without that column, plus "Downloads as one sheet for each City (5 sheets)". The result screen downloads one sheet (XLSX), section (PDF) or file in a .zip (CSV/JSON) per value via `split_by` + `drop_split=1` (the page column is left out of each part); a toggle gives one table instead.
+- Pivot `pages` ("Show Report Filter Pages", set to the report filter column): one pivot per value (A→Z, blanks last, up to 200), each with its own sort and Grand Total, stacked with the page value in the first column. The preview shows one table without that column, plus "Downloads as one sheet for each City (5 sheets)". The result screen's "For each City" choice downloads one sheet (XLSX) or section (PDF) per value, or one workbook / PDF / CSV / JSON file per value in a .zip (`files=1`), via `split_by` + `drop_split=1` (the page column is left out of each part); or everything in one table (1.19).
 - Pivot sums, averages and medians are rounded to 2 places (`steps.DECIMALS`), and after a pivot every decimal is shown with exactly 2 places, in the preview and in CSV (`float_precision`), XLSX (`0.00` format) and PDF downloads (1.14). Other files keep numbers exactly as they are.
 - The **Make a chart** card (`op: 'chart'`, `opens: 'pivot'`) opens the Pivot table tool on its Chart tab.
 

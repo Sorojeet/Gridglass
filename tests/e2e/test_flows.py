@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import zipfile
 from pathlib import Path
 
 import polars as pl
@@ -66,7 +67,9 @@ QUESTIONS = [
     ("capitalise names", "change_case", "case=title"), ("fill down", "fill_blanks", "method=down"),
     ("text before dash", "add_column", "func=before"), ("split full name into first and last", "split_column", ""),
     ("rank salespeople", "add_column", "mode=rank"), ("find which customers are missing in the other file", "merge", ""),
-    ("change text to number", "change_type", ""), ("one sheet per city", "split_pages", ""), ("leading zeros", "add_column", "func=pad"),
+    ("change text to number", "change_type", ""), ("one sheet per city", "split_pages", ""),
+    ("split workbook sheets into separate files", "split_pages", "by=sheets"),
+    ("multiple sheets into multiple workbooks", "split_pages", "by=sheets"), ("leading zeros", "add_column", "func=pad"),
     ("months columns into rows", "unpivot", "mode=unpivot"), ("percentage of total", "add_column", "mode=percent"),
     ("remove special characters", "replace_values", "clean=special"), ("how can I delete rows that contain test", "filter_rows", ""),
     ("cumulative total", "add_column", "mode=running_total"), ("label orders as high or low", "add_column", "mode=if_then"),
@@ -390,15 +393,27 @@ def test_pivot_report_filter_pages(phone):
     expect(page.locator("#chart svg")).not_to_contain_text("Bengaluru")
     page.click("#tab-table")
     apply(page)
-    expect(page.locator("#by-page-text")).to_have_text("One sheet for each City")
+    expect(page.locator("#by-page option:checked")).to_have_text("One sheet for each City (one workbook)")
     book = fastexcel.read_excel(download(page, "xlsx"))
     assert book.sheet_names == ["Bengaluru", "Chennai", "Delhi", "Mumbai", "Pune"]
     pune = book.load_sheet("Pune").to_polars()
     assert pune.columns == ["Customer", "Sum of Amount"] and pune["Customer"][-1] == "Grand Total"   # no City column
     sums = pune["Sum of Amount"].to_list()[:-1]
     assert sums == sorted(sums, reverse=True)
+    page.select_option("#by-page", "files")                      # one workbook for each city
+    with zipfile.ZipFile(download(page, "xlsx")) as z:
+        names = sorted(z.namelist())
+        assert names == [f"sample-orders - {c}.xlsx" for c in ("Bengaluru", "Chennai", "Delhi", "Mumbai", "Pune")]
+        pune = fastexcel.read_excel(z.read("sample-orders - Pune.xlsx")).load_sheet(0).to_polars()
+        assert pune.columns == ["Customer", "Sum of Amount"]
+    page.select_option("#fmt", "pdf")                            # one PDF for each city: the choice is kept
+    expect(page.locator("#by-page option:checked")).to_have_text("One PDF for each City (.zip)")
+    with zipfile.ZipFile(download(page, "pdf")) as z:
+        assert len(z.namelist()) == 5 and all(n.endswith(".pdf") for n in z.namelist())
+    page.select_option("#by-page", "one")                        # or everything in one table
     page.select_option("#fmt", "csv")
-    expect(page.locator("#by-page-text")).to_have_text("One file (in a .zip) for each City")
+    expect(page.locator("#by-page option:checked")).to_have_text("Everything in one table")
+    assert download(page, "csv").read_text(encoding="utf-8-sig").startswith("City,Customer,Sum of Amount")
     page.click('a[href="#/edit/0"]')                              # the form comes back as it was
     expect(page.locator("#f-rf")).to_have_value("City")
     expect(page.locator('[data-key="rf_pages"]')).to_be_checked()
@@ -766,6 +781,45 @@ def test_split_pages_tool_spreadsheet(phone):
     with page.expect_download() as dl:
         page.click('[data-action="download"]')
     assert fastexcel.read_excel(dl.value.path()).sheet_names == ["Bengaluru", "Chennai", "Delhi", "Mumbai", "Pune"]
+
+
+def test_split_a_workbook_into_one_file_per_sheet(phone, tmp_path):
+    import zipfile
+
+    import fastexcel
+
+    book = tmp_path / "book.xlsx"
+    with xlsxwriter.Workbook(book) as wb:
+        ws = wb.add_worksheet("Jan Sales")
+        ws.write_row(0, 0, ["Monthly report"])
+        ws.write_row(2, 0, ["City", "Amount"])
+        ws.write_row(3, 0, ["Pune", 100])
+        wb.add_worksheet("Feb").write_column(0, 0, ["Sales", 1, 2])
+        wb.add_worksheet("Notes")                                  # empty: left out
+    page = phone.open("/#/tool/split_pages")
+    page.set_input_files("#file", str(book))
+    page.wait_for_selector("#split-by")
+    page.click('[data-seg="splitby"][data-val="sheets"]')
+    expect(page.locator("#split-format")).to_be_hidden()
+    expect(page.locator("#page-list li")).to_have_count(3)
+    expect(page.locator("#page-list li").first).to_contain_text("Jan Sales")
+    expect(page.locator("#page-list li").last).to_contain_text("1 empty sheet left out")
+    expect(page.locator('[data-action="download"]')).to_contain_text("Download 2 workbooks (.zip)")
+    with page.expect_download() as dl:
+        page.click('[data-action="download"]')
+    assert dl.value.suggested_filename == "book - sheets.zip"
+    z = zipfile.ZipFile(dl.value.path())
+    assert z.namelist() == ["book - Jan Sales.xlsx", "book - Feb.xlsx"]
+    one = tmp_path / "one.xlsx"
+    one.write_bytes(z.read("book - Jan Sales.xlsx"))
+    assert fastexcel.read_excel(one).load_sheet(0).to_polars().columns == ["City", "Amount"]  # title row skipped
+    page.click('[data-seg="splittype"][data-val="csv"]')
+    expect(page.locator('[data-action="download"]')).to_contain_text("Download 2 files (.zip)")
+
+
+def test_each_sheet_only_for_workbooks_with_several_sheets(phone):
+    page = phone.upload_sample("split_pages")
+    expect(page.locator('[data-seg="splitby"][data-val="sheets"]')).to_have_count(0)
 
 
 def test_split_pages_tool_pdf_and_blanks(phone):

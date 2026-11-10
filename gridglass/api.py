@@ -20,6 +20,8 @@
     GET    /files/<id>/export?format=csv   download the result (csv | xlsx | json | pdf);
                                            &split_by=<column>: one sheet (.xlsx) / page (PDF) per value
                                            &drop_split=1: leave that column out of each part
+    GET    /files/<id>/sheets              a workbook's sheets with their rows and columns
+    GET    /files/<id>/export-sheets?format=xlsx  each sheet of the workbook as its own file, in a .zip
 """
 from __future__ import annotations
 
@@ -288,6 +290,29 @@ def _decimals(steps: list[dict]) -> int | None:
     return DECIMALS if any(s.get("op") == "pivot" for s in steps) else None
 
 
+@bp.get("/files/<file_id>/sheets")
+def sheets(file_id):
+    """Each sheet as it would be opened (header row found automatically): name, rows, columns."""
+    from .engine.io import workbook_tables
+
+    tables = workbook_tables(store().workbook(file_id))
+    return jsonify(sheets=[{"name": n, "rows": df.height, "columns": df.width} for n, df in tables])
+
+
+@bp.get("/files/<file_id>/export-sheets")
+@limiter.limit(from_config("RATE_LIMIT_EXPORTS"))
+def export_each_sheet(file_id):
+    """Every sheet of the uploaded workbook as its own file, zipped (the saved steps aren't applied)."""
+    from .engine.io import export_sheets
+
+    meta = store().meta(file_id)
+    fmt = (request.args.get("format") or "xlsx").lower()
+    stem = Path(meta["filename"]).stem or "workbook"
+    dest = store().export_path(file_id, "zip")
+    export_sheets(store().workbook(file_id), fmt, dest, title=stem, max_pdf_rows=_cfg("MAX_PDF_ROWS"))
+    return _send(dest, f"{stem} - sheets.zip", "zip")
+
+
 @bp.get("/files/<file_id>/export")
 @limiter.limit(from_config("RATE_LIMIT_EXPORTS"))
 def download(file_id):
@@ -304,15 +329,19 @@ def download(file_id):
     export(lf, fmt, dest, title=title, max_pdf_rows=_cfg("MAX_PDF_ROWS"), split_by=split_by, split_rows=split_rows,
            files=files, orientation=request.args.get("orientation") or "auto", columns=columns,
            decimals=_decimals(meta["steps"]), drop_split=request.args.get("drop_split") == "1")
+    ext = "zip" if files else fmt
+    return _send(dest, f"{stem}-gridglass.{ext}", ext)
+
+
+def _send(dest: Path, name: str, ext: str):
+    """Send an export and leave nothing on disk."""
     fh = open(dest, "rb")
     try:
         dest.unlink()  # the open handle keeps the data readable; nothing is left on disk
     except OSError:     # Windows can't delete open files — clean up when the response closes
         fh.close()
         fh = None
-    ext = "zip" if files else fmt
-    response = send_file(fh or dest, mimetype=MIMETYPES[ext], as_attachment=True,
-                         download_name=f"{stem}-gridglass.{ext}", max_age=0)
+    response = send_file(fh or dest, mimetype=MIMETYPES[ext], as_attachment=True, download_name=name, max_age=0)
     if fh is None:
         response.call_on_close(lambda: dest.unlink(missing_ok=True))
     return response
