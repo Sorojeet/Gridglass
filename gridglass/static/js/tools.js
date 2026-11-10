@@ -74,6 +74,20 @@ export const AGG_FUNCS = [
   ['first', 'First'], ['last', 'Last'],
 ];
 
+/** A value's column name in the result, as the server names it: "Sum of Amount", "Count". */
+const AGG_TITLE = { sum: 'Sum of', average: 'Average of', min: 'Min of', max: 'Max of', median: 'Median of', count: 'Count of',
+  count_distinct: 'Distinct', first: 'First', last: 'Last' };
+export const aggName = (a) => (a.func === 'count_rows' ? 'Count' : `${AGG_TITLE[a.func]} ${a.column}`);
+
+/** Pivot "Sort" choice ('rows:asc', 'v0:desc') → sort_by / descending. */
+function pivotSort(d) {
+  const [what, dir] = (d.sort || '').split(':');
+  if (!what) return {};
+  const i = Number(what.slice(1));
+  if (what !== 'rows' && !d.aggs[i]) return {};
+  return { sort_by: what === 'rows' ? 'rows' : aggName(d.aggs[i]), descending: dir === 'desc' };
+}
+
 export const TYPES = [
   ['text', 'Text'], ['integer', 'Whole number'], ['decimal', 'Decimal number'],
   ['boolean', 'True / false'], ['date', 'Date'], ['datetime', 'Date & time'],
@@ -511,7 +525,12 @@ export const TOOLS = [
         emptyHint: 'No filter: every row is counted.', default: [] },
       { key: 'filter_match', type: 'choice', label: 'Rows must match', default: 'all',
         options: [['all', 'All filters'], ['any', 'Any filter']], show: (d) => d.filters.length > 1 },
+      { key: 'sort', type: 'select', label: 'Sort', default: '', options: (d) => [['', 'As in the file'],
+        ['rows:asc', 'Rows A → Z'], ['rows:desc', 'Rows Z → A'],
+        ...d.aggs.flatMap((a, i) => [[`v${i}:desc`, `${aggName(a)}, largest first`], [`v${i}:asc`, `${aggName(a)}, smallest first`]])] },
       { key: 'totals', type: 'toggle', label: 'Show Grand Total', default: true },
+      { key: 'pages', type: 'column', label: 'One sheet for each (report filter pages)', optional: true,
+        emptyLabel: 'None — one table', default: '', filter: (c) => c.distinct >= 1 && c.distinct <= 200 },
     ],
     build: (d) => ({
       rows: d.rows,
@@ -519,10 +538,13 @@ export const TOOLS = [
       values: d.aggs.map((a) => (a.func === 'count_rows' ? { func: 'count_rows' } : { func: a.func, column: a.column })),
       totals: d.totals,
       ...(d.filters.length ? { filters: conditionsOut(d.filters), filter_match: d.filter_match } : {}),
+      ...pivotSort(d),
+      ...(d.pages ? { pages: d.pages } : {}),
     }),
     ready: (d) => (d.filters.some((c) => !NO_VALUE_OPS.has(c.operator) && !String(c.value).trim()) ? 'Type a value for each filter, or remove it.'
       : d.aggs.some((a) => a.func !== 'count_rows' && !a.column) ? 'Choose a column for each value.'
-      : d.pcol && d.rows.includes(d.pcol) ? 'Pick a Columns field that isn’t already in Rows.' : null),
+      : d.pcol && d.rows.includes(d.pcol) ? 'Pick a Columns field that isn’t already in Rows.'
+        : d.pages && (d.rows.includes(d.pages) || d.pages === d.pcol) ? 'Pick a page column that isn’t in Rows or Columns.' : null),
     done: (b, a) => `Pivot table ready — ${plural(a, 'row')}`,
   },
   {
@@ -654,6 +676,9 @@ const LOADERS = {
   }),
   unpivot: (s) => ({ mode: s.mode ?? 'unpivot', header: s.header ?? '' }),  // steps saved before transpose are unpivots
   pivot: (s) => ({
+    sort: !s.sort_by ? '' : `${s.sort_by === 'rows' ? 'rows'
+      : `v${Math.max(0, (s.values ?? []).findIndex((a) => aggName(a) === s.sort_by))}`}:${s.descending ? 'desc' : 'asc'}`,
+    pages: s.pages ?? '',
     filters: (s.filters ?? []).map((c) => ({ column: c.column, operator: c.operator, value: Array.isArray(c.value) ? c.value.join(', ') : str(c.value) })),
     filter_match: s.filter_match ?? 'all',
     pcol: s.columns ?? '',

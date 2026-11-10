@@ -886,7 +886,14 @@ class Pivot(Step):
     totals: bool = False                                              # Grand Total row
     filters: Annotated[list[Condition], Field(max_length=20)] = []    # only count rows that match (before grouping)
     filter_match: Literal["all", "any"] = "all"
+    # Sort: by the Rows labels (A→Z) or by one of the Values ("Sum of Amount"); None keeps the file's order.
+    sort_by: Annotated[str, StringConstraints(min_length=1, max_length=300)] | None = None
+    descending: bool = False
+    # Report filter pages: one pivot per value of this column (one sheet each when downloaded as .xlsx).
+    pages: Col | None = None
     max_columns: ClassVar[int] = MAX_PIVOT_COLUMNS
+    max_pages: ClassVar[int] = 200
+    ROWS_ORDER: ClassVar[str] = "rows"
     TOTAL_LABEL: ClassVar[str] = "Grand Total"
     BLANK: ClassVar[str] = "(blank)"
     SEP: ClassVar[str] = " · "
@@ -910,10 +917,64 @@ class Pivot(Step):
         if dupes:
             raise ColumnError(f"The same value is listed twice: {_q(dupes)}.")
         no_clash(keys, names)
+        if self.sort_by and self.sort_by != self.ROWS_ORDER and self.sort_by not in names:
+            raise ColumnError(f"Sort by one of the Values ({_q(names)}), or by the Rows.")
+        if self.pages:
+            need(schema, [self.pages])
+            if self.pages in keys:
+                raise ColumnError(f"'{self.pages}' can't be both a page and in Rows or Columns.")
+            if self.pages in names:
+                raise ColumnError(f"'{self.pages}' is also the name of a value. Rename one of them first.")
+            return self._pages(lf, aggs, names)
+        return self._one(lf, aggs, names)
+
+    def _pages(self, lf, aggs, names) -> pl.LazyFrame:
+        """One pivot per value of `pages` (sorted A→Z, blanks last), stacked with that value in the first column.
+
+        Each page has its own Grand Total and sort order, like a spreadsheet's report filter pages.
+        """
+        df = lf.collect()
+        p = pl.col(self.pages)
+        page = (pl.when(p.is_null() | (p.cast(pl.String).str.strip_chars() == "")).then(pl.lit(self.BLANK))
+                .otherwise(p.cast(pl.String)))
+        values = df.get_column(self.pages)
+        n = values.n_unique()
+        if n > self.max_pages:
+            raise ColumnError(f"'{self.pages}' has {n:,} different values — too many pages (limit {self.max_pages}). "
+                              "Pick a column with fewer values, or filter first.")
+        parts = []
+        for key in values.unique().sort(nulls_last=True).to_list():
+            rows = df.filter(p.is_null() if key is None else p == key)
+            part = self._one(rows.lazy(), aggs, names).collect()
+            parts.append(part.select(pl.lit(rows.select(page.first()).item()).alias(self.pages), pl.all()))
+        if not parts:  # nothing to show: the columns a page would have
+            empty = self._one(df.lazy(), aggs, names).collect()
+            return empty.select(pl.lit(None, pl.String).alias(self.pages), pl.all()).lazy()
+        out = pl.concat(parts, how="diagonal_relaxed")  # a Columns value missing on one page is blank there
+        totals = [c for c in out.columns if c == self.TOTAL_LABEL or c.endswith(f"{self.SEP}{self.TOTAL_LABEL}")]
+        return out.select([c for c in out.columns if c not in totals] + totals).lazy()  # totals stay on the right
+
+    def _sorted(self, out: pl.LazyFrame, lf: pl.LazyFrame, exprs, names) -> pl.LazyFrame:
+        """Order the rows before the Grand Total is added (it always stays last)."""
+        if not self.sort_by:
+            return out
+        if self.sort_by == self.ROWS_ORDER:
+            return out.sort(self.rows, descending=self.descending, nulls_last=True, maintain_order=True)
+        if self.sort_by in out.collect_schema().names():  # no Columns field: the value is a column
+            return out.sort(self.sort_by, descending=self.descending, nulls_last=True, maintain_order=True)
+        # With a Columns field the value is spread out: sort by its total for each row.
+        key = "__gridglass_sort__"
+        totals = lf.group_by(self.rows).agg(exprs[names.index(self.sort_by)].alias(key))
+        return (out.join(totals, on=self.rows, how="left", nulls_equal=True, maintain_order="left")
+                .sort(key, descending=self.descending, nulls_last=True, maintain_order=True).drop(key))
+
+    def _one(self, lf, aggs, names) -> pl.LazyFrame:
+        """The pivot of these rows: grouped, spread across Columns if any, sorted, with totals."""
+        keys = self.rows + ([self.columns] if self.columns else [])
         exprs = [a.expr() for a in aggs]
 
         if not self.columns:  # group-by
-            out = lf.group_by(self.rows, maintain_order=True).agg(exprs)
+            out = self._sorted(lf.group_by(self.rows, maintain_order=True).agg(exprs), lf, exprs, names)
             if self.totals:
                 out = self._with_total(out, lf.select(exprs))
             return out
@@ -933,6 +994,7 @@ class Pivot(Step):
             )
         wide = long.pivot(on=self.columns, index=self.rows, values=names,
                           aggregate_function="first", separator=self.SEP)
+        wide = self._sorted(wide.lazy(), lf, exprs, names).collect()
         if not self.totals:
             return wide.lazy()
 

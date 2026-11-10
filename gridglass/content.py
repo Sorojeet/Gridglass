@@ -598,17 +598,28 @@ TOOLS: list[ToolPage] = [
             "Without a Columns field it works as a simple group-by. The Chart tab draws the result, and charts "
             "download as PNG or SVG.",
         ],
-        when=["Sales per region and month.", "How many orders each customer placed.", "Average order value per city."],
+        when=["Sales per region and month.", "How many orders each customer placed.", "Average order value per city.",
+              "Top customers first, sorted by their total.", "A separate sheet for each region or salesperson."],
         steps=["Open the tool and choose your file.", "Pick Rows, then add Values (sum, average, count…).",
                "Optionally pick a Columns field and grand totals.", "Switch to Chart to visualise it, then download."],
         example=Example(columns=["City", "Amount"], before=[["Pune", "450"], ["Delhi", "1200"], ["Pune", "1800"]],
                         after_columns=["City", "Sum of Amount"], after=[["Delhi", "1200"], ["Pune", "2250"], ["Grand total", "3450"]]),
         options=[("Calculations", "Sum, average, count rows, count values, count unique, smallest, largest, median, first, last."),
                  ("Grand totals", "A total row and, with a Columns field, a total column."),
+                 ("Sort", "As in the file, by the Rows (A → Z or Z → A), or by any value, largest or smallest first. "
+                          "With a Columns field, rows sort by their total. The Grand Total row stays at the bottom."),
+                 ("One sheet for each (report filter pages)", "Pick a column such as Region: you get one pivot for each "
+                  "region, each with its own Grand Total. Download as XLSX for one sheet per region, PDF for one "
+                  "section each, or CSV/JSON for one file each in a .zip. Up to 200 pages."),
                  ("Only count rows where", "Optional filters (the same conditions as Filter rows) applied before grouping, "
                                            "so totals and the Grand Total only count matching rows."),
                  ("Chart", "Column, bar, line or pie; follows light and dark mode.")],
         faqs=[("How many columns can the Columns field make?", "Up to 200."),
+              ("Is there something like Show Report Filter Pages?", "Yes: choose a column under <b>One sheet for "
+               "each</b>. Each value gets its own pivot and, in the .xlsx download, its own sheet named after it. "
+               "Turn it off on the download screen to get everything in one table."),
+              ("Can I sort a pivot table by the totals?", "Yes. Under <b>Sort</b>, pick a value such as ‘Sum of "
+               "Amount, largest first’."),
               ("Can I edit the pivot after making it?", "Yes. Tap Edit on the result screen; the preview updates live."),
               ("How are decimals shown?", "Sums, averages and medians are rounded to two decimal places, and decimals "
                "are shown with exactly two (1250.50) in the preview and in CSV, XLSX and PDF downloads. Counts stay "

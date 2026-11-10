@@ -125,6 +125,8 @@ Conversion is not a step. Import any supported format and export as CSV (with a 
 - Downloads (SVG, or PNG at 2×) match the preview.
 - Data labels show any mix of name (pies and donuts only), value and % (1.11; `labelAs` is a list such as `['name', 'percent']`, the pie default). The % is a slice's share on pies; on other charts it's a share of the series, or of the stack when stacked.
 - Pivot `filters` (conditions, `filter_match`) limit rows before grouping (1.11).
+- Pivot `sort_by` (`"rows"` or a value's name such as `"Sum of Amount"`) and `descending` order the rows; with a Columns field, rows sort by their total for that value. The Grand Total row stays last (1.17).
+- Pivot `pages` ("Show Report Filter Pages"): one pivot per value of that column (A→Z, blanks last, up to 200), each with its own sort and Grand Total, stacked with the page value in the first column. The result screen then downloads one sheet (XLSX), section (PDF) or file in a .zip (CSV/JSON) per value via `split_by`; a toggle gives one table instead (1.17).
 - Pivot sums, averages and medians are rounded to 2 places (`steps.DECIMALS`), and after a pivot every decimal is shown with exactly 2 places, in the preview and in CSV (`float_precision`), XLSX (`0.00` format) and PDF downloads (1.14). Other files keep numbers exactly as they are.
 - The **Make a chart** card (`op: 'chart'`, `opens: 'pivot'`) opens the Pivot table tool on its Chart tab.
 

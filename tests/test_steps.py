@@ -747,3 +747,54 @@ def test_add_column_text_from_a_number_column(apply):
 def test_add_column_text_needs_its_options(kw, msg):
     with pytest.raises(Exception, match=f"(?i){msg}"):
         parse_steps([{"op": "add_column", "name": "X", "mode": "text", "left": "T", **kw}])
+
+
+# --------------------------------------------------------------------------- pivot: sort and report filter pages (1.17)
+
+PIVOT_SALES = pl.LazyFrame({"Region": ["N", "S", "N", "S", "N", None], "City": ["Delhi", "Chennai", "Agra", "Chennai", "Delhi", "X"],
+                      "Kind": ["a", "b", "a", "a", "b", "a"], "Amt": [10, 20, 5, 1, 7, 3]})
+SUM = [{"func": "sum", "column": "Amt"}]
+
+
+def test_pivot_sorts_by_a_value_and_keeps_the_grand_total_last(apply):
+    out = apply(PIVOT_SALES, {"op": "pivot", "rows": ["City"], "values": SUM, "totals": True, "sort_by": "Sum of Amt", "descending": True})
+    assert out["City"].to_list() == ["Chennai", "Delhi", "Agra", "X", "Grand Total"]
+    out = apply(PIVOT_SALES, {"op": "pivot", "rows": ["City"], "values": SUM, "sort_by": "rows"})
+    assert out["City"].to_list() == ["Agra", "Chennai", "Delhi", "X"]
+
+
+def test_pivot_with_columns_sorts_by_the_row_total(apply):
+    out = apply(PIVOT_SALES, {"op": "pivot", "rows": ["City"], "columns": "Kind", "values": SUM, "sort_by": "Sum of Amt", "descending": True})
+    assert out["City"].to_list() == ["Chennai", "Delhi", "Agra", "X"]
+
+
+def test_pivot_sort_must_name_a_value(apply):
+    with pytest.raises(StepError, match="Sort by one of the Values"):
+        apply(PIVOT_SALES, {"op": "pivot", "rows": ["City"], "values": SUM, "sort_by": "Amt"})
+
+
+def test_pivot_report_filter_pages(apply):
+    out = apply(PIVOT_SALES, {"op": "pivot", "rows": ["City"], "values": SUM, "totals": True, "pages": "Region",
+                        "sort_by": "Sum of Amt", "descending": True})
+    assert out.columns == ["Region", "City", "Sum of Amt"]
+    assert out.rows() == [("N", "Delhi", 17), ("N", "Agra", 5), ("N", "Grand Total", 22),
+                          ("S", "Chennai", 21), ("S", "Grand Total", 21),
+                          ("(blank)", "X", 3), ("(blank)", "Grand Total", 3)]  # a total for each page
+
+
+def test_pivot_pages_keep_grand_total_columns_last(apply):
+    lf = PIVOT_SALES.with_columns(pl.when(pl.col("Region") == "S").then(pl.lit("b")).otherwise(pl.lit("a")).alias("Kind"))
+    out = apply(lf, {"op": "pivot", "rows": ["City"], "columns": "Kind", "values": SUM, "totals": True, "pages": "Region"})
+    assert out.columns == ["Region", "City", "a", "b", "Grand Total"]   # N only has 'a', S only 'b'
+
+
+@pytest.mark.parametrize("kw, msg", [({"pages": "City"}, "both a page"), ({"pages": "Nope"}, "Nope")])
+def test_pivot_pages_errors(apply, kw, msg):
+    with pytest.raises(StepError, match=msg):
+        apply(PIVOT_SALES, {"op": "pivot", "rows": ["City"], "values": SUM, **kw})
+
+
+def test_pivot_pages_limit(apply):
+    lf = pl.LazyFrame({"P": [str(i) for i in range(201)], "C": ["x"] * 201})
+    with pytest.raises(StepError, match="too many pages"):
+        apply(lf, {"op": "pivot", "rows": ["C"], "pages": "P"})
