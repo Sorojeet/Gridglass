@@ -177,7 +177,7 @@ const INTENTS = [
   { q: 'count group', op: 'pivot', hint: 'Count rows in each group' },
   { q: 'average mean median group', op: 'pivot', hint: 'Average for each group' },
   { q: 'pivot', op: 'pivot' },
-  { q: 'report filter page pivot sheet each group', op: 'pivot', hint: 'One sheet for each (report filter pages)' },
+  { q: 'report filter page pivot sheet each group', op: 'pivot', hint: 'Report filter → One sheet for each value' },
   { q: 'sort pivot sum largest top customer', op: 'pivot', hint: 'Sort by a value, largest first' },
   { q: 'chart', op: 'chart' },
   { q: 'transpose', op: 'unpivot', preset: { mode: 'transpose' }, hint: 'Flip rows and columns' },

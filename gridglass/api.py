@@ -19,6 +19,7 @@
     DELETE /files/<id>/steps/<n>           remove step n (undo)
     GET    /files/<id>/export?format=csv   download the result (csv | xlsx | json | pdf);
                                            &split_by=<column>: one sheet (.xlsx) / page (PDF) per value
+                                           &drop_split=1: leave that column out of each part
 """
 from __future__ import annotations
 
@@ -302,7 +303,7 @@ def download(file_id):
     columns = request.args.getlist("columns") or None
     export(lf, fmt, dest, title=title, max_pdf_rows=_cfg("MAX_PDF_ROWS"), split_by=split_by, split_rows=split_rows,
            files=files, orientation=request.args.get("orientation") or "auto", columns=columns,
-           decimals=_decimals(meta["steps"]))
+           decimals=_decimals(meta["steps"]), drop_split=request.args.get("drop_split") == "1")
     fh = open(dest, "rb")
     try:
         dest.unlink()  # the open handle keeps the data readable; nothing is left on disk

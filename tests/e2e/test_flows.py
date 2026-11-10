@@ -354,37 +354,54 @@ def test_pivot_with_columns_and_two_values(phone):
     assert len(rows) == 5
 
 
-def test_pivot_sort_and_report_filter_pages(phone):
-    import fastexcel
-
+def test_pivot_sort_and_report_filter(phone):
     page = phone.upload_sample("pivot")
     page.click('[data-col-none="rows"]')
     page.click('[data-field="rows"] [data-col="Customer"]')
     page.select_option("#f-sort", "v0:desc")                    # Sum of Amount, largest first
     expect(page.locator("#f-sort option:checked")).to_have_text("Sum of Amount, largest first")
-    page.select_option("#f-pages", "City")
-    expect(page.locator("#pv thead th").first).to_contain_text("City")
+    page.select_option("#f-rf", "City")                         # report filter: only Pune and Delhi
+    page.click('[data-seg="rf_values__mode"][data-val="some"]')
+    expect(page.locator("#pv-note")).to_contain_text("Choose at least one value")
+    page.click('[data-val-toggle="rf_values"]:has-text("Pune")')
+    page.click('[data-val-toggle="rf_values"]:has-text("Delhi")')
+    expect(page.locator("#pv thead th").first).to_contain_text("Customer")   # no extra column
+    apply(page)
+    rows = result_json(page)
+    assert list(rows[0]) == ["Customer", "Sum of Amount"] and rows[-1]["Customer"] == "Grand Total"
+    sums = [r["Sum of Amount"] for r in rows[:-1]]
+    assert sums == sorted(sums, reverse=True)
+    expect(page.locator("#by-page")).to_have_count(0)            # one table: nothing to split
+
+
+def test_pivot_report_filter_pages(phone):
+    import fastexcel
+
+    page = phone.upload_sample("pivot")
+    page.click('[data-col-none="rows"]')
+    page.click('[data-field="rows"] [data-col="Customer"]')
+    page.select_option("#f-sort", "v0:desc")
+    page.select_option("#f-rf", "City")                         # all cities…
+    page.locator('label:has([data-key="rf_pages"])').click()     # …one sheet each
+    expect(page.locator("#pv-note")).to_contain_text("Downloads as one sheet for each City (5 sheets)")
+    expect(page.locator("#pv thead th").first).to_contain_text("Customer")   # the preview is one sheet's layout
     page.click("#tab-chart")                                     # the chart adds the pages together
     expect(page.locator("#chart svg")).to_be_visible()
     expect(page.locator("#chart svg")).not_to_contain_text("Bengaluru")
     page.click("#tab-table")
     apply(page)
     expect(page.locator("#by-page-text")).to_have_text("One sheet for each City")
-    xlsx = download(page, "xlsx")
-    book = fastexcel.read_excel(xlsx)
+    book = fastexcel.read_excel(download(page, "xlsx"))
     assert book.sheet_names == ["Bengaluru", "Chennai", "Delhi", "Mumbai", "Pune"]
     pune = book.load_sheet("Pune").to_polars()
-    assert pune.columns == ["City", "Customer", "Sum of Amount"] and pune["Customer"][-1] == "Grand Total"
+    assert pune.columns == ["Customer", "Sum of Amount"] and pune["Customer"][-1] == "Grand Total"   # no City column
     sums = pune["Sum of Amount"].to_list()[:-1]
-    assert sums == sorted(sums, reverse=True)                   # sorted on each page
+    assert sums == sorted(sums, reverse=True)
     page.select_option("#fmt", "csv")
     expect(page.locator("#by-page-text")).to_have_text("One file (in a .zip) for each City")
-    page.locator("label:has(#by-page)").click()                 # one table instead
-    expect(page.locator("#by-page")).not_to_be_checked()
-    assert download(page, "csv").read_text(encoding="utf-8-sig").startswith("City,Customer,Sum of Amount")
     page.click('a[href="#/edit/0"]')                              # the form comes back as it was
-    expect(page.locator("#f-sort")).to_have_value("v0:desc")
-    expect(page.locator("#f-pages")).to_have_value("City")
+    expect(page.locator("#f-rf")).to_have_value("City")
+    expect(page.locator('[data-key="rf_pages"]')).to_be_checked()
 
 
 def test_pivot_hint_when_columns_also_in_rows(phone):

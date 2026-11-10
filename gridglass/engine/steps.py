@@ -889,6 +889,10 @@ class Pivot(Step):
     # Sort: by the Rows labels (A→Z) or by one of the Values ("Sum of Amount"); None keeps the file's order.
     sort_by: Annotated[str, StringConstraints(min_length=1, max_length=300)] | None = None
     descending: bool = False
+    # Report filter (like a spreadsheet pivot's Filters area): only rows whose value in this column is one of
+    # `report_values` (empty: every value). Pages: with `pages` set to the same column, one pivot per value.
+    report_filter: Col | None = None
+    report_values: Annotated[list[str | int | float | bool], Field(max_length=500)] = []
     # Report filter pages: one pivot per value of this column (one sheet each when downloaded as .xlsx).
     pages: Col | None = None
     max_columns: ClassVar[int] = MAX_PIVOT_COLUMNS
@@ -903,6 +907,15 @@ class Pivot(Step):
             need(schema, [c.column for c in self.filters])
             hits = [c.expr(schema) for c in self.filters]
             lf = lf.filter(pl.all_horizontal(hits) if self.filter_match == "all" else pl.any_horizontal(hits))
+        if self.report_filter:
+            need(schema, [self.report_filter])
+            if self.report_values:  # values as the app lists them: text, numbers, true/false or ISO dates
+                want = schema[self.report_filter]
+                chosen = pl.Series(self.report_values, strict=False)
+                if want.is_temporal() and chosen.dtype == pl.String:
+                    chosen = chosen.str.to_date(strict=False) if want == pl.Date else chosen.str.to_datetime(strict=False)
+                chosen = chosen.cast(want, strict=False)
+                lf = lf.filter(pl.col(self.report_filter).is_in(chosen.drop_nulls().implode()))
         aggs = list(self.values) or [Aggregation(func="count_rows")]
         keys = self.rows + ([self.columns] if self.columns else [])
         need(schema, keys + [a.column for a in aggs if a.column])
@@ -910,6 +923,8 @@ class Pivot(Step):
             raise ColumnError("Each column can only be used once in Rows.")
         if self.columns and self.columns in self.rows:
             raise ColumnError(f"'{self.columns}' can't be in both Rows and Columns.")
+        if self.report_filter and self.report_filter in keys:
+            raise ColumnError(f"'{self.report_filter}' can't be the report filter and in Rows or Columns.")
         need_numeric(schema, [a.column for a in aggs if a.func in ("sum", "average", "median")],
                      "Sum, average and median")
         names = [a.output_name() for a in aggs]

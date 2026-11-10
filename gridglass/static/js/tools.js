@@ -529,8 +529,11 @@ export const TOOLS = [
         ['rows:asc', 'Rows A → Z'], ['rows:desc', 'Rows Z → A'],
         ...d.aggs.flatMap((a, i) => [[`v${i}:desc`, `${aggName(a)}, largest first`], [`v${i}:asc`, `${aggName(a)}, smallest first`]])] },
       { key: 'totals', type: 'toggle', label: 'Show Grand Total', default: true },
-      { key: 'pages', type: 'column', label: 'One sheet for each (report filter pages)', optional: true,
-        emptyLabel: 'None — one table', default: '', filter: (c) => c.distinct >= 1 && c.distinct <= 200 },
+      { key: 'rf', type: 'column', label: 'Report filter (optional)', optional: true,
+        emptyLabel: 'None — use every row', default: '', filter: (c) => c.distinct >= 1 && c.distinct <= 500 },
+      { key: 'rf_values', type: 'values', of: 'rf', label: 'Show', default: null, show: (d) => !!d.rf },
+      { key: 'rf_pages', type: 'toggle', label: 'One sheet for each value (show report filter pages)', default: false,
+        show: (d) => !!d.rf },
     ],
     build: (d) => ({
       rows: d.rows,
@@ -539,12 +542,13 @@ export const TOOLS = [
       totals: d.totals,
       ...(d.filters.length ? { filters: conditionsOut(d.filters), filter_match: d.filter_match } : {}),
       ...pivotSort(d),
-      ...(d.pages ? { pages: d.pages } : {}),
+      ...(d.rf ? { report_filter: d.rf, report_values: d.rf_values ?? [], ...(d.rf_pages ? { pages: d.rf } : {}) } : {}),
     }),
     ready: (d) => (d.filters.some((c) => !NO_VALUE_OPS.has(c.operator) && !String(c.value).trim()) ? 'Type a value for each filter, or remove it.'
       : d.aggs.some((a) => a.func !== 'count_rows' && !a.column) ? 'Choose a column for each value.'
       : d.pcol && d.rows.includes(d.pcol) ? 'Pick a Columns field that isn’t already in Rows.'
-        : d.pages && (d.rows.includes(d.pages) || d.pages === d.pcol) ? 'Pick a page column that isn’t in Rows or Columns.' : null),
+        : d.rf && (d.rows.includes(d.rf) || d.rf === d.pcol) ? 'Pick a report filter that isn’t in Rows or Columns.'
+          : d.rf && Array.isArray(d.rf_values) && !d.rf_values.length ? 'Choose at least one value to show, or All values.' : null),
     done: (b, a) => `Pivot table ready — ${plural(a, 'row')}`,
   },
   {
@@ -678,7 +682,9 @@ const LOADERS = {
   pivot: (s) => ({
     sort: !s.sort_by ? '' : `${s.sort_by === 'rows' ? 'rows'
       : `v${Math.max(0, (s.values ?? []).findIndex((a) => aggName(a) === s.sort_by))}`}:${s.descending ? 'desc' : 'asc'}`,
-    pages: s.pages ?? '',
+    rf: s.report_filter ?? s.pages ?? '',
+    rf_values: s.report_values?.length ? s.report_values : null,
+    rf_pages: !!s.pages,
     filters: (s.filters ?? []).map((c) => ({ column: c.column, operator: c.operator, value: Array.isArray(c.value) ? c.value.join(', ') : str(c.value) })),
     filter_match: s.filter_match ?? 'all',
     pcol: s.columns ?? '',
