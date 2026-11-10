@@ -364,6 +364,7 @@ function table(pv, decimals = null) {
 // ============================================================================ home
 
 let homeQuery = '';
+let slashWired = false;
 let homeCat = 'all';
 
 function renderHome() {
@@ -397,6 +398,16 @@ function renderHome() {
     ${privacy()}`;
   fillGrid();
   $('#q').addEventListener('input', (e) => { homeQuery = e.target.value; fillGrid(); });
+  if (desktop.matches && matchMedia('(hover: hover)').matches) $('#q').focus({ preventScroll: true }); // type straight away (no keyboard pops up)
+  if (!slashWired) { // "/" jumps to the search box from anywhere on the home screen
+    slashWired = true;
+    document.addEventListener('keydown', (e) => {
+      const q = $('#q');
+      if (e.key !== '/' || !q || e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
+      e.preventDefault();
+      q.focus();
+    });
+  }
   $('#q').addEventListener('keydown', (e) => { // Enter opens the best match
     const top = $('#grid .tool-card');
     if (e.key === 'Enter' && homeQuery.trim() && top) { e.preventDefault(); location.hash = top.getAttribute('href'); }
@@ -604,8 +615,12 @@ function renderOptions() {
     <div class="action-bar">
       ${t.convert || t.splitter
         ? `<button class="btn btn-primary btn-lg btn-block" type="button" data-action="download">${ui('download')} Download</button>`
-        : `<button class="btn btn-primary btn-lg btn-block" type="button" id="apply" disabled>${esc(editing ? 'Save changes' : t.verb)}</button>`}
+        : `<button type="button" class="act-note" id="act-note" hidden></button>
+        <button class="btn btn-primary btn-lg btn-block" type="button" id="apply" disabled>${esc(editing ? 'Save changes' : t.verb)}</button>`}
     </div>`;
+  $('#act-note')?.addEventListener('click', () => { // jump to the preview (it sits under a long form on phones)
+    $(state.view === 'chart' ? '#chart-panel' : '#pv').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  });
   $('[data-action="newfile"]').addEventListener('click', newFile);
   $('[data-action="headers"]')?.addEventListener('click', toggleHeaders);
   $('[data-action="check"]').addEventListener('click', toggleHealth);
@@ -1627,6 +1642,7 @@ async function showPreview(steps, step, hint = null) {
       paged ? pagesNote(step) : '',
     ].filter(Boolean).join(' ');
     renderPager(preview);
+    actNote(hint ? { text: hint, kind: 'needs' } : step ? { text: `${badge.textContent} · ${plural(preview.columns.length, 'column')}`, kind: 'ok' } : null);
     state.previewOk = !hint;
     const btn = $('#apply');
     if (btn) btn.disabled = Boolean(hint);
@@ -1638,7 +1654,18 @@ async function showPreview(steps, step, hint = null) {
     note.textContent = '';
     $('#pv-pager').innerHTML = '';
     box.innerHTML = `<p class="form-error">${ui('alert')}<span>${esc(friendly(err))}</span></p>`;
+    actNote({ text: friendly(err), kind: 'error' });
   }
+}
+
+/** The line above the main button: what's still needed, what went wrong, or what the result will be. */
+function actNote(note) {
+  const el = $('#act-note');
+  if (!el) return;
+  el.hidden = !note;
+  if (!note) return;
+  el.dataset.kind = note.kind;
+  el.innerHTML = `<span>${esc(note.text)}</span>${note.kind === 'ok' ? `<span class="act-see">See preview ${ui('down')}</span>` : ''}`;
 }
 
 function renderPager(pv) {
@@ -1742,7 +1769,7 @@ function renderDone() {
   const last = steps.length - 1;
   const lastTool = TOOL[steps[last]?.op];
   const pencil = icon('rename');
-  view.innerHTML = `${topbar(last >= 0 ? { edit: `#/edit/${last}`, title: `Edit ${lastTool?.label ?? 'last step'}`, close: '#/' } : { close: '#/' })}
+  view.innerHTML = `${topbar(last >= 0 ? { edit: `#/edit/${last}`, title: 'Back to options', close: '#/' } : { close: '#/' })}
     <section class="done">
       <span class="done-icon">${ui('check')}</span>
       <h1>${esc(title)}</h1>
@@ -1751,6 +1778,11 @@ function renderDone() {
         ${last >= 0 ? `<a class="btn btn-secondary btn-sm" href="#/edit/${last}">${pencil} Edit options</a>` : ''}
         ${lastTool?.op === 'pivot' ? `<a class="btn btn-secondary btn-sm" href="#/edit/${last}" data-action="chart">${icon('group')} Make a chart</a>` : ''}
       </div>
+    </section>
+    <section class="peek">
+      <button type="button" class="btn btn-secondary btn-sm" data-action="peek" aria-expanded="false" aria-controls="peek-box">${ui('sample')} Preview the result</button>
+      <div class="table-wrap glass" id="peek-box" tabindex="0" aria-label="Result preview" hidden></div>
+      <p class="hint" id="peek-note" hidden></p>
     </section>
     <section class="card glass">
       ${downloadFields('Download as', { pages: pagesColumn() })}
@@ -1776,11 +1808,34 @@ function renderDone() {
     </section>
     <footer class="done-foot"><button type="button" class="btn-link" data-action="startover">Start over with a new file</button></footer>`;
   wireDownload();
+  $('[data-action="peek"]').addEventListener('click', togglePeek);
   $('[data-action="startover"]').addEventListener('click', startOver);
   $('[data-action="chart"]')?.addEventListener('click', () => { state.wantChart = true; });
   view.querySelectorAll('[data-undo]').forEach((b) => b.addEventListener('click', () => undo(Number(b.dataset.undo))));
   $('#recipe-save')?.addEventListener('click', onSaverClick);
   $('#recipe-save')?.addEventListener('submit', onSaverSubmit);
+}
+
+/** Result screen: show or hide the first rows of the result. */
+async function togglePeek(e) {
+  const btn = e.currentTarget;
+  const box = $('#peek-box');
+  const note = $('#peek-note');
+  const open = btn.getAttribute('aria-expanded') !== 'true';
+  btn.setAttribute('aria-expanded', String(open));
+  btn.lastChild.textContent = open ? ' Hide the preview' : ' Preview the result';
+  box.hidden = !open;
+  note.hidden = !open;
+  if (!open || box.dataset.loaded) return;
+  box.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const { preview } = await api(`/files/${state.file.id}/preview?limit=${desktop.matches ? 50 : 20}`);
+    box.innerHTML = table(preview, state.file.steps.some((x) => x.op === 'pivot') ? PIVOT_DECIMALS : null);
+    box.dataset.loaded = '1';
+    note.textContent = preview.truncated ? `The first ${num(preview.rows.length)} of ${num(preview.total_rows)} rows. The download has them all.` : '';
+  } catch (err) {
+    box.innerHTML = `<p class="form-error">${ui('alert')}<span>${esc(friendly(err))}</span></p>`;
+  }
 }
 
 async function undo(i) {
