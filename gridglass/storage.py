@@ -103,6 +103,16 @@ class Store:
         path, meta = self.dir(file_id), self.meta(file_id)
         return top_rows(self._original(path, meta), meta["filename"], sheet=meta.get("sheet"), n=n)
 
+    def workbook(self, file_id: str) -> Path:
+        """The uploaded workbook itself (.xlsx/.xls), for splitting every sheet into its own file."""
+        path, meta = self.dir(file_id), self.meta(file_id)
+        original = next(path.glob("original.*"), None)
+        if meta["format"] not in ("xlsx", "xls") or original is None:
+            from .engine import IngestError
+
+            raise IngestError("Only a workbook (.xlsx or .xls) has sheets to split into files.")
+        return original
+
     def _original(self, path: Path, meta: dict[str, Any]) -> Path:
         original = next(path.glob("original.*"), None)
         if meta["format"] not in HEADER_FORMATS or original is None:

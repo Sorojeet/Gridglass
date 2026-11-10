@@ -40,7 +40,7 @@ const SYN = {
   numerical: 'number', figures: 'number',
   rows: 'row', record: 'row', records: 'row', line: 'row', lines: 'row', entries: 'row', entry: 'row',
   columns: 'column', field: 'column', fields: 'column', col: 'column', cols: 'column',
-  tab: 'sheet', tabs: 'sheet', worksheet: 'sheet', worksheets: 'sheet', workbook: 'sheet',
+  tab: 'sheet', tabs: 'sheet', worksheet: 'sheet', worksheets: 'sheet', workbooks: 'workbook', multiple: 'many', several: 'many', every: 'each',
   left: 'first', beginning: 'first', start: 'first', starting: 'first', leading: 'first', initial: 'first',
   right: 'last', ending: 'last', end: 'last', trailing: 'last', final: 'last', mid: 'middle', middle: 'middle',
   flip: 'transpose', rotate: 'transpose', swap: 'transpose', invert: 'transpose', transposed: 'transpose',
@@ -184,8 +184,9 @@ const INTENTS = [
   { q: 'unpivot month column row', op: 'unpivot', preset: { mode: 'unpivot' }, hint: 'Columns into rows' },
   // converting
   { q: 'convert xlsx csv json pdf', op: 'convert' },
-  { q: 'split sheet file page each group separate', op: 'split_pages', hint: 'A sheet, page or file for each value' },
+  { q: 'split sheet file page group value column', op: 'split_pages', hint: 'A sheet, page or file for each value' },
   { q: 'print pdf', op: 'convert', hint: 'Save as a PDF' },
+  { q: 'workbook sheet split file many', op: 'split_pages', preset: { by: 'sheets' }, hint: 'Each sheet → its own file' },
 ];
 
 const FIELDS = [['label', 3], ['keywords', 2], ['desc', 2], ['intro', 1]];

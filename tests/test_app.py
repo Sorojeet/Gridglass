@@ -316,7 +316,7 @@ def test_index_and_static(client):
 
 def test_service_worker_at_root(client):
     r = client.get("/sw.js")
-    assert r.status_code == 200 and b"gridglass-v23" in r.data and r.headers["Cache-Control"] == "no-cache"
+    assert r.status_code == 200 and b"gridglass-v24" in r.data and r.headers["Cache-Control"] == "no-cache"
     r.close()
 
 
@@ -528,3 +528,25 @@ def test_health_endpoint_follows_saved_steps(client):
     report = client.get(f"/api/v1/files/{fid}/health").get_json()
     assert {it["kind"] for it in report["issues"]} == {"spaces"} and report["rows"] == 2
     assert client.get(f"/api/v1/files/{fid}/health?upto=0").get_json()["rows"] == 3
+
+
+def test_each_sheet_of_a_workbook_downloads_as_its_own_file(client, tmp_path):
+    import zipfile
+
+    from tests.test_io import _workbook
+
+    data = _workbook(tmp_path / "book.xlsx").read_bytes()
+    fid = client.post("/api/v1/files", data={"file": (io.BytesIO(data), "book.xlsx")},
+                      content_type="multipart/form-data").get_json()["file"]["id"]
+    sheets = client.get(f"/api/v1/files/{fid}/sheets").get_json()["sheets"]
+    assert [(s["name"], s["rows"]) for s in sheets] == [("Jan Sales", 2), ("Feb & Mar", 1), ("Empty", 0)]
+    r = client.get(f"/api/v1/files/{fid}/export-sheets?format=xlsx")
+    assert r.status_code == 200 and r.mimetype == "application/zip"
+    assert 'book - sheets.zip' in r.headers["Content-Disposition"]
+    assert zipfile.ZipFile(io.BytesIO(r.data)).namelist() == ["book - Jan Sales.xlsx", "book - Feb & Mar.xlsx"]
+    r.close()
+
+
+def test_only_workbooks_split_into_sheets(client, file_id):
+    r = client.get(f"/api/v1/files/{file_id}/sheets")
+    assert r.status_code == 400 and "workbook" in r.get_json()["error"]["message"]

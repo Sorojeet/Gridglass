@@ -442,6 +442,7 @@ function applyPreset() {
   const p = state.preset;
   state.preset = null;
   if (!p) return;
+  if (state.tool.splitter) { state.split = { ...(state.split ?? {}), ...(p.by ? { by: p.by } : {}) }; return; }
   for (const f of state.tool.fields) {
     if (!(f.key in p)) continue;
     const v = p[f.key];
@@ -640,9 +641,8 @@ const pagesColumn = () => { const s = state.file?.steps.at(-1); return s?.op ===
 function downloadFields(label = 'Download as', { columns = false, pages = '' } = {}) {
   const stem = state.file.filename.replace(/\.[^.]+$/, '');
   return `<div class="field"><label class="field-label" for="fmt">${label}</label>${formatSelect()}</div>
-    ${pages ? `<div class="field"><label class="toggle"><input type="checkbox" id="by-page" checked>
-<span class="switch" aria-hidden="true"></span>
-      <span id="by-page-text">One sheet for each ${esc(pages)}</span></label></div>` : ''}
+    ${pages ? `<div class="field"><label class="field-label" for="by-page">For each ${esc(pages)}</label>
+      <select class="input" id="by-page"></select></div>` : ''}
     <div class="pdf-opts" id="pdf-opts" hidden>
       <div class="field"><span class="field-label">Page</span>
         ${seg('orient', [['auto', 'Auto'], ['portrait', 'Portrait'], ['landscape', 'Landscape']], 'auto', 'Page orientation')}</div>
@@ -674,15 +674,24 @@ function wireDownload() {
     if (b.dataset.seg === 'pdfcols') $('#pdf-cols').hidden = b.dataset.val !== 'some';
   });
   const pages = $('#by-page') ? pagesColumn() : '';
-  const pageText = () => { // what "one … for each" means in this format
+  const pageChoices = () => { // report filter pages: sheets/sections in one file, separate files, or one table
     if (!pages) return;
-    $('#by-page-text').textContent = `${{ xlsx: 'One sheet', pdf: 'One section', csv: 'One file (in a .zip)', json: 'One file (in a .zip)' }[fmt.value] ?? 'One part'} for each ${pages}`;
+    const sel = $('#by-page');
+    const was = sel.value;
+    const p = esc(pages);
+    const choices = {
+      xlsx: [['parts', `One sheet for each ${p} (one workbook)`], ['files', `One workbook for each ${p} (.zip)`]],
+      pdf: [['parts', `One PDF with a section for each ${p}`], ['files', `One PDF for each ${p} (.zip)`]],
+    }[fmt.value] ?? [['files', `One ${fmt.value.toUpperCase()} file for each ${p} (.zip)`]];
+    choices.push(['one', 'Everything in one table']);
+    sel.innerHTML = choices.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+    if (choices.some(([v]) => v === was)) sel.value = was; // keep the choice when it still applies
   };
-  fmt.addEventListener('change', pageText);
-  pageText();
+  fmt.addEventListener('change', pageChoices);
+  pageChoices();
   const opts = () => {
-    const split = pages && $('#by-page').checked
-      ? { split_by: pages, drop_split: '1', ...(['csv', 'json'].includes(fmt.value) ? { files: '1' } : {}) } : {};
+    const how = pages ? $('#by-page').value : 'one';
+    const split = how === 'one' ? {} : { split_by: pages, drop_split: '1', ...(how === 'files' ? { files: '1' } : {}) };
     if (fmt.value !== 'pdf') return split;
     const o = { ...split, orientation: $('#pdf-opts [data-seg="orient"][aria-pressed="true"]').dataset.val, title: $('#pdf-title').value.trim() };
     if ($('#pdf-cols') && !$('#pdf-cols').hidden) {
@@ -699,15 +708,23 @@ const pageColumns = () => state.cols.filter((c) => c.distinct >= 1 && c.distinct
 const MAX_PARTS = 200;
 const PART = { xlsx: 'sheet', pdf: 'page', zip: 'file' };
 
+/** A workbook with more than one sheet can also be split into one file per sheet. */
+const manySheets = () => (state.file.sheets?.length ?? 0) > 1;
+
 function splitFields() {
   const usable = pageColumns();
   const pick = usable.find((c) => c.type === 'text') ?? usable[0];
   const old = state.split ?? {};
-  state.split = { by: old.by ?? (usable.length ? 'column' : 'rows'), column: pick?.name ?? '', rows: old.rows ?? 10000,
+  const by = old.by === 'sheets' && !manySheets() ? null : old.by;
+  state.split = { by: by ?? (usable.length ? 'column' : 'rows'), column: pick?.name ?? '', rows: old.rows ?? 10000,
     format: old.format ?? 'xlsx', fileType: old.fileType ?? 'csv', pages: 0 };
   const sp = state.split;
+  const ways = [['column', 'By a column'], ['rows', 'Every N rows'], ...(manySheets() ? [['sheets', 'Each sheet']] : [])];
   return `<div class="field" id="split-by"><span class="field-label">Split</span>
-      ${seg('splitby', [['column', 'By a column'], ['rows', 'Every N rows']], sp.by, 'Split')}</div>
+      ${seg('splitby', ways, sp.by, 'Split')}</div>
+    <div class="field" id="split-sheets" ${sp.by === 'sheets' ? '' : 'hidden'}>
+      <p class="hint">Each sheet of ${esc(state.file.filename)} becomes its own file, in a .zip. Cell values are kept (not formatting or
+      formulas), with the header row found on each sheet. Steps applied to this file aren’t included.</p></div>
     <div class="field" id="split-col" ${sp.by === 'column' ? '' : 'hidden'}>
       <label class="field-label" for="split">One part for each value of</label>
       ${usable.length ? `<select id="split" class="input">${usable.map((c) =>
@@ -718,11 +735,11 @@ function splitFields() {
       <label class="field-label" for="split-n">Rows in each part</label>
       <input id="split-n" class="input" type="number" inputmode="numeric" min="1" step="1" value="${sp.rows}">
     </div>
-    <div class="field" id="split-format"><span class="field-label">Save as</span>
+    <div class="field" id="split-format" ${sp.by === 'sheets' ? 'hidden' : ''}><span class="field-label">Save as</span>
       ${seg('splitfmt', [['xlsx', 'Sheets (.xlsx)'], ['pdf', 'PDF pages'], ['zip', 'Separate files']], sp.format, 'Save as')}
       <p class="hint" id="split-format-hint"></p></div>
-    <div class="field" id="split-type" ${sp.format === 'zip' ? '' : 'hidden'}><span class="field-label">Each file as</span>
-      ${seg('splittype', [['csv', 'CSV'], ['xlsx', 'XLSX'], ['pdf', 'PDF']], sp.fileType, 'Each file as')}</div>
+    <div class="field" id="split-type" ${sp.format === 'zip' || sp.by === 'sheets' ? '' : 'hidden'}><span class="field-label">Each file as</span>
+      ${seg('splittype', [['csv', 'CSV'], ['xlsx', 'XLSX'], ['pdf', 'PDF']], sp.by === 'sheets' ? 'xlsx' : sp.fileType, 'Each file as')}</div>
     <section class="pages" aria-labelledby="pages-title">
       <h2 id="pages-title">Parts</h2>
       <ol class="page-list" id="page-list"><li class="glass empty">Loading…</li></ol>
@@ -734,8 +751,9 @@ function wireSplit() {
   const btn = $('[data-action="download"]');
   const list = $('#page-list');
   const label = () => {
-    const unit = PART[sp.format];
-    btn.innerHTML = `${ui('download')} Download ${sp.pages ? plural(sp.pages, unit) : ''}${sp.format === 'zip' && sp.pages ? ' (.zip)' : ''}`;
+    const zip = sp.format === 'zip' || sp.by === 'sheets';
+    const unit = sp.by === 'sheets' ? (sp.sheetType === 'xlsx' ? 'workbook' : 'file') : PART[sp.format];
+    btn.innerHTML = `${ui('download')} Download ${sp.pages ? plural(sp.pages, unit) : ''}${zip && sp.pages ? ' (.zip)' : ''}`;
     btn.disabled = !sp.pages || sp.pages > MAX_PARTS || (sp.by === 'column' && !sp.column);
     $('#split-format-hint').textContent = sp.format === 'zip' ? 'A .zip with one file per part — handy for upload limits.' : '';
   };
@@ -772,7 +790,21 @@ function wireSplit() {
       list.innerHTML = `<li class="glass empty">${esc(err.message)}</li>`;
     }
   };
-  const load = () => (sp.by === 'rows' ? loadRows() : loadColumn());
+  const loadSheets = async () => { // one file per sheet: the sheets and their sizes
+    list.innerHTML = '<li class="glass empty">Reading the sheets…</li>';
+    try {
+      const { sheets } = await api(`/files/${state.file.id}/sheets`);
+      if (sp.by !== 'sheets') return;
+      const kept = sheets.filter((x) => x.rows);
+      show(kept.map((x) => [x.name, x.rows]));
+      const empty = sheets.length - kept.length;
+      if (empty) list.insertAdjacentHTML('beforeend', `<li class="glass empty">${plural(empty, 'empty sheet')} left out.</li>`);
+    } catch (err) {
+      list.innerHTML = `<li class="glass empty">${esc(err.message)}</li>`;
+    }
+  };
+  sp.sheetType = sp.sheetType ?? 'xlsx';
+  const load = () => (sp.by === 'rows' ? loadRows() : sp.by === 'sheets' ? loadSheets() : loadColumn());
   $('#split')?.addEventListener('change', (e) => { sp.column = e.target.value; load(); });
   $('#split-n').addEventListener('input', (e) => { sp.rows = e.target.value; loadRows(); });
   view.querySelectorAll('#split-by, #split-format, #split-type').forEach((box) => box.addEventListener('click', (e) => {
@@ -783,14 +815,23 @@ function wireSplit() {
       sp.by = b.dataset.val;
       $('#split-col').hidden = sp.by !== 'column';
       $('#split-rows').hidden = sp.by !== 'rows';
+      $('#split-sheets').hidden = sp.by !== 'sheets';
+      $('#split-format').hidden = sp.by === 'sheets';
+      $('#split-type').hidden = sp.by !== 'sheets' && sp.format !== 'zip';
+      const type = sp.by === 'sheets' ? sp.sheetType : sp.fileType; // each way remembers its own file type
+      view.querySelectorAll('[data-seg="splittype"]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.val === type)));
       load();
     } else if (b.dataset.seg === 'splitfmt') {
       sp.format = b.dataset.val;
       $('#split-type').hidden = sp.format !== 'zip';
       label();
-    } else sp.fileType = b.dataset.val;
+    } else {
+      if (sp.by === 'sheets') sp.sheetType = b.dataset.val; else sp.fileType = b.dataset.val;
+      label();
+    }
   }));
   btn.addEventListener('click', (e) => {
+    if (sp.by === 'sheets') { download(sp.sheetType, e.currentTarget, { [EACH_SHEET]: '1' }); return; }
     const opts = sp.by === 'rows' ? { split_rows: String(Math.floor(Number(sp.rows))) } : { split_by: sp.column };
     if (sp.format === 'zip') download(sp.fileType, e.currentTarget, { ...opts, files: '1' });
     else download(sp.format, e.currentTarget, opts);
@@ -1786,13 +1827,18 @@ async function editStep(i) {
 // ---------------------------------------------------------------------------- download & share
 
 /** `opts`: extra export settings (split_by, split_rows, files, orientation, title, columns), or a function returning them. */
+const EACH_SHEET = '__each_sheet'; // download every sheet of the workbook as its own file
+
 async function fetchExport(fmt, opts = {}) {
   const qs = new URLSearchParams({ format: fmt });
-  for (const [k, v] of Object.entries(typeof opts === 'function' ? opts() : opts)) {
+  const o = typeof opts === 'function' ? opts() : opts;
+  const path = o[EACH_SHEET] ? 'export-sheets' : 'export';
+  for (const [k, v] of Object.entries(o)) {
+    if (k === EACH_SHEET) continue;
     if (Array.isArray(v)) v.forEach((x) => qs.append(k, x));
     else if (v !== '' && v !== undefined && v !== null) qs.set(k, v);
   }
-  const res = await fetch(`${API}/files/${state.file.id}/export?${qs}`).catch(() => null);
+  const res = await fetch(`${API}/files/${state.file.id}/${path}?${qs}`).catch(() => null);
   if (!res) throw new ApiError({ message: "Can't reach Gridglass. Check your connection." }, 0);
   if (!res.ok) throw new ApiError((await res.json().catch(() => null))?.error, res.status);
   const cd = res.headers.get('Content-Disposition') || '';

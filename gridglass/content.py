@@ -611,16 +611,17 @@ TOOLS: list[ToolPage] = [
                  ("Report filter", "Pick a column such as Region, then All values or just the ones you tick: the "
                   "pivot counts only those rows, with no extra column."),
                  ("One sheet for each value (show report filter pages)", "With a report filter, get one pivot for each "
-                  "value, each with its own sort and Grand Total. Download as XLSX for one sheet per value (named "
-                  "after it), PDF for one section each, or CSV/JSON for one file each in a .zip. Up to 200 pages."),
+                  "value, each with its own sort and Grand Total. On the download screen choose one sheet per value in "
+                  "one workbook (sheets named after the values), one workbook or PDF per value in a .zip, one PDF "
+                  "with a section each, or one table. Up to 200 pages."),
                  ("Only count rows where", "Optional filters (the same conditions as Filter rows) applied before grouping, "
                                            "so totals and the Grand Total only count matching rows."),
                  ("Chart", "Column, bar, line or pie; follows light and dark mode.")],
         faqs=[("How many columns can the Columns field make?", "Up to 200."),
               ("Is there something like Show Report Filter Pages?", "Yes. Pick a <b>Report filter</b> column, tick "
-               "the values you want (or keep All values), and turn on <b>One sheet for each value</b>. In the .xlsx "
-               "download each value gets its own sheet named after it, with the same layout as the preview. Turn it "
-               "off on the download screen to get one table instead."),
+               "the values you want (or keep All values), and turn on <b>One sheet for each value</b>. When you "
+               "download, choose one sheet for each value, a separate workbook or PDF for each value (in a .zip), "
+               "or everything in one table."),
               ("Can I sort a pivot table by the totals?", "Yes. Under <b>Sort</b>, pick a value such as ‘Sum of "
                "Amount, largest first’."),
               ("Can I edit the pivot after making it?", "Yes. Tap Edit on the result screen; the preview updates live."),
@@ -728,14 +729,22 @@ TOOLS: list[ToolPage] = [
                "salesperson or region only its own rows — or a part for every N rows, for sites that limit upload size.",
                "Parts can be sheets in one .xlsx, pages in one PDF, or separate files (CSV, XLSX or PDF) in a .zip."],
         when=["One sheet per branch from a company-wide report.", "A printable PDF with a page per class or team.",
-              "Files of 10,000 rows each for a portal with an upload limit."],
+              "Files of 10,000 rows each for a portal with an upload limit.",
+              "A workbook with many sheets turned into one workbook per sheet."],
         steps=["Open the tool and choose your file.", "Choose <b>By a column</b> and pick it, or <b>Every N rows</b> and type N.",
                "Choose sheets, PDF pages, or separate files, then download."],
         example=None,
-        options=[("Split", "By a column (values sorted A→Z, blanks last) or every N rows."),
+        options=[("Split", "By a column (values sorted A→Z, blanks last), every N rows, or — for a workbook with "
+                           "several sheets — each sheet."),
+                 ("Each sheet", "Every sheet of the uploaded workbook becomes its own file (XLSX keeps the sheet's "
+                                "name, or CSV or PDF), in a .zip. Cell values are kept, not formatting or formulas; the "
+                                "header row is found on each sheet and empty sheets are left out."),
                  ("Save as", "Sheets (.xlsx), PDF pages, or separate files in a .zip (CSV, XLSX or PDF)."),
                  ("Limit", "Up to 200 parts.")],
-        faqs=[("What if a value is too long for a sheet name?", "Sheet names are shortened and kept unique automatically.")],
+        faqs=[("What if a value is too long for a sheet name?", "Sheet names are shortened and kept unique automatically."),
+              ("Can I split a workbook into one file per sheet?", "Yes. Upload the .xlsx, open Split into pages and "
+               "choose <b>Each sheet</b>. You get a .zip with one workbook (or CSV or PDF) for each sheet, named after "
+               "it. Charts, colours and formulas aren't copied, only the values.")],
         related=["filter-rows", "convert-file", "pivot-table"],
     ),
 ]

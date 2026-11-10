@@ -588,8 +588,8 @@ export const TOOLS = [
   },
   {
     op: 'split_pages', cat: 'convert', icon: 'pages', label: 'Split into pages',
-    desc: 'By a column or every N rows', keywords: 'split pages sheets tabs per value break separate report each city chunks rows files zip',
-    intro: 'Split by a column (a part per city, say) or every N rows, into sheets, PDF pages or separate files.',
+    desc: 'By a column, every N rows, or each sheet', keywords: 'split pages sheets tabs per value break separate report each city chunks rows files zip workbook workbooks each sheet separate files extract sheets',
+    intro: 'Split by a column (a part per city, say) or every N rows, into sheets, PDF pages or separate files. A workbook with several sheets can also become one file per sheet.',
     splitter: true,
     fields: [],
   },

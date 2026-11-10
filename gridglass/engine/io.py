@@ -82,6 +82,37 @@ def workbook_sheets(path: str | Path) -> list[str]:
         raise IngestError("Couldn't open this spreadsheet. It may be damaged or password-protected.") from exc
 
 
+def workbook_tables(src: str | Path) -> list[tuple[str, pl.DataFrame]]:
+    """Every sheet of a workbook as a table: header row found automatically, blank rows dropped, types
+    chosen from the whole column, just as when one sheet is opened. Empty sheets come back with no rows."""
+    out = []
+    for name in workbook_sheets(src):
+        grid = _read_sheet(Path(src), name)
+        if not grid.width or not grid.height:
+            out.append((name, pl.DataFrame()))
+            continue
+        table = _with_header(grid, _resolve_header(AUTO, grid.head(TOP_ROWS).rows()))
+        out.append((name, infer_types(table.lazy()).collect() if table.width else table))
+    return out
+
+
+def export_sheets(src: str | Path, fmt: str, dest: str | Path, *, title: str, max_pdf_rows: int = 10_000,
+                  max_pages: int = MAX_SPLIT_PAGES) -> Path:
+    """Each sheet of a workbook as its own file (.xlsx keeps the sheet's name), in a .zip. Empty sheets are left out."""
+    fmt = fmt.lower()
+    if fmt not in EXPORT_FORMATS:
+        raise ExportError(f"Can't export as {fmt}. Choose CSV, XLSX, JSON or PDF.")
+    parts = [(name, df) for name, df in workbook_tables(src) if df.height]
+    if not parts:
+        raise ExportError("Every sheet in this workbook is empty.")
+    if len(parts) > max_pages:
+        raise ExportError(f"This workbook has {len(parts):,} sheets — the limit is {max_pages}.")
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    _write_zip(dest, parts, fmt, title=title, orientation="auto", max_pdf_rows=max_pdf_rows, label_sheets=True)
+    return dest
+
+
 # --------------------------------------------------------------------------- ingest
 
 def ingest(src: str | Path, filename: str, dest: str | Path, *, sheet: str | None = None,
@@ -629,7 +660,7 @@ _BAD_FILE_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 
 
 def _write_zip(dest: Path, parts: list[tuple[str, pl.DataFrame]], fmt: str, *, title: str, orientation: str,
-               max_pdf_rows: int, decimals: int | None = None) -> None:
+               max_pdf_rows: int, decimals: int | None = None, label_sheets: bool = False) -> None:
     """One file per part, in a .zip. Names: '<title> - <part>.<fmt>', made safe and unique."""
     import io as _io
     import zipfile
@@ -652,7 +683,7 @@ def _write_zip(dest: Path, parts: list[tuple[str, pl.DataFrame]], fmt: str, *, t
                 tmp = Path(tempfile.mkstemp(suffix=f".{fmt}", dir=dest.parent)[1])
                 try:
                     if fmt == "xlsx":
-                        _write_xlsx(tmp, [("Data", part)], decimals=decimals)
+                        _write_xlsx(tmp, [(label if label_sheets else "Data", part)], decimals=decimals)
                     else:
                         from .pdf import write_pdf
 
