@@ -83,6 +83,8 @@ The second command runs the real browser tests against your live site. Keep it t
 | `LOG_LEVEL` | info | gunicorn log level |
 | `CANONICAL_HOST` | (none) | Main address, e.g. `gridglass.in`; www and *.onrender.com redirect to it |
 | `ADSENSE_CLIENT` | (none) | `ca-pub-…`; enables ads.txt and ads on information pages only |
+| `ANDROID_CERT_SHA256` | (none) | SHA-256 fingerprints of the Play app's signing keys, comma-separated; enables `/.well-known/assetlinks.json` (see `android/README.md`) |
+| `ANDROID_PACKAGE` | `com.gridglass.app` | The Play app's package name |
 | `GUNICORN_TIMEOUT` | 300 | Seconds a request may take (big uploads on slow connections) |
 
 ## Notes

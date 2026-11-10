@@ -34,6 +34,13 @@ class Config:
     # load on the content pages (/tools, /guides, /about…), never in the app where files are shown.
     ADSENSE_CLIENT = os.environ.get("ADSENSE_CLIENT", "").strip()
 
+    # The Play Store app (android/). /.well-known/assetlinks.json tells Android that this app may open
+    # the site full-screen, without a URL bar. ANDROID_CERT_SHA256 is a comma-separated list of SHA-256
+    # signing-certificate fingerprints (AB:CD:…): the Play App Signing key from Play Console, plus the
+    # upload key if you install test builds directly. Empty: no assetlinks.json.
+    ANDROID_PACKAGE = os.environ.get("ANDROID_PACKAGE", "com.gridglass.app").strip()
+    ANDROID_CERT_SHA256 = os.environ.get("ANDROID_CERT_SHA256", "").strip()
+
     # Behind a hosting proxy (Render, Railway, nginx) set TRUST_PROXY=1 so client IPs and https are seen correctly.
     TRUST_PROXY = _int("TRUST_PROXY", 0)
 
