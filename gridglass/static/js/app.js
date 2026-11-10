@@ -634,9 +634,15 @@ function renderOptions() {
 }
 
 /** The format picker shared by Convert and the result screen. */
-function downloadFields(label = 'Download as', { columns = false } = {}) {
+/** The pivot's report filter pages column, when the last step made them ("one sheet for each Region"). */
+const pagesColumn = () => { const s = state.file?.steps.at(-1); return s?.op === 'pivot' ? s.pages ?? '' : ''; };
+
+function downloadFields(label = 'Download as', { columns = false, pages = '' } = {}) {
   const stem = state.file.filename.replace(/\.[^.]+$/, '');
   return `<div class="field"><label class="field-label" for="fmt">${label}</label>${formatSelect()}</div>
+    ${pages ? `<div class="field"><label class="toggle"><input type="checkbox" id="by-page" checked>
+<span class="switch" aria-hidden="true"></span>
+      <span id="by-page-text">One sheet for each ${esc(pages)}</span></label></div>` : ''}
     <div class="pdf-opts" id="pdf-opts" hidden>
       <div class="field"><span class="field-label">Page</span>
         ${seg('orient', [['auto', 'Auto'], ['portrait', 'Portrait'], ['landscape', 'Landscape']], 'auto', 'Page orientation')}</div>
@@ -667,9 +673,17 @@ function wireDownload() {
     pressSeg(b);
     if (b.dataset.seg === 'pdfcols') $('#pdf-cols').hidden = b.dataset.val !== 'some';
   });
+  const pages = $('#by-page') ? pagesColumn() : '';
+  const pageText = () => { // what "one … for each" means in this format
+    if (!pages) return;
+    $('#by-page-text').textContent = `${{ xlsx: 'One sheet', pdf: 'One section', csv: 'One file (in a .zip)', json: 'One file (in a .zip)' }[fmt.value] ?? 'One part'} for each ${pages}`;
+  };
+  fmt.addEventListener('change', pageText);
+  pageText();
   const opts = () => {
-    if (fmt.value !== 'pdf') return {};
-    const o = { orientation: $('#pdf-opts [data-seg="orient"][aria-pressed="true"]').dataset.val, title: $('#pdf-title').value.trim() };
+    const split = pages && $('#by-page').checked ? { split_by: pages, ...(['csv', 'json'].includes(fmt.value) ? { files: '1' } : {}) } : {};
+    if (fmt.value !== 'pdf') return split;
+    const o = { ...split, orientation: $('#pdf-opts [data-seg="orient"][aria-pressed="true"]').dataset.val, title: $('#pdf-title').value.trim() };
     if ($('#pdf-cols') && !$('#pdf-cols').hidden) {
       o.columns = [...view.querySelectorAll('[data-pdfcol][aria-pressed="true"]')].map((b) => b.dataset.pdfcol);
       if (!o.columns.length) throw new ApiError({ message: 'Choose at least one column for the PDF.' }, 0);
@@ -792,7 +806,7 @@ function formatSelect() {
 // ---------------------------------------------------------------------------- form
 
 const colsFor = (filter, source) => (source === 'other' ? state.otherCols : state.cols).filter((c) => !filter
-  || (filter === 'text' ? c.type === 'text' : filter === 'number' ? ['integer', 'decimal'].includes(c.type)
+  || (typeof filter === 'function' ? filter(c) : filter === 'text' ? c.type === 'text' : filter === 'number' ? ['integer', 'decimal'].includes(c.type)
     : filter === 'date' ? ['date', 'datetime'].includes(c.type) : true));
 
 const opt = (v, l, sel) => `<option value="${esc(v)}" ${v === sel ? 'selected' : ''}>${esc(l)}</option>`;
@@ -823,7 +837,7 @@ const FIELD = {
   column: (f, v) => `<select class="input" id="f-${f.key}" data-key="${f.key}">${f.optional
     ? `<option value="" ${v ? '' : 'selected'}>${esc(f.emptyLabel || 'None')}</option>${colsFor(f.filter).map((c) => opt(c.name, c.name, v)).join('')}`
     : colOptions(f.filter, v)}</select>`,
-  select: (f, v) => `<select class="input" id="f-${f.key}" data-key="${f.key}">${f.options.map(([o, l]) => opt(o, l, v)).join('')}</select>`,
+  select: (f, v) => `<select class="input" id="f-${f.key}" data-key="${f.key}">${(typeof f.options === 'function' ? f.options(state.draft) : f.options).map(([o, l]) => opt(o, l, v)).join('')}</select>`,
   choice: (f, v) => seg(f.key, f.options, v, f.label),
   text: (f, v) => `<input class="input" id="f-${f.key}" data-key="${f.key}" value="${esc(v)}" placeholder="${esc(f.placeholder || '')}">`,
   number: (f, v) => `<input class="input" id="f-${f.key}" data-key="${f.key}" type="number" inputmode="decimal" value="${esc(v)}"
@@ -1512,6 +1526,13 @@ async function showPreview(steps, step, hint = null) {
     box.classList.remove('loading', 'error');
     box.innerHTML = table(preview, steps.some((x) => x.op === 'pivot') ? PIVOT_DECIMALS : null);
     state.pvData = hint ? null : preview;
+    if (!hint && step?.op === 'pivot' && step.pages) { // the chart shows everything together, not page after page
+      const { pages, ...whole } = step;
+      const all = await api(`/files/${state.file.id}/preview?limit=${previewRows()}`, { method: 'POST', body: { steps: [...steps.slice(0, -1), whole] } })
+        .catch(() => null);
+      if (seq !== previewSeq) return;
+      state.pvData = all?.preview ?? null;
+    }
     if (state.view === 'chart') renderChart();
     const diff = preview.total_rows - state.before;
     badge.dataset.kind = diff < 0 ? 'warn' : 'ok';
@@ -1652,7 +1673,7 @@ function renderDone() {
       </div>
     </section>
     <section class="card glass">
-      ${downloadFields()}
+      ${downloadFields('Download as', { pages: pagesColumn() })}
       <button class="btn btn-primary btn-lg btn-block" type="button" data-action="download">${ui('download')} Download file</button>
       ${navigator.share ? `<button class="btn btn-secondary btn-block" type="button" data-action="share">${ui('share')} Share</button>` : ''}
     </section>

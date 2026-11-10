@@ -354,6 +354,39 @@ def test_pivot_with_columns_and_two_values(phone):
     assert len(rows) == 5
 
 
+def test_pivot_sort_and_report_filter_pages(phone):
+    import fastexcel
+
+    page = phone.upload_sample("pivot")
+    page.click('[data-col-none="rows"]')
+    page.click('[data-field="rows"] [data-col="Customer"]')
+    page.select_option("#f-sort", "v0:desc")                    # Sum of Amount, largest first
+    expect(page.locator("#f-sort option:checked")).to_have_text("Sum of Amount, largest first")
+    page.select_option("#f-pages", "City")
+    expect(page.locator("#pv thead th").first).to_contain_text("City")
+    page.click("#tab-chart")                                     # the chart adds the pages together
+    expect(page.locator("#chart svg")).to_be_visible()
+    expect(page.locator("#chart svg")).not_to_contain_text("Bengaluru")
+    page.click("#tab-table")
+    apply(page)
+    expect(page.locator("#by-page-text")).to_have_text("One sheet for each City")
+    xlsx = download(page, "xlsx")
+    book = fastexcel.read_excel(xlsx)
+    assert book.sheet_names == ["Bengaluru", "Chennai", "Delhi", "Mumbai", "Pune"]
+    pune = book.load_sheet("Pune").to_polars()
+    assert pune.columns == ["City", "Customer", "Sum of Amount"] and pune["Customer"][-1] == "Grand Total"
+    sums = pune["Sum of Amount"].to_list()[:-1]
+    assert sums == sorted(sums, reverse=True)                   # sorted on each page
+    page.select_option("#fmt", "csv")
+    expect(page.locator("#by-page-text")).to_have_text("One file (in a .zip) for each City")
+    page.locator("label:has(#by-page)").click()                 # one table instead
+    expect(page.locator("#by-page")).not_to_be_checked()
+    assert download(page, "csv").read_text(encoding="utf-8-sig").startswith("City,Customer,Sum of Amount")
+    page.click('a[href="#/edit/0"]')                              # the form comes back as it was
+    expect(page.locator("#f-sort")).to_have_value("v0:desc")
+    expect(page.locator("#f-pages")).to_have_value("City")
+
+
 def test_pivot_hint_when_columns_also_in_rows(phone):
     page = phone.upload_sample("pivot")
     page.select_option("#f-pcol", "Customer")                   # Customer is already the default Rows field
