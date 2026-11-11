@@ -48,7 +48,7 @@
         <a href="/tools">All tools</a><a href="/guides">Guides</a>
         {% for endpoint, label in pages %}<a href="{{ url_for(endpoint) }}">{{ label }}</a>{% endfor %}
       </nav>
-      <p class="site-copy">© {{ year }} {{ site.SITE_NAME }} · Made in {{ site.CITY }}, India</p>
+      <p class="site-copy">© {{ year }} {{ site.SITE_NAME }} · Made in {{ site.CITY }}, India · <span class="site-version">Version {{ version }}</span></p>
       <p class="site-tm">{{ site.TRADEMARKS }}</p>
     </div>
   </footer>

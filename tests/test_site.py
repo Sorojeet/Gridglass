@@ -211,3 +211,11 @@ def test_app_help_links_match_the_tool_pages():
     block = re.search(r"export const PAGE = \{(.*?)\};", src, re.S).group(1)
     pages = dict(re.findall(r"(\w+): '([\w-]+)'", block))
     assert pages == {t.op: t.slug for t in TOOLS}
+
+
+def test_version_at_the_bottom_of_every_page(client):
+    from gridglass import __version__
+
+    assert f'data-version="{__version__}"' in client.get("/").get_data(as_text=True)
+    for path in ("/tools", "/tools/pivot-table", "/about"):
+        assert f"Version {__version__}" in client.get(path).get_data(as_text=True), path

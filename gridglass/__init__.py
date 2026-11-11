@@ -16,7 +16,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import Config
 
-__version__ = "1.24.1"
+__version__ = "1.24.2"
 log = logging.getLogger("gridglass")
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
@@ -106,6 +106,10 @@ def create_app(config: type[Config] = Config, **overrides: Any) -> Flask:
             query = f"?{request.query_string.decode()}" if request.query_string else ""
             return redirect(f"https://{host}{request.path}{query}", 301)
         return None
+
+    @app.context_processor
+    def _version():  # shown at the bottom of the app and of every information page
+        return {"version": __version__}
 
     @app.get("/")
     def index():
