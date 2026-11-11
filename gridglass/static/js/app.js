@@ -568,18 +568,11 @@ function pastValues(t, i, skip = -1) {
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const shortDate = (v) => { const d = new Date(`${v}T00:00`); return Number.isNaN(d.getTime()) ? v : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); };
 
-/** Tap-to-fill choices under a field: dates get Today and the last date; other columns their repeated values. */
-function quickPicks(t, c, skip) {
-  const past = pastValues(t, c.i, skip);
-  if (c.type === 'date') {
-    const last = [...t.rows].reverse().map((r) => String(r[c.i] ?? '').trim()).find(Boolean);
-    return [[today(), 'Today'], ...(last && last !== today() ? [[last, shortDate(last)]] : [])];
-  }
-  const filled = past.reduce((n, e) => n + e.count, 0);
-  // a column like Category repeats; one like Name or Phone mostly doesn't, so chips there would only be noise
-  const repeats = filled > 0 && (filled < 4 || past.length <= filled * 0.6);
-  const shown = c.type === 'number' ? past.filter((e) => e.count > 1) : past; // amounts are mostly one-offs
-  return repeats ? shown.slice(0, 6).map((e) => [e.v, e.v]) : [];
+/** Quick buttons under a date field: Today and the last date used. (Other columns get a dropdown of earlier values.) */
+function quickPicks(t, c) {
+  if (c.type !== 'date') return [];
+  const last = [...t.rows].reverse().map((r) => String(r[c.i] ?? '').trim()).find(Boolean);
+  return [[today(), 'Today'], ...(last && last !== today() ? [[last, shortDate(last)]] : [])];
 }
 
 function renderCreate() {
@@ -711,17 +704,24 @@ function renderTableRows() {
     const row = editing() ? t.rows[t.at] : t.cur;
     const skip = editing() ? t.at : -1;
     form.innerHTML = cols.map((c, n) => {
-      const past = c.type === 'date' ? [] : pastValues(t, c.i, skip).slice(0, 200);
-      const picks = quickPicks(t, c, skip);
+      const drop = c.type !== 'date' && pastValues(t, c.i, skip).length > 0;
+      const picks = quickPicks(t, c);
       const v = String(row[c.i] ?? '');
+      const box = `<input class="input" id="nr-${c.i}" name="c${c.i}" value="${esc(v)}" ${c.type === 'date' ? 'type="date"' : c.type === 'number' ? 'type="text" inputmode="decimal"' : 'type="text"'}
+        maxlength="2000" enterkeyhint="${n === cols.length - 1 ? 'done' : 'next'}" data-col="${c.i}"
+        ${drop ? `role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="nr-list-${c.i}" autocomplete="off"` : ''}>`;
       return `<div class="field"><label class="field-label" for="nr-${c.i}">${esc(c.name)}</label>
-      <input class="input" id="nr-${c.i}" name="c${c.i}" value="${esc(v)}" ${c.type === 'date' ? 'type="date"' : c.type === 'number' ? 'type="text" inputmode="decimal"' : 'type="text"'}
-        maxlength="2000" enterkeyhint="${n === cols.length - 1 ? 'done' : 'next'}" ${past.length ? `list="nr-list-${c.i}"` : ''}>
-      ${past.length ? `<datalist id="nr-list-${c.i}">${past.map((e) => `<option value="${esc(e.v)}"></option>`).join('')}</datalist>` : ''}
+      ${drop ? `<div class="combo">${box}
+        <button type="button" class="combo-btn" data-combo-toggle="nr-${c.i}" aria-label="Show earlier values for ${esc(c.name)}" tabindex="-1">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+        <ul class="combo-list glass" id="nr-list-${c.i}" role="listbox" aria-label="Earlier values in ${esc(c.name)}" hidden></ul></div>` : box}
       ${picks.length ? `<div class="chips wrap fill-chips" role="group" aria-label="Quick fill for ${esc(c.name)}">${picks.map(([val, lab]) =>
         `<button type="button" class="chip" data-fill="${c.i}" data-value="${esc(val)}" aria-pressed="${val.toLowerCase() === v.trim().toLowerCase()}"><span>${esc(lab)}</span></button>`).join('')}</div>` : ''}
       </div>`;
     }).join('');
+    form.querySelectorAll('[role="combobox"]').forEach((input) => comboSources.set(input, () => ({
+      values: pastValues(t, Number(input.dataset.col), skip).slice(0, 200).map((e) => ({ value: e.v, count: e.count })), truncated: false,
+    })));
     $('#nr-where').textContent = editing() ? `Row ${num(t.at + 1)} of ${num(t.rows.length)}` : `New row ${num(t.rows.length + 1)}`;
     $('#nr-save').textContent = editing() ? 'Save changes' : 'Save row and add another';
     $('[data-action="prev"]').disabled = t.at === 0;
@@ -745,19 +745,48 @@ function renderTableRows() {
   };
   const pressChips = (input) => input.closest('.field').querySelectorAll('[data-fill]').forEach((b) =>
     b.setAttribute('aria-pressed', b.dataset.value.toLowerCase() === input.value.trim().toLowerCase()));
-  form.addEventListener('input', (e) => { keep(); if (e.target.tagName === 'INPUT') pressChips(e.target); });
-  form.addEventListener('click', (e) => { // a quick-fill chip: fill the field and move on to the next one
-    const b = e.target.closest('[data-fill]');
+  const moveOn = (input) => {
+    const inputs = [...form.querySelectorAll('input')];
+    const next = inputs[inputs.indexOf(input) + 1];
+    (next ?? $('#nr-save')).focus({ preventScroll: !desktop.matches });
+  };
+  form.addEventListener('input', (e) => {
+    keep();
+    if (e.target.tagName !== 'INPUT') return;
+    pressChips(e.target);
+    if (e.target.getAttribute('role') === 'combobox') comboRefresh(e.target);
+  });
+  form.addEventListener('combo-pick', (e) => moveOn(e.target)); // picked from the dropdown: on to the next field
+  form.addEventListener('mousedown', (e) => { if (e.target.closest('.combo-list')) e.preventDefault(); }); // keep focus in the box
+  form.addEventListener('focusin', (e) => { if (e.target.getAttribute('role') === 'combobox') comboOpen(e.target); });
+  form.addEventListener('focusout', (e) => {
+    const combo = e.target.closest('.combo');
+    if (combo) setTimeout(() => { if (combo.isConnected && !combo.contains(document.activeElement)) comboClose($('[role="combobox"]', combo)); }, 120);
+  });
+  form.addEventListener('click', (e) => {
+    const pick = e.target.closest('.combo-list [role="option"]');
+    if (pick) { comboChoose(pick); return; }
+    const toggle = e.target.closest('[data-combo-toggle]');
+    if (toggle) {
+      const input = $(`#${toggle.dataset.comboToggle}`);
+      if (input.getAttribute('aria-expanded') === 'true') comboClose(input); else { input.focus(); comboOpen(input); }
+      return;
+    }
+    const b = e.target.closest('[data-fill]'); // a date's quick button: fill the field and move on
     if (!b) return;
     const input = form.elements[`c${b.dataset.fill}`];
     input.value = b.dataset.value;
     keep();
     pressChips(input);
-    const inputs = [...form.querySelectorAll('input')];
-    const next = inputs[inputs.indexOf(input) + 1];
-    (next ?? $('#nr-save')).focus({ preventScroll: !desktop.matches });
+    moveOn(input);
   });
   form.addEventListener('keydown', (e) => { // Enter goes to the next field; on the last one it saves the row
+    if (e.target.getAttribute('role') === 'combobox') {
+      const list = $(`#${e.target.getAttribute('aria-controls')}`);
+      const chosen = list && !list.hidden && list.querySelector('[aria-selected="true"]');
+      if (e.key !== 'Enter' || chosen) { onComboKey(e); return; } // arrows, Esc, or Enter on a highlighted value
+      comboClose(e.target);
+    }
     if (e.key !== 'Enter' || e.target.tagName !== 'INPUT') return;
     const inputs = [...form.querySelectorAll('input')];
     const i = inputs.indexOf(e.target);
@@ -1001,7 +1030,7 @@ function renderOptions() {
   form.addEventListener('focusin', (e) => { if (e.target.getAttribute('role') === 'combobox') comboOpen(e.target); });
   form.addEventListener('focusout', (e) => {
     const combo = e.target.closest('.combo');
-    if (combo) setTimeout(() => { if (!combo.contains(document.activeElement)) comboClose($('[role="combobox"]', combo)); }, 120);
+    if (combo) setTimeout(() => { if (combo.isConnected && !combo.contains(document.activeElement)) comboClose($('[role="combobox"]', combo)); }, 120);
   });
   form.addEventListener('keydown', onComboKey);
   form.addEventListener('submit', (e) => e.preventDefault());
@@ -1832,19 +1861,25 @@ async function loadValues(column, q = '') {
 
 const comboToken = (input) => (input.dataset.multi === 'true' ? input.value.split(',').pop() : input.value).trim().toLowerCase();
 
+/** Boxes whose values come from the page, not the server (Create a table): input → () => ({ values: [{value, count}] }). */
+const comboSources = new WeakMap();
+
 let comboSearch;
 async function comboOpen(input) {
   const column = input.dataset.valuesFor;
-  if (!column) return;
+  const local = comboSources.get(input);
+  if (!column && !local) return;
   delete input.dataset.chosen; // opening on purpose shows the list again
   const asked = performance.now();
-  const data = await loadValues(column);
+  const data = local ? local() : await loadValues(column);
   if (Number(input.dataset.closedAt || 0) > asked) return; // closed (Esc, a pick) while the values were loading
   if (document.activeElement !== input && input.getAttribute('aria-expanded') !== 'true') return;
   comboRender(input, data);
 }
 
 async function comboRefresh(input) {
+  const local = comboSources.get(input);
+  if (local) { comboRender(input, local()); return; }
   if (!input.dataset.valuesFor) return;
   const data = await loadValues(input.dataset.valuesFor);
   comboRender(input, data);
@@ -1879,6 +1914,7 @@ function comboRender(input, data) {
         <span>${esc(v.value)}</span><small>${num(v.count)}</small></li>`).join('')
       + (data.truncated && !token ? `<li class="combo-more" aria-hidden="true">Type to search all ${num(data.distinct)} values</li>` : '')
     : `<li class="combo-more" aria-hidden="true">${token ? 'No match — your typed value will be used' : 'No values'}</li>`;
+  if (!matches.length && comboSources.has(input)) { comboClose(input); return; } // a new value: nothing to show
   const opening = list.hidden;
   list.hidden = false;
   input.setAttribute('aria-expanded', 'true');
@@ -1897,7 +1933,8 @@ function keepAboveBar(list) {
 function comboClose(input) {
   if (!input) return;
   input.dataset.closedAt = String(performance.now());
-  const list = $(`#${input.getAttribute('aria-controls')}`);
+  // its own list: after a redraw a stale box must not shut the new list that has the same id
+  const list = input.closest('.combo')?.querySelector('.combo-list') ?? $(`#${input.getAttribute('aria-controls')}`);
   if (list) list.hidden = true;
   input.setAttribute('aria-expanded', 'false');
   input.removeAttribute('aria-activedescendant');
@@ -1915,6 +1952,7 @@ function comboChoose(li) {
   }
   input.dispatchEvent(new Event('input', { bubbles: true })); // updates the draft and the preview
   if (input.dataset.multi === 'true') input.focus(); else comboClose(input);
+  input.dispatchEvent(new CustomEvent('combo-pick', { bubbles: true }));
 }
 
 function onComboKey(e) {

@@ -1732,6 +1732,7 @@ def test_create_a_table_from_a_tools_upload_screen(phone):
 
 def test_create_a_table_suggests_what_was_typed_before(phone):
     page = _new_table(phone)
+    expect(page.locator("#nr-1")).not_to_have_attribute("role", "combobox")   # nothing typed yet: a plain box
     for day, item, cat, amount in (("2026-11-01", "Tea", "Food", "40"), ("2026-11-02", "Bus", "Travel", "40"),
                                    ("2026-11-02", "Lunch", "Food", "120")):
         page.fill("#nr-0", day)
@@ -1739,20 +1740,39 @@ def test_create_a_table_suggests_what_was_typed_before(phone):
         page.fill("#nr-2", cat)
         page.fill("#nr-3", amount)
         page.click("#nr-save")
-    cat = page.locator('[data-fill="2"]')
-    expect(cat).to_have_text(["Food", "Travel"])                          # most used first
-    expect(page.locator('[data-fill="3"]')).to_have_text(["40"])          # amounts: only ones that repeat
-    expect(page.locator('[data-fill="0"]')).to_have_text(["Today", "2 Nov"])
-    assert page.locator("#nr-list-1 option").count() == 3                 # every item, for the typing list
-    page.click('[data-fill="0"] >> text="2 Nov"')
-    expect(page.locator("#nr-1")).to_be_focused()                         # a tap fills the field and moves on
-    page.fill("#nr-1", "Dinner")
-    page.click('[data-fill="2"] >> text="Food"')
-    expect(page.locator('[data-fill="2"][data-value="Food"]')).to_have_attribute("aria-pressed", "true")
-    page.fill("#nr-3", "90")
+    expect(page.locator('[data-fill="0"]')).to_have_text(["Today", "2 Nov"])  # dates: quick buttons
+    expect(page.locator(".fill-chips")).to_have_count(1)                    # and only dates
+
+    page.click('[data-fill="0"] >> text="2 Nov"')                          # fills the date, moves to Item
+    menu = page.locator("#nr-list-1")
+    expect(menu).to_be_visible()                                            # focusing Item opens its dropdown
+    expect(menu.locator('[role="option"] span')).to_have_text(["Lunch", "Bus", "Tea"])
+    page.keyboard.type("u")                                                 # typing narrows it
+    expect(menu.locator('[role="option"] span')).to_have_text(["Lunch", "Bus"])
+    page.keyboard.type("nch")
+    page.keyboard.press("Enter")                                            # Enter with nothing highlighted: next field
+    expect(page.locator("#nr-2")).to_be_focused()
+    cat = page.locator("#nr-list-2")
+    expect(cat.locator('[role="option"] span')).to_have_text(["Food", "Travel"])  # most used first
+    expect(cat.locator('[role="option"] small')).to_have_text(["2", "1"])
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("Enter")                                            # pick with the keyboard
+    expect(page.locator("#nr-2")).to_have_value("Food")
+    expect(page.locator("#nr-3")).to_be_focused()                           # and on to the next field
+    page.locator("#nr-list-3 [role=option]", has_text="40").click()         # or with a tap
+    expect(page.locator("#nr-3")).to_have_value("40")
+    expect(page.locator("#nr-save")).to_be_focused()
     page.click("#nr-save")
     expect(page.locator('[data-row="3"]')).to_contain_text("2026-11-02")
     expect(page.locator('[data-row="3"]')).to_contain_text("Food")
+    page.focus("#nr-2")                                                     # opens right after a save (form redrawn)
+    expect(page.locator("#nr-list-2")).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(page.locator("#nr-list-2")).to_be_hidden()
+    page.click('[data-combo-toggle="nr-2"]')                                # the arrow opens it too
+    expect(page.locator("#nr-list-2")).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(page.locator("#nr-list-2")).to_be_hidden()
 
 
 def test_version_at_the_bottom(phone):
