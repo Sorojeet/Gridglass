@@ -1338,7 +1338,7 @@ def test_app_links_to_information_pages(phone):
 
 def test_guides_are_easy_to_find(phone):
     page = phone.open("/")
-    expect(page.locator(".topbar .top-link")).to_have_text("Guides")
+    expect(page.locator(".topbar a.top-link")).to_have_text("Guides")
     page.goto(phone.base + "/#/tool/pivot")
     expect(page.locator(".intro-link")).to_have_attribute("href", "/tools/pivot-table")
     page.click('[data-action="sample"]')
@@ -1696,3 +1696,50 @@ def test_create_a_table_fits_the_screen(make_phone, device):
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
     page.click('[data-action="cols"]')
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
+def test_upload_from_the_home_screen(phone):
+    page = phone.open("/")
+    expect(page.locator("#home-upload")).to_have_text("Upload")
+    page.set_input_files("#home-file", files=[{"name": "towns.csv", "mimeType": "text/csv", "buffer": b"Town,People\nPune,10\nDelhi,20\n"}])
+    expect(page.locator(".working")).to_contain_text("towns.csv")
+    expect(page.locator('.working a[href="#/result"]')).to_have_count(0)   # nothing done to it yet
+    page.click('.tool-card[href="#/tool/sort_rows"]')
+    expect(page.locator("#pv table")).to_contain_text("Pune")          # the tool opens straight on the file
+
+
+def test_create_a_table_from_a_tools_upload_screen(phone):
+    page = phone.open("/#/tool/sort_rows")
+    page.click('[data-action="create-here"]')
+    expect(page.locator(".topbar-title")).to_have_text("Sort rows")       # back goes to the tool
+    page.fill('[data-col-name="0"]', "Town")
+    page.click("#nt-next")
+    _type_row(page, "Pune")
+    page.click("#nr-finish")
+    expect(page).to_have_url(re.compile(r"#/tool/sort_rows$"))           # and Finish opens it there
+    expect(page.locator("#pv table")).to_contain_text("Pune")
+
+
+def test_create_a_table_suggests_what_was_typed_before(phone):
+    page = _new_table(phone)
+    for day, item, cat, amount in (("2026-11-01", "Tea", "Food", "40"), ("2026-11-02", "Bus", "Travel", "40"),
+                                   ("2026-11-02", "Lunch", "Food", "120")):
+        page.fill("#nr-0", day)
+        page.fill("#nr-1", item)
+        page.fill("#nr-2", cat)
+        page.fill("#nr-3", amount)
+        page.click("#nr-save")
+    cat = page.locator('[data-fill="2"]')
+    expect(cat).to_have_text(["Food", "Travel"])                          # most used first
+    expect(page.locator('[data-fill="3"]')).to_have_text(["40"])          # amounts: only ones that repeat
+    expect(page.locator('[data-fill="0"]')).to_have_text(["Today", "2 Nov"])
+    assert page.locator("#nr-list-1 option").count() == 3                 # every item, for the typing list
+    page.click('[data-fill="0"] >> text="2 Nov"')
+    expect(page.locator("#nr-1")).to_be_focused()                         # a tap fills the field and moves on
+    page.fill("#nr-1", "Dinner")
+    page.click('[data-fill="2"] >> text="Food"')
+    expect(page.locator('[data-fill="2"][data-value="Food"]')).to_have_attribute("aria-pressed", "true")
+    page.fill("#nr-3", "90")
+    page.click("#nr-save")
+    expect(page.locator('[data-row="3"]')).to_contain_text("2026-11-02")
+    expect(page.locator('[data-row="3"]')).to_contain_text("Food")
