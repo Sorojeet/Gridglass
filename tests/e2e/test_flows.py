@@ -15,7 +15,7 @@ ALL_OPS = [
     "remove_duplicates", "trim", "change_case", "replace_values", "fill_blanks", "remove_blank_rows",
     "filter_rows", "sort_rows", "remove_columns", "keep_columns", "rename_columns", "keep_rows",
     "change_type", "split_column", "add_column", "merge", "stack", "pivot", "chart", "unpivot", "convert", "split_pages",
-]
+]  # "create" needs no file: it has its own tests
 SAMPLE_ROWS = 45  # the built-in sample: 40 orders + 5 exact duplicates
 
 
@@ -42,7 +42,7 @@ def apply(page):
 
 def test_home_lists_every_tool_and_searches(phone):
     page = phone.open("/")
-    expect(page.locator(".tool-card")).to_have_count(len(ALL_OPS))
+    expect(page.locator(".tool-card")).to_have_count(len(ALL_OPS) + 1)  # + Create a table
     page.fill("#q", "duplicates")
     expect(page.locator(".tool-card").first).to_contain_text("Remove duplicates")
     expect(page.locator(".tool-card.best .best-badge")).to_have_text("Best match")
@@ -1584,3 +1584,115 @@ def test_pivot_filter_and_percentage_labels(phone):
         return (await (await fetch(`/api/v1/files/${id}`)).json()).file.steps[0];
     }""")
     assert step["filters"] == [{"column": "City", "operator": "equals", "value": "Pune", "case_sensitive": False}]
+
+
+# ----------------------------------------------------------------------------- create a table
+
+def _new_table(phone, starter="Expenses"):
+    page = phone.open("/#/tool/create")
+    page.click(f'[data-starter] >> text="{starter}"')
+    page.click("#nt-next")
+    return page
+
+
+def _type_row(page, *values):
+    """Type a row the way people do: Enter moves on, and saves after the last field."""
+    for v in values:
+        page.keyboard.type(v)
+        page.keyboard.press("Enter")
+
+
+def test_create_a_table_and_download_it(phone):
+    page = phone.open("/")
+    page.fill("#q", "create my own table")
+    expect(page.locator(".tool-card").first).to_contain_text("Create a table")
+    page.keyboard.press("Enter")
+    expect(page.locator("#nt-next")).to_be_disabled()               # no column has a name yet
+    expect(page.locator("#nt-note")).to_have_text("Name at least one column.")
+    page.fill("#nt-name", "Shop: stock")
+    page.fill('[data-col-name="0"]', "Item")
+    page.press('[data-col-name="0"]', "Enter")
+    page.keyboard.type("Code")
+    page.keyboard.press("Enter")
+    page.keyboard.type("Qty")
+    page.select_option('[data-col-type="2"]', "number")
+    page.press('[data-col-name="2"]', "Enter")                        # Enter on the last one adds a column
+    expect(page.locator("[data-col-name]")).to_have_count(4)
+    page.keyboard.type("Item")                                        # a repeated name is told apart
+    page.click("#nt-next")
+
+    expect(page.locator("#nr-where")).to_have_text("New row 1")
+    expect(page.locator("#nr-finish")).to_be_disabled()
+    expect(page.locator("#nr-form label")).to_have_text(["Item", "Code", "Qty", "Item (2)"])
+    assert page.get_attribute("#nr-2", "inputmode") == "decimal"
+    _type_row(page, "Pen, blue", "007", "12", "x")
+    _type_row(page, 'Tape "wide"', "A-2", "3.5", "")
+    expect(page.locator("#nr-count")).to_have_text("2 rows")
+    expect(page.locator("#nr-where")).to_have_text("New row 3")
+    page.keyboard.type("Glue")                                        # typed but not saved: still counts on Finish
+    page.click("#nr-finish")
+
+    expect(page.locator(".file-chip")).to_contain_text("Shop stock.csv")
+    expect(page.locator("#pv thead th")).to_have_count(4)
+    rows = result_json(page)
+    assert list(rows[0]) == ["Item", "Code", "Qty", "Item (2)"]
+    assert [r["Item"] for r in rows] == ["Pen, blue", 'Tape "wide"', "Glue"]
+    assert rows[0]["Code"] == "007" and rows[0]["Qty"] == 12 and rows[1]["Qty"] == 3.5
+
+
+def test_create_a_table_edit_delete_and_keep_the_draft(phone):
+    page = _new_table(phone)
+    expect(page.locator("#nr-form label")).to_have_text(["Date", "Item", "Category", "Amount"])
+    assert page.get_attribute("#nr-0", "type") == "date"
+    for day, item, amount in (("2026-11-01", "Tea", "40"), ("2026-11-02", "Bus", "350"), ("2026-11-03", "Book", "85")):
+        page.fill("#nr-0", day)
+        page.fill("#nr-1", item)
+        page.fill("#nr-3", amount)
+        page.click("#nr-save")
+    expect(page.locator("#nr-count")).to_have_text("3 rows")
+    page.click("#nr-save")                                            # an empty row isn't added
+    expect(page.locator("#toast")).to_contain_text("Type something")
+    expect(page.locator("#nr-count")).to_have_text("3 rows")
+
+    page.click('[data-row="1"]')                                      # tap a row to change it
+    expect(page.locator("#nr-where")).to_have_text("Row 2 of 3")
+    expect(page.locator("#nr-save")).to_have_text("Save changes")
+    page.fill("#nr-1", "Bus pass")
+    page.click("#nr-save")
+    expect(page.locator('[data-row="1"]')).to_contain_text("Bus pass")
+    page.click('[data-action="prev"]')
+    expect(page.locator("#nr-where")).to_have_text("Row 3 of 3")
+    page.click('[data-action="delete"]')
+    expect(page.locator("#nr-count")).to_have_text("2 rows")
+
+    page.fill("#nr-1", "half typed")
+    page.reload()                                                     # nothing is lost on reload
+    expect(page.locator("#nr-count")).to_have_text("2 rows")
+    expect(page.locator("#nr-1")).to_have_value("half typed")
+    page.fill("#nr-1", "")
+
+    page.click('[data-action="cols"]')                                # columns can change; rows are kept
+    page.fill('[data-col-name="2"]', "Type")
+    page.click('[data-starter] >> text="Contacts"')
+    expect(page.locator("#toast")).to_contain_text("already has rows")
+    page.click("#nt-next")
+    expect(page.locator("#nr-table thead")).to_contain_text("Type")
+    page.click("#nr-finish")
+    rows = result_json(page)
+    assert [(r["Date"], r["Item"], r["Amount"]) for r in rows] == [("2026-11-01", "Tea", 40), ("2026-11-02", "Bus pass", 350)]
+
+    page.goto(phone.base + "/#/tool/create")                          # come back: the table is still there
+    expect(page.locator("#nr-count")).to_have_text("2 rows")
+    page.click('[data-action="cols"]')
+    page.click('[data-action="new-table"]')
+    expect(page.locator('[data-col-name="0"]')).to_have_value("")
+
+
+@pytest.mark.parametrize("device", ["Galaxy S9+", "Desktop Chrome"])
+def test_create_a_table_fits_the_screen(make_phone, device):
+    ph = make_phone(device)
+    page = _new_table(ph, "Contacts")
+    _type_row(page, "A very long name that goes on and on and on", "9876543210", "someone@example.com", "Thiruvananthapuram")
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.click('[data-action="cols"]')
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")

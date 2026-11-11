@@ -747,6 +747,34 @@ TOOLS: list[ToolPage] = [
                "it. Charts, colours and formulas aren't copied, only the values.")],
         related=["filter-rows", "convert-file", "pivot-table"],
     ),
+    ToolPage(
+        slug="create-a-table", op="create", cat="convert", name="Create a table",
+        title="Create a table online and download it as Excel or CSV",
+        description="Make a table from scratch on your phone or computer: name the columns, fill in one row at a time "
+                    "in a simple form, then download it as XLSX, CSV, JSON or PDF.",
+        intro=["Create a table is for when you have no file yet. Name your columns, then enter the rows one at a time "
+               "in a form that shows each column as its own box, one under the other — far easier than tapping tiny "
+               "cells on a phone.",
+               "When you finish, the table opens like any other file: download it, or carry on with any Gridglass tool."],
+        when=["Noting daily expenses or sales on a phone.", "Collecting names and phone numbers at an event.",
+              "A quick stock count, walking around with your phone.", "Starting a small list you'll later sort, total or chart."],
+        steps=["Open the tool, name the table and add your columns (or tap a starter such as Expenses).",
+               "Choose <b>Next: add rows</b> and fill in the form. Enter moves to the next box and saves the row after the last.",
+               "Tap a row in the list to change it. Choose <b>Finish</b> to download or use other tools."],
+        example=None,
+        options=[("Column type", "Text, Number or Date. Number boxes open the number keypad and Date boxes a date picker."),
+                 ("Starters", "Ready-made column lists for expenses, contacts, a stock list and attendance. Change them freely."),
+                 ("Changing rows", "Tap any row to edit it, or use Previous and Next. Delete removes the row shown."),
+                 ("Limits", "Up to 30 columns and 2,000 rows."),
+                 ("Save as", "Spreadsheet (.xlsx), CSV, JSON or PDF.")],
+        faqs=[("Is my table saved if I close the page?", "Yes. The table you are working on is kept on your device, in "
+               "this browser, until you start a new one, so you can come back and add rows. Nothing is uploaded until you choose Finish."),
+              ("Can I add rows to a file I already have?", "Not in this tool. Make the new rows here, then use "
+               "<a href=\"/tools/stack-files\">Stack files</a> to put them under your existing file."),
+              ("Can I change the columns after adding rows?", "Yes. Go back to Columns to rename, add or remove one; "
+               "the rows you entered are kept.")],
+        related=["convert-file", "sort-rows", "pivot-table"],
+    ),
 ]
 
 # --------------------------------------------------------------------------- one search per page
@@ -885,6 +913,12 @@ SEARCH: dict[str, tuple[str, str, str]] = {  # slug: (phrase, first paragraph, m
         "files of N rows each. CSV files work too.",
         "Split an Excel sheet into multiple sheets by column value online, or into separate files of N rows. PDF "
         "pages too. Free."),
+    "create-a-table": (
+        "Create a table online and download it as Excel or CSV",
+        "Create a table online and download it as Excel or CSV. Name the columns, then type one row at a time in a "
+        "simple form that is easy to use on a phone.",
+        "Create a table online and download it as Excel or CSV, or PDF. Name your columns and enter rows in a "
+        "simple form. Free, no sign-up, works on phones."),
 }
 
 

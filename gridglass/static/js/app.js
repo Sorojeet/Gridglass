@@ -489,6 +489,7 @@ function applyPreset() {
 }
 
 async function openTool(tool) {
+  if (tool.creator) { state.tool = tool; state.alias = null; document.title = `${tool.label} — Gridglass`; renderCreate(); return; }
   state.alias = tool.opens ? tool : null;
   tool = tool.opens ? TOOL[tool.opens] : tool;
   state.tool = tool;
@@ -498,6 +499,267 @@ async function openTool(tool) {
   document.title = `${tool.label} — Gridglass`;
   if (state.file) await enterOptions();
   else renderUpload();
+}
+
+// ---------------------------------------------------------------------------- create a table
+//
+// Name the columns, then fill in one row at a time in a form (each column is a field, stacked top to
+// bottom, which suits a phone). The table lives in this browser until "Finish": then it is sent like any
+// other file, so every tool and download works on it.
+
+const TABLE_KEY = 'gg.table';
+const NEW_TABLE = { maxCols: 30, maxRows: 2000 };
+const COL_TYPES = [['text', 'Text'], ['number', 'Number'], ['date', 'Date']];
+/** Ready-made column sets to start from. */
+const STARTERS = [
+  ['Expenses', [['Date', 'date'], ['Item', 'text'], ['Category', 'text'], ['Amount', 'number']]],
+  ['Contacts', [['Name', 'text'], ['Phone', 'text'], ['Email', 'text'], ['City', 'text']]],
+  ['Stock list', [['Item', 'text'], ['Quantity', 'number'], ['Price', 'number']]],
+  ['Attendance', [['Date', 'date'], ['Name', 'text'], ['Present', 'text']]],
+];
+const blankTable = () => ({ name: 'My table', cols: [{ name: '', type: 'text' }, { name: '', type: 'text' }, { name: '', type: 'text' }],
+  rows: [], cur: [], at: 0, stage: 'columns' });
+
+function loadTable() {
+  try {
+    const t = JSON.parse(localStorage.getItem(TABLE_KEY));
+    return t && Array.isArray(t.cols) && Array.isArray(t.rows) ? t : null;
+  } catch { return null; }
+}
+function saveTable(t) {
+  try { localStorage.setItem(TABLE_KEY, JSON.stringify(t)); } catch { /* private mode or full: keep going in memory */ }
+}
+/** The columns that have a name, with repeats told apart ("Name", "Name (2)"). */
+function namedCols(t) {
+  const seen = {};
+  return t.cols.map((c, i) => ({ ...c, i, name: c.name.trim() })).filter((c) => c.name).map((c) => {
+    const k = c.name.toLowerCase();
+    seen[k] = (seen[k] || 0) + 1;
+    return seen[k] > 1 ? { ...c, name: `${c.name} (${seen[k]})` } : c;
+  });
+}
+const blankRow = (row) => !row || row.every((v) => !String(v ?? '').trim());
+
+let draftTable = null; // the table being made
+
+function renderCreate() {
+  draftTable = draftTable ?? loadTable() ?? blankTable();
+  if (draftTable.stage === 'rows' && namedCols(draftTable).length) renderTableRows();
+  else renderTableColumns();
+}
+
+function renderTableColumns() {
+  const t = draftTable;
+  t.stage = 'columns';
+  saveTable(t);
+  view.dataset.screen = 'create';
+  const tool = state.tool;
+  view.innerHTML = `${topbar({ back: '#/', title: 'All tools', help: helpFor(tool) })}
+    <section class="intro">
+      <span class="badge cat-${tool.cat}">${CATS[tool.cat]}</span>
+      <h1>${tool.label}</h1>
+      <p>${tool.intro}</p>
+    </section>
+    <section class="card glass form new-cols">
+      <div class="field"><label class="field-label" for="nt-name">Table name</label>
+        <input class="input" id="nt-name" maxlength="80" value="${esc(t.name)}" autocomplete="off"></div>
+      <div class="field"><span class="field-label">Start from (optional)</span>
+        <div class="chips wrap">${STARTERS.map(([name], i) => `<button type="button" class="chip" data-starter="${i}">${esc(name)}</button>`).join('')}</div></div>
+      <div class="field"><span class="field-label" id="nt-cols-label">Columns</span>
+        <ol class="new-col-list" id="nt-cols" aria-labelledby="nt-cols-label"></ol>
+        <button type="button" class="btn btn-secondary btn-sm" data-action="add-col">${ui('plus')} Add column</button>
+        <p class="hint">Pick Number or Date to get the right keyboard or a date picker when you fill in rows.</p></div>
+    </section>
+    <div class="action-bar">
+      <button type="button" class="act-note" id="nt-note" data-kind="needs" hidden></button>
+      <button class="btn btn-primary btn-lg btn-block" type="button" id="nt-next">Next: add rows</button>
+      ${t.rows.length ? `<button class="btn-link" type="button" data-action="new-table">Start a new, empty table</button>` : ''}
+    </div>`;
+  const list = $('#nt-cols');
+  const draw = (focus) => {
+    list.innerHTML = t.cols.map((c, i) => `<li class="new-col">
+      <input class="input" data-col-name="${i}" maxlength="60" value="${esc(c.name)}" placeholder="Column ${i + 1}, e.g. ${['Name', 'Date', 'Amount', 'City', 'Notes'][i % 5]}"
+        aria-label="Name of column ${i + 1}" autocomplete="off" enterkeyhint="next">
+      <select class="input" data-col-type="${i}" aria-label="Type of column ${i + 1}">${COL_TYPES.map(([v, l]) => opt(v, l, c.type)).join('')}</select>
+      <button type="button" class="icon-btn" data-col-remove="${i}" aria-label="Remove column ${i + 1}" ${t.cols.length > 1 ? '' : 'disabled'}>${ui('close')}</button>
+    </li>`).join('');
+    $('[data-action="add-col"]').disabled = t.cols.length >= NEW_TABLE.maxCols;
+    if (focus !== undefined) list.querySelector(`[data-col-name="${focus}"]`)?.focus();
+    check();
+  };
+  const check = () => {
+    const ok = namedCols(t).length > 0;
+    $('#nt-next').disabled = !ok;
+    const note = $('#nt-note');
+    note.hidden = ok;
+    note.innerHTML = '<span>Name at least one column.</span>';
+  };
+  const addCol = () => { if (t.cols.length < NEW_TABLE.maxCols) { t.cols.push({ name: '', type: 'text' }); saveTable(t); draw(t.cols.length - 1); } };
+  $('#nt-name').addEventListener('input', (e) => { t.name = e.target.value; saveTable(t); });
+  list.addEventListener('input', (e) => {
+    const el = e.target;
+    if (el.dataset.colName !== undefined) t.cols[Number(el.dataset.colName)].name = el.value;
+    if (el.dataset.colType !== undefined) t.cols[Number(el.dataset.colType)].type = el.value;
+    saveTable(t);
+    check();
+  });
+  list.addEventListener('keydown', (e) => { // Enter moves on to the next column, adding one after the last
+    if (e.key !== 'Enter' || e.target.dataset.colName === undefined) return;
+    e.preventDefault();
+    const i = Number(e.target.dataset.colName);
+    if (i === t.cols.length - 1) { if (e.target.value.trim()) addCol(); } else list.querySelector(`[data-col-name="${i + 1}"]`).focus();
+  });
+  list.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-col-remove]');
+    if (!b) return;
+    const i = Number(b.dataset.colRemove);
+    t.cols.splice(i, 1);
+    t.rows.forEach((r) => r.splice(i, 1)); // that column's values go with it
+    t.cur.splice(i, 1);
+    saveTable(t);
+    draw();
+  });
+  $('[data-action="add-col"]').addEventListener('click', addCol);
+  view.querySelectorAll('[data-starter]').forEach((b) => b.addEventListener('click', () => {
+    const [name, cols] = STARTERS[Number(b.dataset.starter)];
+    if (t.rows.length) { toast('This table already has rows. Start a new, empty table first.', 'error'); return; }
+    t.cols = cols.map(([n, type]) => ({ name: n, type }));
+    if (!t.name.trim() || t.name === 'My table' || STARTERS.some(([n]) => n === t.name)) { t.name = name; $('#nt-name').value = name; }
+    saveTable(t);
+    draw();
+  }));
+  $('[data-action="new-table"]')?.addEventListener('click', () => { draftTable = blankTable(); renderTableColumns(); toast('Started a new table.'); });
+  $('#nt-next').addEventListener('click', () => { t.stage = 'rows'; t.at = t.rows.length; saveTable(t); renderTableRows(); });
+  draw();
+}
+
+/** One row at a time: every column is a field in a form. Saved rows are listed underneath. */
+function renderTableRows() {
+  const t = draftTable;
+  const cols = namedCols(t);
+  t.stage = 'rows';
+  t.at = Math.min(Math.max(t.at ?? t.rows.length, 0), t.rows.length);
+  view.dataset.screen = 'create';
+  view.innerHTML = `<header class="topbar"><button class="icon-btn" type="button" data-action="cols" aria-label="Back to columns">${ui('back')}</button>
+      <span class="topbar-title">Columns</span><span class="spacer"></span>
+      <button class="icon-btn glass theme-btn" type="button" data-action="theme" aria-label="Switch theme">${ui('moon', 'when-light')}${ui('sun', 'when-dark')}</button>
+      <a class="icon-btn" href="#/" aria-label="Close">${ui('close')}</a></header>
+    <section class="new-head">
+      <h1>${esc(t.name.trim() || 'My table')}</h1>
+      <span class="pill" id="nr-where" aria-live="polite"></span>
+    </section>
+    <form class="card glass form new-row" id="nr-form" autocomplete="off" novalidate></form>
+    <section class="new-nav">
+      <button class="btn btn-secondary btn-sm" type="button" data-action="prev">${ui('back')} Previous</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-action="delete">${ui('trash')} Delete</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-action="next">Next <span class="flip">${ui('back')}</span></button>
+    </section>
+    <section class="new-table">
+      <div class="preview-head"><h2 id="nr-title">Your table</h2><span class="pill" id="nr-count"></span></div>
+      <div class="table-wrap glass" id="nr-table" tabindex="0" aria-labelledby="nr-title"></div>
+      <p class="hint">Tap a row to change it. Your table is kept on this device, so you can come back to it.</p>
+    </section>
+    <div class="action-bar">
+      <button class="btn btn-primary btn-lg btn-block" type="submit" form="nr-form" id="nr-save"></button>
+      <button class="btn btn-secondary btn-block" type="button" id="nr-finish">${ui('check')} Finish: download or use tools</button>
+    </div>`;
+  const form = $('#nr-form');
+  const values = () => cols.map((c) => form.elements[`c${c.i}`].value);
+  const editing = () => t.at < t.rows.length;
+  const draw = (focus = true) => {
+    const row = editing() ? t.rows[t.at] : t.cur;
+    form.innerHTML = cols.map((c, n) => `<div class="field"><label class="field-label" for="nr-${c.i}">${esc(c.name)}</label>
+      <input class="input" id="nr-${c.i}" name="c${c.i}" value="${esc(row[c.i] ?? '')}" ${c.type === 'date' ? 'type="date"' : c.type === 'number' ? 'type="text" inputmode="decimal"' : 'type="text"'}
+        maxlength="2000" enterkeyhint="${n === cols.length - 1 ? 'done' : 'next'}"></div>`).join('');
+    $('#nr-where').textContent = editing() ? `Row ${num(t.at + 1)} of ${num(t.rows.length)}` : `New row ${num(t.rows.length + 1)}`;
+    $('#nr-save').textContent = editing() ? 'Save changes' : 'Save row and add another';
+    $('[data-action="prev"]').disabled = t.at === 0;
+    $('[data-action="next"]').disabled = !editing();
+    $('[data-action="delete"]').disabled = !editing();
+    $('#nr-count').textContent = plural(t.rows.length, 'row');
+    $('#nr-finish').disabled = !t.rows.length && blankRow(t.cur);
+    $('#nr-table').innerHTML = t.rows.length ? `<table><thead><tr><th scope="col" class="num-col">#</th>${cols.map((c) => `<th scope="col"><span>${esc(c.name)}</span></th>`).join('')}</tr></thead>
+      <tbody>${t.rows.map((r, i) => `<tr data-row="${i}" tabindex="0" ${i === t.at ? 'aria-current="true"' : ''}><td class="num-col">${i + 1}</td>${cols.map((c) => `<td>${esc(r[c.i] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+      : '<p class="empty">No rows yet. Fill in the form and save your first row.</p>';
+    if (focus) form.querySelector('input')?.focus({ preventScroll: !desktop.matches });
+    $('#nr-table [aria-current]')?.scrollIntoView({ block: 'nearest' });
+  };
+  const keep = () => { // remember what's typed, so nothing is lost on reload
+    const v = values();
+    const full = Array(t.cols.length).fill('');
+    cols.forEach((c, n) => { full[c.i] = v[n]; });
+    if (editing()) t.rows[t.at] = full; else t.cur = full;
+    saveTable(t);
+    $('#nr-finish').disabled = !t.rows.length && blankRow(t.cur);
+  };
+  form.addEventListener('input', keep);
+  form.addEventListener('keydown', (e) => { // Enter goes to the next field; on the last one it saves the row
+    if (e.key !== 'Enter' || e.target.tagName !== 'INPUT') return;
+    const inputs = [...form.querySelectorAll('input')];
+    const i = inputs.indexOf(e.target);
+    if (i < inputs.length - 1) { e.preventDefault(); inputs[i + 1].focus(); }
+  });
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    keep();
+    if (editing()) { t.at = t.rows.length; toast('Row saved.', 'success'); } else {
+      if (blankRow(t.cur)) { toast('Type something in at least one field first.', 'error'); return; }
+      if (t.rows.length >= NEW_TABLE.maxRows) { toast(`That's the limit of ${num(NEW_TABLE.maxRows)} rows for a table made here. Finish, then use Stack files to add more.`, 'error'); return; }
+      t.rows.push(t.cur);
+      t.cur = [];
+      t.at = t.rows.length;
+    }
+    saveTable(t);
+    draw();
+  });
+  const go = (to) => { keep(); t.at = to; saveTable(t); draw(); };
+  $('[data-action="prev"]').addEventListener('click', () => go(t.at - 1));
+  $('[data-action="next"]').addEventListener('click', () => go(t.at + 1));
+  $('[data-action="delete"]').addEventListener('click', () => {
+    t.rows.splice(t.at, 1);
+    t.at = Math.min(t.at, t.rows.length);
+    saveTable(t);
+    draw(false);
+    toast('Row deleted.', 'info');
+  });
+  $('#nr-table').addEventListener('click', (e) => { const tr = e.target.closest('[data-row]'); if (tr) go(Number(tr.dataset.row)); });
+  $('#nr-table').addEventListener('keydown', (e) => { const tr = e.target.closest('[data-row]'); if (tr && e.key === 'Enter') go(Number(tr.dataset.row)); });
+  $('[data-action="cols"]').addEventListener('click', () => { keep(); renderTableColumns(); });
+  $('#nr-finish').addEventListener('click', finishTable);
+  draw();
+}
+
+const csvCell = (v) => (/[",\n\r]/.test(v) || /^\s|\s$/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+
+/** Send the table as a file, so it can be downloaded in any format or used with every tool. */
+async function finishTable() {
+  const t = draftTable;
+  const cols = namedCols(t);
+  if (!blankRow(t.cur) && t.at >= t.rows.length) { t.rows.push(t.cur); t.cur = []; } // the row being typed counts too
+  const rows = t.rows.filter((r) => !blankRow(cols.map((c) => r[c.i])));
+  if (!rows.length) { toast('Add at least one row first.', 'error'); return; }
+  t.at = t.rows.length;
+  saveTable(t);
+  const btn = $('#nr-finish');
+  btn.disabled = true;
+  btn.classList.add('busy');
+  const csv = [cols.map((c) => csvCell(c.name)), ...rows.map((r) => cols.map((c) => csvCell(String(r[c.i] ?? ''))))].map((r) => r.join(',')).join('\r\n');
+  const name = `${(t.name.trim() || 'My table').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'My table'}.csv`;
+  try {
+    let res = await uploadFile(new File([`${csv}\r\n`], name, { type: 'text/csv' }), () => {});
+    if ((res.file.columns ?? []).map((c) => c.name ?? c).join('\u0001') !== cols.map((c) => c.name).join('\u0001')) {
+      // the first line is the header row, whatever the automatic check thought
+      res = await api(`/files/${res.file.id}/header`, { method: 'PUT', body: { row: 0 } }).catch(() => res);
+    }
+    if (state.file) forget();
+    remember(res.file);
+    toast(`${name.replace(/\.csv$/, '')} is ready: ${plural(rows.length, 'row')}.`, 'success');
+    location.hash = '#/tool/convert';
+  } catch (err) {
+    btn.disabled = false;
+    btn.classList.remove('busy');
+    toast(err.message, 'error');
+  }
 }
 
 // ---------------------------------------------------------------------------- upload

@@ -43,7 +43,7 @@ def test_every_page_renders(client):
 def test_every_tool_in_the_app_has_a_page():
     ops = {t.op for t in TOOLS}
     assert ops == set(BLURB)                      # every card in the app, and nothing else
-    assert ops - {"convert", "split_pages", "chart"} <= set(OPS)
+    assert ops - {"convert", "split_pages", "chart", "create"} <= set(OPS)
     assert len({t.slug for t in TOOLS}) == len(TOOLS)
 
 
