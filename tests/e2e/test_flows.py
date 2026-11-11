@@ -1338,7 +1338,7 @@ def test_app_links_to_information_pages(phone):
 
 def test_guides_are_easy_to_find(phone):
     page = phone.open("/")
-    expect(page.locator(".topbar a.top-link")).to_have_text("Guides")
+    expect(page.locator(".topbar a.top-link[href=\"/guides\"]")).to_have_text("Guides")
     page.goto(phone.base + "/#/tool/pivot")
     expect(page.locator(".intro-link")).to_have_attribute("href", "/tools/pivot-table")
     page.click('[data-action="sample"]')
@@ -1700,12 +1700,22 @@ def test_create_a_table_fits_the_screen(make_phone, device):
 
 def test_upload_from_the_home_screen(phone):
     page = phone.open("/")
-    expect(page.locator("#home-upload")).to_have_text("Upload")
-    page.set_input_files("#home-file", files=[{"name": "towns.csv", "mimeType": "text/csv", "buffer": b"Town,People\nPune,10\nDelhi,20\n"}])
-    expect(page.locator(".working")).to_contain_text("towns.csv")
+    page.click("#home-upload")                                       # its own page with all three ways in
+    expect(page.locator("h1")).to_have_text("Upload a file")
+    expect(page.locator('label[for="file"]')).to_be_visible()
+    expect(page.locator('[data-action="sample"]')).to_be_visible()
+    expect(page.locator('[data-action="create-here"]')).to_be_visible()
+    page.set_input_files("#file", files=[{"name": "towns.csv", "mimeType": "text/csv", "buffer": b"Town,People\nPune,10\nDelhi,20\n"}])
+    expect(page.locator(".working")).to_contain_text("towns.csv")    # back home with the file kept
     expect(page.locator('.working a[href="#/result"]')).to_have_count(0)   # nothing done to it yet
     page.click('.tool-card[href="#/tool/sort_rows"]')
     expect(page.locator("#pv table")).to_contain_text("Pune")          # the tool opens straight on the file
+    page.goto(phone.base + "/#/upload")
+    page.click('[data-action="sample"]')
+    expect(page.locator(".working")).to_contain_text("sample-orders.csv")
+    page.goto(phone.base + "/#/upload")
+    page.click('[data-action="create-here"]')
+    expect(page.locator(".topbar-title")).to_have_text("All tools")
 
 
 def test_create_a_table_from_a_tools_upload_screen(phone):
