@@ -18,7 +18,7 @@
   --accent: #0F766E; --accent-hover: #115E59; --accent-ink: #FFFFFF;
   --accent-glass: rgba(15, 118, 110, 0.92); --accent-ring: rgba(15, 118, 110, 0.35);
   --glass: rgba(255, 255, 255, 0.55); --glass-strong: rgba(255, 255, 255, 0.78);
-  --glass-border: rgba(255, 255, 255, 0.8); --hl: rgba(255, 255, 255, 0.95);
+  --glass-border: rgba(255, 255, 255, 0.8); --hl: rgba(255, 255, 255, 0.95); --sheen: rgba(255, 255, 255, 0.5); --grain: 0.35;
   --shadow: rgba(15, 23, 42, 0.08); --track: rgba(255, 255, 255, 0.4); --seg-on: rgba(255, 255, 255, 0.95);
   --line: rgba(15, 23, 42, 0.08); --thead: rgba(255, 255, 255, 0.6); --bar: rgba(255, 255, 255, 0.55);
   --solid: rgba(11, 18, 32, 0.88); --on-solid: #FFFFFF; --menu: #FFFFFF;
@@ -40,7 +40,7 @@
   --accent: #5EEAD4; --accent-hover: #99F6E4; --accent-ink: #FFFFFF;
   --accent-glass: rgba(13, 148, 136, 0.85); --accent-ring: rgba(94, 234, 212, 0.4);
   --glass: rgba(24, 32, 46, 0.55); --glass-strong: rgba(24, 32, 46, 0.8);
-  --glass-border: rgba(255, 255, 255, 0.12); --hl: rgba(255, 255, 255, 0.14);
+  --glass-border: rgba(255, 255, 255, 0.12); --hl: rgba(255, 255, 255, 0.14); --sheen: rgba(255, 255, 255, 0.05); --grain: 0.5;
   --shadow: rgba(0, 0, 0, 0.45); --track: rgba(255, 255, 255, 0.06); --seg-on: rgba(255, 255, 255, 0.16);
   --line: rgba(255, 255, 255, 0.08); --thead: rgba(255, 255, 255, 0.06); --bar: rgba(12, 18, 28, 0.62);
   --solid: rgba(238, 242, 247, 0.92); --on-solid: #0B1220; --menu: #151C29;
@@ -64,6 +64,7 @@
 }
 
 /* ----------------------------------------------------------------- base */
+:root { --spring: cubic-bezier(0.2, 0.9, 0.3, 1.2); --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1); }
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; background: var(--ground); }
 body {
@@ -99,10 +100,20 @@ main {
 /* ----------------------------------------------------------------- glass */
 .glass {
   background: var(--glass);
+  /* a soft sheen from the top edge, like light on frosted glass */
+  background-image: linear-gradient(180deg, var(--sheen) 0%, transparent 42%);
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
   border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 var(--hl), 0 8px 24px var(--shadow);
+  box-shadow: inset 0 1px 0 var(--hl), 0 1px 2px var(--shadow), 0 14px 32px -10px var(--shadow);
 }
+
+/* A fine paper-like grain over the background, so large soft areas don't look flat or banded. */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: var(--grain);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { body::before { display: none; } }
 
 /* ----------------------------------------------------------------- top bar */
 .topbar { display: flex; align-items: center; gap: 6px; padding: calc(14px + env(safe-area-inset-top)) 0 0; margin: 0 -8px; min-height: 58px; }
@@ -117,7 +128,9 @@ main {
   width: 44px; height: 44px; border-radius: 999px; border: 0; background: transparent; color: var(--ink);
   display: inline-flex; align-items: center; justify-content: center; text-decoration: none; flex: none;
 }
+.icon-btn { transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s var(--spring); }
 .icon-btn:hover { color: var(--ink); background: var(--track); }
+.icon-btn:active { transform: scale(0.9); }
 .icon-btn.glass { border: 1px solid var(--glass-border); }
 .icon-btn.small { width: 40px; height: 40px; color: var(--muted); }
 .theme-btn .when-dark, :root[data-theme="dark"] .theme-btn .when-light { display: none; }
@@ -132,6 +145,7 @@ main {
 .btn:active { transform: scale(0.98); }
 .btn-primary { background: var(--accent-glass); color: var(--accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 10px 24px var(--accent-ring); }
 .btn-primary:hover { color: var(--accent-ink); filter: brightness(1.05); }
+@media (hover: hover) { .btn-primary:not(:disabled):hover { transform: translateY(-1px); } }
 .btn-secondary {
   background: var(--glass); color: var(--ink); border-color: var(--glass-border);
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); box-shadow: inset 0 1px 0 var(--hl);
@@ -162,6 +176,7 @@ select.input {
   background-position: calc(100% - 20px) 21px, calc(100% - 15px) 21px; background-size: 5px 5px; background-repeat: no-repeat;
 }
 .input::placeholder { color: var(--muted); opacity: 0.8; }
+.input { transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease; }
 .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 .input-sm { min-height: 40px; width: auto; max-width: 9rem; font-size: 14px; }
 
@@ -189,10 +204,16 @@ select.input {
 .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .tool-card {
   display: flex; flex-direction: column; gap: 8px; padding: 16px; min-height: 148px; border-radius: 18px;
-  text-decoration: none; color: var(--ink); transition: transform 0.15s ease;
+  text-decoration: none; color: var(--ink);
+  transition: transform 0.28s var(--spring), box-shadow 0.28s ease, border-color 0.2s ease;
 }
-.tool-card:hover { color: var(--ink); transform: translateY(-2px); }
-.tool-card:active { transform: scale(0.98); }
+.tool-card:hover { color: var(--ink); }
+@media (hover: hover) {
+  .tool-card:hover { transform: translateY(-3px); box-shadow: inset 0 1px 0 var(--hl), 0 2px 4px var(--shadow), 0 22px 40px -12px var(--shadow); }
+  .tool-card:hover .tool-icon { transform: scale(1.08) rotate(-3deg); }
+}
+.tool-card:active { transform: scale(0.97); transition-duration: 0.08s; }
+.tool-icon { transition: transform 0.3s var(--spring); }
 .tool-icon { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 2px; }
 .tool-icon .ico { width: 22px; height: 22px; }
 .tool-name { font-weight: 700; font-size: 16px; line-height: 1.25; }
@@ -260,14 +281,15 @@ select.input {
   display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center;
   padding: 30px 20px; border-radius: 22px; border: 2px dashed var(--accent-ring);
 }
-.dropzone.over { border-color: var(--accent); background: var(--chip-clean); }
+.dropzone { transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.25s var(--spring); }
+.dropzone.over { border-color: var(--accent); background: var(--chip-clean); transform: scale(1.015); }
 .dropzone .btn { width: 100%; }
 .drop-icon { width: 60px; height: 60px; border-radius: 18px; background: var(--chip-clean); color: var(--ink-clean); display: flex; align-items: center; justify-content: center; }
 .drop-icon .ico { width: 30px; height: 30px; }
 .progress { width: 100%; display: flex; flex-direction: column; gap: 8px; font-size: 14px; color: var(--ink2); }
 .progress[hidden] { display: none; }
 .progress .bar { height: 8px; border-radius: 99px; background: var(--track); overflow: hidden; }
-.progress .bar span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: inherit; transition: width 0.2s; }
+.progress .bar span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: inherit; transition: width 0.35s cubic-bezier(0.3, 0.7, 0.3, 1); }
 .how { display: flex; flex-direction: column; gap: 12px; }
 .how h2, .preview h2, .next h2, .applied h2, .pages h2 { font-size: 16px; font-weight: 700; }
 .how ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
@@ -329,6 +351,7 @@ select.input {
 }
 .combo-list [role="option"] span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .combo-list [role="option"] small { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.combo-list [role="option"] { transition: background-color 0.12s ease; }
 .combo-list [role="option"]:hover, .combo-list [role="option"][aria-selected="true"] { background: var(--track); }
 .combo-list [role="option"][aria-selected="true"] { outline: 2px solid var(--accent-ring); }
 .combo-more { padding: 10px 12px; font-size: 13px; color: var(--muted); }
@@ -357,7 +380,10 @@ th span, th small { display: block; }
 th small { font-weight: 500; font-size: 11px; color: var(--muted); }
 td { padding: 9px 12px; border-top: 1px solid var(--line); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 td.null { background: repeating-linear-gradient(135deg, transparent 0 6px, var(--line) 6px 7px); }
-.skeleton { height: 180px; }
+.skeleton {
+  height: 180px;
+  background: linear-gradient(100deg, transparent 30%, var(--sheen) 50%, transparent 70%) 0 0 / 220% 100% no-repeat;
+}
 .form-error { display: flex; gap: 10px; align-items: flex-start; padding: 16px; color: var(--error-ink); font-size: 14px; font-weight: 600; white-space: normal; }
 
 .action-bar {
@@ -463,7 +489,8 @@ td.null { background: repeating-linear-gradient(135deg, transparent 0 6px, var(-
   /* The button stays in reach under a long form (pivot, add column): it sticks to the bottom of its column. */
   main[data-screen="options"] > .action-bar {
     position: sticky; bottom: 0; margin: 4px -12px 0; padding: 12px 12px 16px; border: 0; border-radius: 18px 18px 0 0;
-    background: var(--bar); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+    /* nearly solid, so form text scrolling underneath doesn't show through a dimmed button */
+    background: color-mix(in srgb, var(--ground) 90%, transparent); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
   }
   .act-see { display: none; } /* the preview is already beside the form */
   .act-note { cursor: default; }
@@ -575,11 +602,43 @@ td.null { background: repeating-linear-gradient(135deg, transparent 0 6px, var(-
   .blobs i:nth-child(2) { animation-duration: 26s; animation-delay: -6s; }
   .blobs i:nth-child(3) { animation-duration: 30s; animation-delay: -12s; }
 
-  .btn, .chip, .col-chip, .seg button, .tabs [role="tab"] { transition: transform 0.12s ease, background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease; }
+  .btn, .chip, .col-chip, .seg button, .tabs [role="tab"] { transition: transform 0.18s var(--spring), background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, filter 0.2s ease; }
+  .chip:active, .col-chip:active, .seg button:active { transform: scale(0.95); }
+
+  /* Screens: the old one fades away as the new one fades in and its parts rise into place (going back, they
+     come in from the left). The background doesn't move. Information pages get the same between pages. */
+  @view-transition { navigation: auto; }
+  ::view-transition-old(root) { animation: screen-out 0.16s ease-in both; }
+  ::view-transition-new(root) { animation: screen-in 0.3s ease-out both; }
+  :root[data-nav="back"] main > * { animation-name: back-in; }
+
+  /* Things that open in place unfold instead of popping in. */
+  .field.enter, .health:not([hidden]), .header-pick:not([hidden]), .pdf-opts:not([hidden]), #peek-box:not([hidden]),
+  .recipe-form, .progress:not([hidden]), .working, .recipes, details[open] > :not(summary) {
+    animation: unfold 0.32s var(--ease-out) backwards;
+  }
+  .bump { animation: bump 0.36s var(--spring); }
+  #toast.leaving { animation: sink 0.2s ease-in forwards; }
+  .skeleton { animation: shimmer 1.3s ease-in-out infinite; }
+  .act-note > span:first-child { animation: fade-in 0.25s ease; }
+  summary { transition: color 0.2s ease; }
+  a { transition: color 0.15s ease; }
+
+  /* Changing between light and dark: colours glide for a moment. */
+  :root.theming, :root.theming *, :root.theming *::before, :root.theming *::after {
+    transition: background-color 0.35s ease, color 0.35s ease, border-color 0.35s ease, fill 0.35s ease, stroke 0.35s ease, box-shadow 0.35s ease !important;
+  }
   .chip:active, .col-chip:active, .seg button:active { transform: scale(0.96); }
 }
 
 @keyframes rise-in { from { opacity: 0; transform: translateY(14px); } }
+@keyframes screen-out { to { opacity: 0; } }
+@keyframes screen-in { from { opacity: 0; } }
+@keyframes back-in { from { opacity: 0; transform: translateX(-16px); } }
+@keyframes unfold { from { opacity: 0; transform: translateY(-8px); } }
+@keyframes bump { 40% { transform: scale(1.12); } }
+@keyframes sink { to { opacity: 0; transform: translate(-50%, 8px); } }
+@keyframes shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
 @keyframes card-in { from { opacity: 0; transform: translateY(18px) scale(0.97); } }
 @keyframes fade-in { from { opacity: 0.35; } }
 @keyframes pop { from { opacity: 0; transform: scale(0.4); } }

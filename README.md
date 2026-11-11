@@ -54,6 +54,12 @@ tests/               pytest suite
 | | `split_column` | |
 | | `add_column` (constant, combine, math, part of a text and more, see below) | |
 
+**Smoother look and motion (1.22):** all in CSS plus a few lines of JS, and all switched off by `prefers-reduced-motion`.
+- *Screens* cross-fade with the View Transitions API (`navigate()` wraps `route()`; forward parts rise in, going back they come from the left via `html[data-nav]`). Information pages opt in to the same between pages (`@view-transition { navigation: auto; }`). Browsers without it change screens as before. Skipped glides are not errors (`theme.js` ignores those rejections).
+- *In place:* form fields that appear after a choice unfold (`.field.enter`), as do panels and `<details>`; the preview badge bumps when its number changes; toasts ease away; loading placeholders shimmer; light/dark colours glide (`.theming`).
+- *Touch and hover:* springy press on cards, chips and buttons; cards lift with a deeper shadow on hover (`@media (hover: hover)` only).
+- *Texture:* glass gets a top sheen and a layered shadow (`--sheen`), and a fine grain sits over the background (`body::before`, `--grain`; off for reduced transparency or more contrast).
+
 **Ease-of-use pass (1.20):**
 - A status line sits above the main button on every options screen (`#act-note`): what's still needed ("Type a value to filter by."), an error, or what the options will do ("38 fewer rows · 2 columns"). On phones, tapping it jumps to the preview under a long form.
 - On desktop the main button sticks to the bottom of the form column, so it stays in reach under long forms (pivot, add column).

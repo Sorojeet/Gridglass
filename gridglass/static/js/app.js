@@ -84,7 +84,13 @@ function uploadFile(file, onProgress) {
 
 // ============================================================================ theme, toast, boot
 
+let themeTimer;
 function setTheme(theme, save = true) {
+  if (save) { // a tap on the button, not the first paint: let the colours glide
+    document.documentElement.classList.add('theming');
+    clearTimeout(themeTimer);
+    themeTimer = setTimeout(() => document.documentElement.classList.remove('theming'), 420);
+  }
   document.documentElement.dataset.theme = theme;
   if (save) try { localStorage.setItem('gg.theme', theme); } catch { /* private mode */ }
   $('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#070B12' : '#EEF3F6');
@@ -99,8 +105,12 @@ function toast(message, kind = 'info') {
   el.textContent = message;
   el.dataset.kind = kind;
   el.hidden = false;
+  el.classList.remove('leaving');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, 4200);
+  toastTimer = setTimeout(() => { // ease away, then hide
+    el.classList.add('leaving');
+    toastTimer = setTimeout(() => { el.hidden = true; el.classList.remove('leaving'); }, 200);
+  }, 4200);
 }
 
 function remember(file) {
@@ -124,7 +134,7 @@ async function boot() {
   if (saved) {
     try { remember((await api(`/files/${saved}`)).file); } catch { remember(null); }
   }
-  window.addEventListener('hashchange', route);
+  window.addEventListener('hashchange', navigate);
   route();
   // Installed on a computer: "Open with Gridglass" on a CSV or spreadsheet file lands here.
   if ('launchQueue' in window) {
@@ -143,6 +153,21 @@ const baseSteps = () => (state.editIndex === null ? state.file.steps : state.fil
 const upto = () => (state.editIndex === null ? '' : `upto=${state.editIndex}`);
 
 let firstRoute = true;
+
+/** How deep a screen is, to tell going forward from going back: home, a tool or recipe, the result. */
+const depthOf = (h) => (h === '#/result' ? 2 : /^#\/(tool|edit|recipe)\//.test(h) ? 1 : 0);
+let depth = depthOf(location.hash);
+
+/** Change screens with a short glide (where the browser can, and unless motion is turned down). */
+function navigate() {
+  const next = depthOf(location.hash);
+  document.documentElement.dataset.nav = next < depth ? 'back' : 'forward';
+  depth = next;
+  if (!document.startViewTransition || matchMedia('(prefers-reduced-motion: reduce)').matches) { route(); return; }
+  const t = document.startViewTransition(route);
+  // A second tap before the glide ends, or leaving the page, skips it: that's fine, the screen has still changed.
+  for (const done of [t.ready, t.finished]) done.catch(() => {}); // (an error while drawing the screen still surfaces)
+}
 
 function route() {
   const h = location.hash;
@@ -163,7 +188,7 @@ function route() {
 }
 
 function finishRoute() {
-  window.scrollTo(0, 0);
+  window.scrollTo({ top: 0, behavior: 'instant' });
   // Move focus to the new screen for screen readers, but not on first load (keeps "Skip to content" first).
   if (!firstRoute) view.focus({ preventScroll: true });
   firstRoute = false;
@@ -1049,11 +1074,16 @@ const NEW_ROW = {
 function renderForm() {
   const t = state.tool;
   const d = state.draft;
-  $('#opts').innerHTML = t.fields.filter((f) => !f.show || f.show(d)).map((f) => {
+  const box = $('#opts');
+  const before = box.dataset.shown ? new Set(box.dataset.shown.split(' ')) : null; // fields on screen before this change
+  const shown = t.fields.filter((f) => !f.show || f.show(d));
+  box.dataset.shown = shown.map((f) => f.key).join(' ');
+  box.innerHTML = shown.map((f) => {
     const control = FIELD[f.type](f, d[f.key]);
-    if (f.type === 'toggle') return `<div class="field">${control}</div>`;
+    const enter = before && !before.has(f.key) ? ' enter' : ''; // new because of a choice just made: unfold
+    if (f.type === 'toggle') return `<div class="field${enter}">${control}</div>`;
     const labelled = ['text', 'number', 'column', 'select'].includes(f.type);
-    return `<div class="field" data-field="${f.key}">
+    return `<div class="field${enter}" data-field="${f.key}">
       ${labelled ? `<label class="field-label" for="f-${f.key}">${esc(f.label)}</label>` : `<span class="field-label">${esc(f.label)}</span>`}
       ${control}</div>`;
   }).join('');
@@ -1629,6 +1659,7 @@ async function showPreview(steps, step, hint = null) {
     state.pvData = hint ? null : preview;
     if (state.view === 'chart') renderChart();
     const diff = preview.total_rows - state.before;
+    const was = badge.textContent;
     badge.dataset.kind = diff < 0 ? 'warn' : 'ok';
     badge.textContent = hint ? '' : !step ? plural(preview.total_rows, 'row')
       : diff < 0 ? `${num(-diff)} fewer rows` : diff > 0 ? `${num(diff)} more rows` : plural(preview.total_rows, 'row');
@@ -1641,6 +1672,7 @@ async function showPreview(steps, step, hint = null) {
       colDiff ? `${colDiff > 0 ? '+' : '−'}${plural(Math.abs(colDiff), 'column')}.` : '',
       paged ? pagesNote(step) : '',
     ].filter(Boolean).join(' ');
+    if (was && badge.textContent && was !== badge.textContent) bump(badge);
     renderPager(preview);
     actNote(hint ? { text: hint, kind: 'needs' } : step ? { text: `${badge.textContent} · ${plural(preview.columns.length, 'column')}`, kind: 'ok' } : null);
     state.previewOk = !hint;
@@ -1656,6 +1688,13 @@ async function showPreview(steps, step, hint = null) {
     box.innerHTML = `<p class="form-error">${ui('alert')}<span>${esc(friendly(err))}</span></p>`;
     actNote({ text: friendly(err), kind: 'error' });
   }
+}
+
+/** Replay a short "something changed" bump on an element. */
+function bump(el) {
+  el.classList.remove('bump');
+  void el.offsetWidth; // restart the animation
+  el.classList.add('bump');
 }
 
 /** The line above the main button: what's still needed, what went wrong, or what the result will be. */
