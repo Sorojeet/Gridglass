@@ -186,6 +186,8 @@ const INTENTS = [
   { q: 'convert xlsx csv json pdf', op: 'convert' },
   { q: 'split sheet file page group value column', op: 'split_pages', hint: 'A sheet, page or file for each value' },
   { q: 'print pdf', op: 'convert', hint: 'Save as a PDF' },
+  { q: 'create new table blank scratch make own', op: 'create', hint: 'Name columns, then type rows' },
+  { q: 'enter type data form row entry record', op: 'create', hint: 'One row at a time in a form' },
   { q: 'workbook sheet split file many', op: 'split_pages', preset: { by: 'sheets' }, hint: 'Each sheet → its own file' },
 ];
 

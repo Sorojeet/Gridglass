@@ -43,7 +43,7 @@ def icon(name: str, cls: str = "") -> Markup:
 def tool_icon(op: str) -> Markup:
     return icon(_ICON_OF.get(op, op))
 
-LASTMOD = date(2026, 11, 10)
+LASTMOD = date(2026, 11, 11)
 PAGES = [("site.about", "About"), ("site.contact", "Contact"), ("site.privacy", "Privacy"), ("site.terms", "Terms")]
 
 #: Content pages with ads. Google's ad and consent scripts load other scripts, frames and images

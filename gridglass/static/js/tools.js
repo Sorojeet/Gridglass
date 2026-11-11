@@ -30,6 +30,7 @@ const P = {
   chart: '<path d="M4 20h16"/><rect x="5.5" y="11" width="3" height="6" rx="1"/><rect x="10.5" y="6" width="3" height="11" rx="1"/><rect x="15.5" y="13" width="3" height="4" rx="1"/>',
   unpivot: '<path d="M6 4v16h14M10 8h8M10 12h8M10 16h8"/>',
   convert: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
+  newtable: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 10h18M9 10v10"/><path d="M14 15h4M16 13v4"/>',
   merge: '<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/>',
   stack: '<rect x="4" y="3" width="16" height="7" rx="2"/><rect x="4" y="14" width="16" height="7" rx="2"/><path d="M12 10v4"/>',
   pages: '<rect x="8" y="3" width="12" height="15" rx="2"/><path d="M5 7v12a2 2 0 0 0 2 2h9"/><path d="M11 8h6M11 12h6"/>',
@@ -590,6 +591,13 @@ export const TOOLS = [
     fields: [],
   },
   {
+    op: 'create', cat: 'convert', icon: 'newtable', label: 'Create a table',
+    desc: 'Type your own rows, one at a time', keywords: 'create new table make blank sheet form enter data entry type rows add records list from scratch card',
+    intro: 'Name your columns, then fill in one row at a time in a simple form. Download it as XLSX, CSV or PDF, or keep working on it with any tool.',
+    creator: true, // its own screens; no file needed
+    fields: [],
+  },
+  {
     op: 'split_pages', cat: 'convert', icon: 'pages', label: 'Split into pages',
     desc: 'By a column, every N rows, or each sheet', keywords: 'split pages sheets tabs per value break separate report each city chunks rows files zip workbook workbooks each sheet separate files extract sheets',
     intro: 'Split by a column (a part per city, say) or every N rows, into sheets, PDF pages or separate files. A workbook with several sheets can also become one file per sheet.',
@@ -608,6 +616,7 @@ export const PAGE = {
   remove_columns: 'remove-columns', keep_columns: 'choose-columns', rename_columns: 'rename-columns', keep_rows: 'keep-top-rows',
   change_type: 'change-type', split_column: 'split-column', add_column: 'add-column', merge: 'merge-files', stack: 'stack-files',
   pivot: 'pivot-table', chart: 'make-a-chart', unpivot: 'transpose', convert: 'convert-file', split_pages: 'split-into-pages',
+  create: 'create-a-table',
 };
 
 export const FORMATS = [['xlsx', 'Spreadsheet (.xlsx)'], ['csv', 'CSV (.csv)'], ['json', 'JSON (.json)'], ['pdf', 'PDF (.pdf)']];

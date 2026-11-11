@@ -54,6 +54,8 @@ tests/               pytest suite
 | | `split_column` | |
 | | `add_column` (constant, combine, math, part of a text and more, see below) | |
 
+**Create a table (1.23):** a card that needs no file. Name the columns (Text, Number or Date, or tap a starter list), then fill in one row at a time in a form where every column is its own box, top to bottom; saved rows are listed underneath and a tap opens one to change it. It runs entirely in the browser (`renderCreate` in `app.js`; the draft, including the row being typed, is kept in `localStorage` under `gg.table`), up to 30 columns and 2,000 rows. **Finish** sends the table as a CSV through the normal upload and opens Convert file, so every download format and tool works on it; no new API or engine code. Page: `/tools/create-a-table`.
+
 **Smoother look and motion (1.22):** all in CSS plus a few lines of JS, and all switched off by `prefers-reduced-motion`.
 - *Screens* cross-fade with the View Transitions API (`navigate()` wraps `route()`; forward parts rise in, going back they come from the left via `html[data-nav]`). Information pages opt in to the same between pages (`@view-transition { navigation: auto; }`). Browsers without it change screens as before. Skipped glides are not errors (`theme.js` ignores those rejections).
 - *In place:* form fields that appear after a choice unfold (`.field.enter`), as do panels and `<details>`; the preview badge bumps when its number changes; toasts ease away; loading placeholders shimmer; light/dark colours glide (`.theming`).
