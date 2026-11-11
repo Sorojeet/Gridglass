@@ -477,6 +477,22 @@ def test_pivot_report_filter_pages(phone):
     expect(page.locator('[data-key="rf_pages"]')).to_be_checked()
 
 
+def test_pivot_never_sums_a_date_by_default(phone, tmp_path):
+    """A file whose first column is a date and whose amounts are whole numbers: the value is Sum of amount."""
+    f = tmp_path / "ledger.csv"
+    f.write_text("Date_,Party,amount\n2026-01-05,A,100\n2026-01-06,B,250\n2026-01-07,A,50\n")
+    page = phone.open("/#/tool/pivot")
+    page.set_input_files("#file", str(f))
+    page.wait_for_selector("#pv table")
+    expect(page.locator("#a0c")).to_have_value("amount")
+    expect(page.locator("#pv")).not_to_contain_text("needs number")
+    assert "Date_" not in page.locator("#a0c option").all_inner_texts()   # Sum only offers number columns
+    page.goto(phone.base + "/#/tool/add_column")
+    page.wait_for_selector("#f-mode")
+    page.select_option("#f-mode", "math")
+    expect(page.locator("#f-left")).to_have_value("amount")       # math also starts on a number column
+
+
 def test_pivot_hint_when_columns_also_in_rows(phone):
     page = phone.upload_sample("pivot")
     page.select_option("#f-pcol", "Customer")                   # Customer is already the default Rows field

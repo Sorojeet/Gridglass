@@ -448,6 +448,7 @@ td.null { background: repeating-linear-gradient(135deg, transparent 0 6px, var(-
 
 .hint.needs { color: var(--ink); font-weight: 600; }
 .hint.needs::before { content: "→ "; color: var(--accent); }
+.hint:empty { display: none; }
 
 /* ----------------------------------------------------------------- desktop
    Phones keep the single column above. From 1024px wide, screens spread out:

@@ -264,7 +264,7 @@ def test_pivot_multiple_values_name_columns(orders, apply):
 
 
 def test_pivot_sum_on_text_refused(orders):
-    with pytest.raises(StepError, match="number columns"):
+    with pytest.raises(StepError, match="Pick a number column"):
         build(orders, parse_steps([{"op": "pivot", "rows": ["City"], "values": [{"func": "sum", "column": "Customer"}]}]))
 
 
@@ -700,9 +700,9 @@ def test_pivot_grand_total_name_already_taken(apply):
 
 
 def test_number_errors_name_each_column_once(apply):
-    lf = pl.LazyFrame({"A": ["x"]})
+    lf = pl.LazyFrame({"A": ["x"], "B": [1]})
     with pytest.raises(StepError, match=r"Not numbers: 'A'\.$"):
-        apply(lf, {"op": "pivot", "rows": ["A"], "values": [{"func": "sum", "column": "A"}, {"func": "average", "column": "A"}]})
+        apply(lf, {"op": "add_column", "name": "C", "mode": "math", "left": "A", "operator": "+", "right_column": "A"})
 
 
 # --------------------------------------------------------------------------- add column: part of a text
@@ -831,3 +831,14 @@ def test_pivot_report_filter_on_numbers_dates_and_true_false(apply, col, values,
 def test_pivot_report_filter_cant_also_be_a_row(apply):
     with pytest.raises(StepError, match="report filter"):
         apply(PIVOT_SALES, {"op": "pivot", "rows": ["City"], "report_filter": "City"})
+
+
+def test_pivot_names_the_value_that_needs_numbers(apply):
+    import datetime as dt
+
+    lf = pl.LazyFrame({"Date_": [dt.date(2026, 1, 1)], "Party": ["A"], "amount": [5]})
+    with pytest.raises(StepError, match=r"Sum of Date_ can't be worked out: 'Date_' holds dates\. Pick a number column "
+                                        r"for that value, or change Sum to Count\."):
+        apply(lf, {"op": "pivot", "rows": ["Party"], "values": [{"func": "sum", "column": "Date_"}, {"func": "sum", "column": "amount"}]})
+    with pytest.raises(StepError, match="'Party' holds text"):
+        apply(lf, {"op": "pivot", "rows": ["Date_"], "values": [{"func": "average", "column": "Party"}]})

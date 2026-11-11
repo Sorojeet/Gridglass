@@ -1684,6 +1684,7 @@ async function showPreview(steps, step, hint = null) {
     box.classList.add('error');
     badge.textContent = '';
     note.textContent = '';
+    note.classList.remove('needs'); // (its arrow would be left on its own)
     $('#pv-pager').innerHTML = '';
     box.innerHTML = `<p class="form-error">${ui('alert')}<span>${esc(friendly(err))}</span></p>`;
     actNote({ text: friendly(err), kind: 'error' });

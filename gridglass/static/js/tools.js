@@ -124,6 +124,8 @@ export const splitList = (text) => {
 const n = (x) => Number(x).toLocaleString('en-IN');
 const plural = (k, word) => `${n(k)} ${word}${k === 1 ? '' : 's'}`;
 const first = (cols, type) => (cols.find((c) => !type || c.type === type) ?? cols[0])?.name ?? '';
+/** The first column of one of these types, or '' when there is none (no falling back to some other column). */
+const firstOf = (cols, ...types) => types.map((t) => cols.find((c) => c.type === t)).find(Boolean)?.name ?? '';
 
 // ----------------------------------------------------------------------------- tools
 // field types: columns (multi), column (single), choice, select, text, number, toggle,
@@ -380,7 +382,7 @@ export const TOOLS = [
         default: (cols) => [{ column: first(cols), operator: 'equals', value: '', then: '' }], show: (d) => d.mode === 'if_then' },
       { key: 'otherwise', type: 'text', label: 'Otherwise', placeholder: 'leave empty for a blank cell', default: '',
         show: (d) => d.mode === 'if_then' },
-      { key: 'date_left', type: 'column', label: 'Date column', filter: 'date', default: (cols) => first(cols, 'date') || first(cols, 'datetime'),
+      { key: 'date_left', type: 'column', label: 'Date column', filter: 'date', default: (cols) => firstOf(cols, 'date', 'datetime'),
         show: (d) => d.mode === 'date_part' },
       { key: 'part', type: 'select', label: 'Part', default: 'month_name', show: (d) => d.mode === 'date_part',
         options: [['month_name', 'Month name (March)'], ['month', 'Month number (3)'], ['year', 'Year (2026)'],
@@ -394,7 +396,7 @@ export const TOOLS = [
         show: (d) => d.mode === 'combine' },
       { key: 'separator', type: 'text', label: 'Put between them', placeholder: 'a space', default: ' ',
         show: (d) => d.mode === 'combine' },
-      { key: 'left', type: 'column', label: 'Column', filter: 'number', default: (cols) => first(cols, 'decimal') || first(cols, 'integer'),
+      { key: 'left', type: 'column', label: 'Column', filter: 'number', default: (cols) => firstOf(cols, 'decimal', 'integer'),
         show: (d) => !['combine', 'constant', 'if_then', 'date_part', 'text'].includes(d.mode) },
       { key: 'descending', type: 'choice', label: 'Rank 1 is the', default: 'true',
         options: [['true', 'Largest'], ['false', 'Smallest']], show: (d) => d.mode === 'rank' },
@@ -519,7 +521,7 @@ export const TOOLS = [
         emptyLabel: 'None — one row per group', default: '' },
       { key: 'aggs', type: 'aggs', label: 'Values', addLabel: 'Add value',
         default: (cols) => {
-          const numeric = first(cols, 'decimal') || first(cols, 'integer');
+          const numeric = firstOf(cols, 'decimal', 'integer'); // never a date or text column
           return [numeric ? { func: 'sum', column: numeric } : { func: 'count_rows', column: '' }];
         } },
       { key: 'filters', type: 'conditions', optional: true, noun: 'filter', label: 'Only count rows where (optional)',
