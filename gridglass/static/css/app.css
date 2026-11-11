@@ -247,6 +247,8 @@ select.input {
 .intro-link .ico { width: 18px; height: 18px; }
 .app-links { display: flex; flex-wrap: wrap; gap: 2px 16px; margin-top: -10px; }
 .app-links a { font-size: 13px; font-weight: 600; padding: 6px 0; }
+.app-version { font-size: 12px; color: var(--muted); margin-top: -12px; font-variant-numeric: tabular-nums; }
+@media (min-width: 1024px) { main[data-screen] > .app-version { grid-column: 1 / -1; } }
 @media (min-width: 1024px) { main[data-screen] > .app-links { grid-column: 1 / -1; } }
 
 /* ----------------------------------------------------------------- file chip / working banner */

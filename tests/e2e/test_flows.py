@@ -1753,3 +1753,12 @@ def test_create_a_table_suggests_what_was_typed_before(phone):
     page.click("#nr-save")
     expect(page.locator('[data-row="3"]')).to_contain_text("2026-11-02")
     expect(page.locator('[data-row="3"]')).to_contain_text("Food")
+
+
+def test_version_at_the_bottom(phone):
+    from gridglass import __version__
+
+    page = phone.open("/")
+    expect(page.locator(".app-version")).to_have_text(f"Gridglass version {__version__}")
+    page.click("#home-upload")
+    expect(page.locator(".app-version")).to_have_text(f"Gridglass version {__version__}")

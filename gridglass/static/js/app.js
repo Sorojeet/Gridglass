@@ -16,6 +16,7 @@ const num = (x) => Number(x).toLocaleString('en-IN');
 const plural = (k, w) => `${num(k)} ${w}${k === 1 ? '' : 's'}`;
 const ui = (name, cls) => icon(UI[name], cls);
 
+const VERSION = document.documentElement.dataset.version ?? '';
 const config = { max_upload_mb: 100, retention_minutes: 60, page_rows: 1000, browse_max_rows: 10000 };
 const state = {
   file: null,      // server metadata of the current upload (id, filename, steps …)
@@ -219,7 +220,8 @@ function topbar({ back, title, close, edit, help, guides, upload } = {}) {
 
 const logo = () => `<svg class="logo" viewBox="0 0 30 30" aria-hidden="true"><rect x="1" y="1" width="28" height="28" rx="8"/><path d="M8 11h14M8 15.5h14M8 20h14M12.5 8v14M17.5 8v14"/></svg>`;
 const privacy = () => `<footer class="privacy">${ui('lock')}<span>Your files are private and deleted automatically after ${config.retention_minutes} minutes.</span></footer>
-  <nav class="app-links" aria-label="More"><a href="/tools">Tool guides</a><a href="/guides">How-tos</a><a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/contact">Contact</a></nav>`;
+  <nav class="app-links" aria-label="More"><a href="/tools">Tool guides</a><a href="/guides">How-tos</a><a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/contact">Contact</a></nav>
+  ${VERSION ? `<p class="app-version">Gridglass version ${esc(VERSION)}</p>` : ''}`;
 
 function fileChip() {
   const f = state.file;
