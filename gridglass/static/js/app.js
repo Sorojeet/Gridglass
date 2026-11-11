@@ -178,7 +178,8 @@ function route() {
   if (recipe) { renderRecipe(recipe[1]); return finishRoute(); }
   leaveRecipe();
   if (!(tool && tool[1] === 'create')) createReturn = null;
-  if (h === '#/result' && state.file) showResult();
+  if (h === '#/upload') { state.tool = null; state.alias = null; document.title = 'Upload a file — Gridglass'; renderUpload(); }
+  else if (h === '#/result' && state.file) showResult();
   else if (edit && state.file) editStep(Number(edit[1]));
   else if (tool && TOOL[tool[1]]) {
     state.preset = tool[2] ? Object.fromEntries(new URLSearchParams(tool[2])) : null; // from a search result
@@ -210,8 +211,7 @@ function topbar({ back, title, close, edit, help, guides, upload } = {}) {
   const aid = help
     ? `<a class="icon-btn glass" href="/tools/${help.slug}" aria-label="How to use ${esc(help.label)}" title="How to use ${esc(help.label)}">${ui('help')}</a>`
     : guides ? `<a class="top-link glass" href="/guides">${ui('help')}<span>Guides</span></a>` : '';
-  const up = upload ? `<button class="top-link glass" type="button" id="home-upload" aria-label="Upload a file">${ui('upload')}<span>Upload</span></button>
-    <input id="home-file" class="sr-only" type="file" accept="${ACCEPT}" tabindex="-1" aria-hidden="true">` : '';
+  const up = upload ? `<a class="top-link top-upload glass" href="#/upload" id="home-upload" aria-label="Upload a file">${ui('upload')}<span>Upload</span></a>` : '';
   return `<header class="topbar">${left}<span class="spacer"></span>${aid}${up}
     <button class="icon-btn glass theme-btn" type="button" data-action="theme" aria-label="${label}">${ui('moon', 'when-light')}${ui('sun', 'when-dark')}</button>${right}</header>`;
 }
@@ -447,36 +447,8 @@ function renderHome() {
     fillGrid();
   }));
   $('[data-action="startover"]')?.addEventListener('click', startOver);
-  $('#home-upload').addEventListener('click', () => $('#home-file').click());
-  $('#home-file').addEventListener('change', (e) => e.target.files[0] && homeUpload(e.target.files[0]));
   $('#recipes')?.addEventListener('click', onRecipeClick);
   $('#recipes')?.addEventListener('submit', onRecipeRename);
-}
-
-/** Upload from the home screen: the file is kept and every tool card then works on it. */
-async function homeUpload(file) {
-  if (file.size > config.max_upload_mb * 1024 * 1024) {
-    toast(`That file is ${(file.size / 1048576).toFixed(1)} MB. The limit is ${config.max_upload_mb} MB.`, 'error');
-    return;
-  }
-  const btn = $('#home-upload');
-  const label = btn.querySelector('span');
-  btn.classList.add('busy');
-  btn.disabled = true;
-  try {
-    const res = await uploadFile(file, (p) => { label.textContent = p < 1 ? `${Math.round(p * 100)}%` : 'Reading…'; });
-    remember(res.file);
-    if (location.hash && location.hash !== '#/') return; // they moved on while it uploaded
-    renderHome();
-    $('.working')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    toast(`${res.file.filename} is ready. Pick a tool to use on it.`, 'success');
-  } catch (err) {
-    btn.classList.remove('busy');
-    btn.disabled = false;
-    label.textContent = 'Upload';
-    $('#home-file').value = '';
-    toast(err.message, 'error');
-  }
 }
 
 function fillGrid() {
@@ -859,10 +831,11 @@ function renderUpload() {
   const t = state.tool;
   state.stage = 'upload';
   view.dataset.screen = 'upload';
-  const shown = state.alias ?? t;
-  view.innerHTML = `${topbar({ back: '#/', title: 'All tools', help: helpFor(shown) })}
+  // no tool: the Upload page from the home screen; the file is kept and any tool then opens on it
+  const shown = t ? state.alias ?? t : { label: 'Upload a file', intro: 'Choose your file, try the sample, or make a table from scratch. Then pick any tool to use on it.' };
+  view.innerHTML = `${topbar({ back: '#/', title: 'All tools', help: t ? helpFor(shown) : null })}
     <section class="intro">
-      <span class="badge cat-${shown.cat}">${CATS[shown.cat]}</span>
+      ${t ? `<span class="badge cat-${shown.cat}">${CATS[shown.cat]}</span>` : ''}
       <h1>${shown.label}</h1>
       <p>${shown.intro}</p>
       ${PAGE[shown.op] ? `<a class="intro-link" href="/tools/${PAGE[shown.op]}">${ui('help')} How it works, with an example</a>` : ''}
@@ -880,7 +853,7 @@ function renderUpload() {
       <h2>How it works</h2>
       <ol>
         <li><span>1</span>Pick your file — nothing is changed yet.</li>
-        <li><span>2</span>Choose the options and watch the preview update.</li>
+        <li><span>2</span>${t ? 'Choose the options and watch the preview update.' : 'Pick a tool, choose its options and watch the preview update.'}</li>
         <li><span>3</span>Download the result, or send it to another tool.</li>
       </ol>
     </section>
@@ -888,7 +861,7 @@ function renderUpload() {
   const input = $('#file');
   input.addEventListener('change', () => input.files[0] && startUpload(input.files[0]));
   $('[data-action="sample"]').addEventListener('click', () => startUpload(sampleFile()));
-  $('[data-action="create-here"]').addEventListener('click', () => { createReturn = shown.op; }); // come back here when it's done
+  $('[data-action="create-here"]').addEventListener('click', () => { createReturn = t ? shown.op : null; }); // come back here when it's done
   const drop = $('#drop');
   ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.remove('over')));
@@ -909,6 +882,11 @@ async function startUpload(file) {
       $('#ptext').textContent = p < 1 ? `Uploading… ${Math.round(p * 100)}%` : 'Reading your file…';
     });
     remember(res.file);
+    if (!state.tool) { // the Upload page: back home, where every tool now works on this file
+      location.hash = '#/';
+      toast(`${res.file.filename} is ready. Pick a tool to use on it.`, 'success');
+      return;
+    }
     await enterOptions();
     if (res.file.header_row > 0) {
       toast(`Skipped ${plural(res.file.header_row, 'row')} above the column names. Tap Headers to change.`);
