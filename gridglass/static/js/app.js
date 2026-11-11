@@ -177,6 +177,7 @@ function route() {
   const recipe = h.match(/^#\/recipe\/([\w-]+)$/);
   if (recipe) { renderRecipe(recipe[1]); return finishRoute(); }
   leaveRecipe();
+  if (!(tool && tool[1] === 'create')) createReturn = null;
   if (h === '#/result' && state.file) showResult();
   else if (edit && state.file) editStep(Number(edit[1]));
   else if (tool && TOOL[tool[1]]) {
@@ -196,7 +197,7 @@ function finishRoute() {
 
 const helpFor = (t) => (PAGE[t.op] ? { slug: PAGE[t.op], label: t.label } : null);
 
-function topbar({ back, title, close, edit, help, guides } = {}) {
+function topbar({ back, title, close, edit, help, guides, upload } = {}) {
   const left = edit
     ? `<a class="icon-btn" href="${edit}" aria-label="Back to the editor">${ui('back')}</a><span class="topbar-title">${esc(title)}</span>`
     : back
@@ -209,9 +210,12 @@ function topbar({ back, title, close, edit, help, guides } = {}) {
   const aid = help
     ? `<a class="icon-btn glass" href="/tools/${help.slug}" aria-label="How to use ${esc(help.label)}" title="How to use ${esc(help.label)}">${ui('help')}</a>`
     : guides ? `<a class="top-link glass" href="/guides">${ui('help')}<span>Guides</span></a>` : '';
-  return `<header class="topbar">${left}<span class="spacer"></span>${aid}
+  const up = upload ? `<button class="top-link glass" type="button" id="home-upload" aria-label="Upload a file">${ui('upload')}<span>Upload</span></button>
+    <input id="home-file" class="sr-only" type="file" accept="${ACCEPT}" tabindex="-1" aria-hidden="true">` : '';
+  return `<header class="topbar">${left}<span class="spacer"></span>${aid}${up}
     <button class="icon-btn glass theme-btn" type="button" data-action="theme" aria-label="${label}">${ui('moon', 'when-light')}${ui('sun', 'when-dark')}</button>${right}</header>`;
 }
+
 
 const logo = () => `<svg class="logo" viewBox="0 0 30 30" aria-hidden="true"><rect x="1" y="1" width="28" height="28" rx="8"/><path d="M8 11h14M8 15.5h14M8 20h14M12.5 8v14M17.5 8v14"/></svg>`;
 const privacy = () => `<footer class="privacy">${ui('lock')}<span>Your files are private and deleted automatically after ${config.retention_minutes} minutes.</span></footer>
@@ -398,11 +402,11 @@ function renderHome() {
   const working = state.file ? `<div class="working glass">
       <span class="file-icon">${ui('file')}</span>
       <span class="file-text"><strong>${esc(state.file.filename)}</strong><small>${state.file.steps.length ? `${plural(state.file.steps.length, 'step')} applied · ` : ''}pick any tool to keep going</small></span>
-      <a class="btn btn-secondary btn-sm" href="#/result">${ui('download')} Back to result</a>
+      ${state.file.steps.length ? `<a class="btn btn-secondary btn-sm" href="#/result">${ui('download')} Back to result</a>` : ''}
       <button class="btn-link" type="button" data-action="startover">Clear</button>
     </div>` : '';
   view.dataset.screen = 'home';
-  view.innerHTML = `${topbar({ guides: true })}
+  view.innerHTML = `${topbar({ guides: true, upload: true })}
     <section class="hero">
       <h1>Every spreadsheet tool you need, one tap away.</h1>
       <p>Clean, reshape and convert CSV and spreadsheet files on your phone or computer. Free, no sign-up.</p>
@@ -443,8 +447,36 @@ function renderHome() {
     fillGrid();
   }));
   $('[data-action="startover"]')?.addEventListener('click', startOver);
+  $('#home-upload').addEventListener('click', () => $('#home-file').click());
+  $('#home-file').addEventListener('change', (e) => e.target.files[0] && homeUpload(e.target.files[0]));
   $('#recipes')?.addEventListener('click', onRecipeClick);
   $('#recipes')?.addEventListener('submit', onRecipeRename);
+}
+
+/** Upload from the home screen: the file is kept and every tool card then works on it. */
+async function homeUpload(file) {
+  if (file.size > config.max_upload_mb * 1024 * 1024) {
+    toast(`That file is ${(file.size / 1048576).toFixed(1)} MB. The limit is ${config.max_upload_mb} MB.`, 'error');
+    return;
+  }
+  const btn = $('#home-upload');
+  const label = btn.querySelector('span');
+  btn.classList.add('busy');
+  btn.disabled = true;
+  try {
+    const res = await uploadFile(file, (p) => { label.textContent = p < 1 ? `${Math.round(p * 100)}%` : 'Reading…'; });
+    remember(res.file);
+    if (location.hash && location.hash !== '#/') return; // they moved on while it uploaded
+    renderHome();
+    $('.working')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    toast(`${res.file.filename} is ready. Pick a tool to use on it.`, 'success');
+  } catch (err) {
+    btn.classList.remove('busy');
+    btn.disabled = false;
+    label.textContent = 'Upload';
+    $('#home-file').value = '';
+    toast(err.message, 'error');
+  }
 }
 
 function fillGrid() {
@@ -541,6 +573,40 @@ function namedCols(t) {
 const blankRow = (row) => !row || row.every((v) => !String(v ?? '').trim());
 
 let draftTable = null; // the table being made
+let createReturn = null; // the tool that sent people here ("Create a table" on its upload screen), opened on Finish
+
+/** Values typed before in a column: most used first, then most recent, spelled as typed most often. */
+function pastValues(t, i, skip = -1) {
+  const seen = new Map();
+  t.rows.forEach((r, n) => {
+    const v = String(r[i] ?? '').trim();
+    if (n === skip || !v) return;
+    const k = v.toLowerCase();
+    const e = seen.get(k) ?? { v, count: 0, last: 0, spell: {} };
+    e.count += 1;
+    e.last = n;
+    e.spell[v] = (e.spell[v] ?? 0) + 1;
+    seen.set(k, e);
+  });
+  return [...seen.values()].map((e) => ({ ...e, v: Object.entries(e.spell).sort((a, b) => b[1] - a[1])[0][0] }))
+    .sort((a, b) => b.count - a.count || b.last - a.last);
+}
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const shortDate = (v) => { const d = new Date(`${v}T00:00`); return Number.isNaN(d.getTime()) ? v : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); };
+
+/** Tap-to-fill choices under a field: dates get Today and the last date; other columns their repeated values. */
+function quickPicks(t, c, skip) {
+  const past = pastValues(t, c.i, skip);
+  if (c.type === 'date') {
+    const last = [...t.rows].reverse().map((r) => String(r[c.i] ?? '').trim()).find(Boolean);
+    return [[today(), 'Today'], ...(last && last !== today() ? [[last, shortDate(last)]] : [])];
+  }
+  const filled = past.reduce((n, e) => n + e.count, 0);
+  // a column like Category repeats; one like Name or Phone mostly doesn't, so chips there would only be noise
+  const repeats = filled > 0 && (filled < 4 || past.length <= filled * 0.6);
+  const shown = c.type === 'number' ? past.filter((e) => e.count > 1) : past; // amounts are mostly one-offs
+  return repeats ? shown.slice(0, 6).map((e) => [e.v, e.v]) : [];
+}
 
 function renderCreate() {
   draftTable = draftTable ?? loadTable() ?? blankTable();
@@ -554,7 +620,8 @@ function renderTableColumns() {
   saveTable(t);
   view.dataset.screen = 'create';
   const tool = state.tool;
-  view.innerHTML = `${topbar({ back: '#/', title: 'All tools', help: helpFor(tool) })}
+  const from = createReturn && TOOL[createReturn];
+  view.innerHTML = `${topbar(from ? { back: `#/tool/${from.op}`, title: from.label, help: helpFor(tool) } : { back: '#/', title: 'All tools', help: helpFor(tool) })}
     <section class="intro">
       <span class="badge cat-${tool.cat}">${CATS[tool.cat]}</span>
       <h1>${tool.label}</h1>
@@ -668,9 +735,19 @@ function renderTableRows() {
   const editing = () => t.at < t.rows.length;
   const draw = (focus = true) => {
     const row = editing() ? t.rows[t.at] : t.cur;
-    form.innerHTML = cols.map((c, n) => `<div class="field"><label class="field-label" for="nr-${c.i}">${esc(c.name)}</label>
-      <input class="input" id="nr-${c.i}" name="c${c.i}" value="${esc(row[c.i] ?? '')}" ${c.type === 'date' ? 'type="date"' : c.type === 'number' ? 'type="text" inputmode="decimal"' : 'type="text"'}
-        maxlength="2000" enterkeyhint="${n === cols.length - 1 ? 'done' : 'next'}"></div>`).join('');
+    const skip = editing() ? t.at : -1;
+    form.innerHTML = cols.map((c, n) => {
+      const past = c.type === 'date' ? [] : pastValues(t, c.i, skip).slice(0, 200);
+      const picks = quickPicks(t, c, skip);
+      const v = String(row[c.i] ?? '');
+      return `<div class="field"><label class="field-label" for="nr-${c.i}">${esc(c.name)}</label>
+      <input class="input" id="nr-${c.i}" name="c${c.i}" value="${esc(v)}" ${c.type === 'date' ? 'type="date"' : c.type === 'number' ? 'type="text" inputmode="decimal"' : 'type="text"'}
+        maxlength="2000" enterkeyhint="${n === cols.length - 1 ? 'done' : 'next'}" ${past.length ? `list="nr-list-${c.i}"` : ''}>
+      ${past.length ? `<datalist id="nr-list-${c.i}">${past.map((e) => `<option value="${esc(e.v)}"></option>`).join('')}</datalist>` : ''}
+      ${picks.length ? `<div class="chips wrap fill-chips" role="group" aria-label="Quick fill for ${esc(c.name)}">${picks.map(([val, lab]) =>
+        `<button type="button" class="chip" data-fill="${c.i}" data-value="${esc(val)}" aria-pressed="${val.toLowerCase() === v.trim().toLowerCase()}"><span>${esc(lab)}</span></button>`).join('')}</div>` : ''}
+      </div>`;
+    }).join('');
     $('#nr-where').textContent = editing() ? `Row ${num(t.at + 1)} of ${num(t.rows.length)}` : `New row ${num(t.rows.length + 1)}`;
     $('#nr-save').textContent = editing() ? 'Save changes' : 'Save row and add another';
     $('[data-action="prev"]').disabled = t.at === 0;
@@ -692,7 +769,20 @@ function renderTableRows() {
     saveTable(t);
     $('#nr-finish').disabled = !t.rows.length && blankRow(t.cur);
   };
-  form.addEventListener('input', keep);
+  const pressChips = (input) => input.closest('.field').querySelectorAll('[data-fill]').forEach((b) =>
+    b.setAttribute('aria-pressed', b.dataset.value.toLowerCase() === input.value.trim().toLowerCase()));
+  form.addEventListener('input', (e) => { keep(); if (e.target.tagName === 'INPUT') pressChips(e.target); });
+  form.addEventListener('click', (e) => { // a quick-fill chip: fill the field and move on to the next one
+    const b = e.target.closest('[data-fill]');
+    if (!b) return;
+    const input = form.elements[`c${b.dataset.fill}`];
+    input.value = b.dataset.value;
+    keep();
+    pressChips(input);
+    const inputs = [...form.querySelectorAll('input')];
+    const next = inputs[inputs.indexOf(input) + 1];
+    (next ?? $('#nr-save')).focus({ preventScroll: !desktop.matches });
+  });
   form.addEventListener('keydown', (e) => { // Enter goes to the next field; on the last one it saves the row
     if (e.key !== 'Enter' || e.target.tagName !== 'INPUT') return;
     const inputs = [...form.querySelectorAll('input')];
@@ -753,8 +843,9 @@ async function finishTable() {
     }
     if (state.file) forget();
     remember(res.file);
+    const then = createReturn && TOOL[createReturn] ? createReturn : 'convert';
     toast(`${name.replace(/\.csv$/, '')} is ready: ${plural(rows.length, 'row')}.`, 'success');
-    location.hash = '#/tool/convert';
+    location.hash = `#/tool/${then}`;
   } catch (err) {
     btn.disabled = false;
     btn.classList.remove('busy');
@@ -779,11 +870,12 @@ function renderUpload() {
     <section class="dropzone glass" id="drop">
       <span class="drop-icon">${ui('upload')}</span>
       <label class="btn btn-primary btn-lg" for="file">Choose a file</label>
-      <input id="file" class="sr-only" type="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.json,.jsonl,.ndjson">
+      <input id="file" class="sr-only" type="file" accept="${ACCEPT}">
       <p class="hint">CSV, XLSX or JSON · up to ${config.max_upload_mb} MB</p>
       <div class="progress" id="progress" hidden><div class="bar"><span id="bar"></span></div><p id="ptext" aria-live="polite">Uploading…</p></div>
     </section>
     <button class="btn btn-secondary btn-block" type="button" data-action="sample">${ui('sample')} Try a sample file</button>
+    <a class="btn btn-secondary btn-block" href="#/tool/create" data-action="create-here">${icon('newtable')} Create a table</a>
     <section class="how">
       <h2>How it works</h2>
       <ol>
@@ -796,6 +888,7 @@ function renderUpload() {
   const input = $('#file');
   input.addEventListener('change', () => input.files[0] && startUpload(input.files[0]));
   $('[data-action="sample"]').addEventListener('click', () => startUpload(sampleFile()));
+  $('[data-action="create-here"]').addEventListener('click', () => { createReturn = shown.op; }); // come back here when it's done
   const drop = $('#drop');
   ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.remove('over')));
