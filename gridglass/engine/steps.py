@@ -925,8 +925,11 @@ class Pivot(Step):
             raise ColumnError(f"'{self.columns}' can't be in both Rows and Columns.")
         if self.report_filter and self.report_filter in keys:
             raise ColumnError(f"'{self.report_filter}' can't be the report filter and in Rows or Columns.")
-        need_numeric(schema, [a.column for a in aggs if a.func in ("sum", "average", "median")],
-                     "Sum, average and median")
+        for a in aggs:  # name the value that can't work, and say what to do instead
+            if a.func in ("sum", "average", "median") and not schema[a.column].is_numeric():
+                kind = "dates" if schema[a.column].is_temporal() else "text" if is_text(schema[a.column]) else "not numbers"
+                raise ColumnError(f"{a.output_name()} can't be worked out: '{a.column}' holds {kind}. "
+                                  f"Pick a number column for that value, or change {_AGG_TITLE[a.func].split()[0]} to Count.")
         names = [a.output_name() for a in aggs]
         dupes = sorted({x for x in names if names.count(x) > 1})
         if dupes:
