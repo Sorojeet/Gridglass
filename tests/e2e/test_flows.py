@@ -347,6 +347,36 @@ def test_status_line_above_the_button_and_result_preview(phone):
     expect(page.locator("#peek-box")).to_be_hidden()
 
 
+def test_screens_glide_forward_and_back(phone):
+    page = phone.open("/")
+    page.click('.tool-card[href="#/tool/trim"]')
+    expect(page.locator("#drop")).to_be_visible()
+    assert page.evaluate("document.documentElement.dataset.nav") == "forward"
+    page.click('a[aria-label="Back"]')
+    expect(page.locator(".tool-card").first).to_be_visible()
+    assert page.evaluate("document.documentElement.dataset.nav") == "back"
+    page.click('[data-action="theme"]')                          # colours glide, then the helper class goes away
+    assert page.evaluate("document.documentElement.classList.contains('theming')")
+    expect(page.locator("html")).not_to_have_class(re.compile("theming"))
+
+
+def test_fields_that_appear_unfold(phone):
+    page = phone.upload_sample("add_column")
+    assert page.locator("#opts .field.enter").count() == 0       # nothing moves when the form first opens
+    page.select_option("#f-mode", "text")
+    expect(page.locator('#opts .field.enter[data-field="func"]')).to_have_count(1)
+    assert page.locator('#opts [data-field="name"].enter').count() == 0   # fields already there stay still
+
+
+def test_motion_is_off_when_the_device_asks():
+    from pathlib import Path
+
+    css = (Path(__file__).parents[2] / "gridglass" / "static" / "css" / "app.css").read_text()
+    assert "@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important" in css
+    block = css[css.index("@media (prefers-reduced-motion: no-preference) {"):]
+    assert "@view-transition { navigation: auto; }" in block     # glides only when motion is welcome
+
+
 def test_slash_focuses_the_search(phone):
     page = phone.open("/")
     page.wait_for_selector(".tool-card")

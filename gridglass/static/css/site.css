@@ -93,3 +93,13 @@ main.site-main { max-width: 1080px; width: 100%; box-sizing: border-box; padding
 
 @media (prefers-reduced-motion: reduce) { .guide-card:hover { transform: none; } }
 .site-tm { font-size: 12px; color: var(--muted); max-width: 60em; }
+
+/* ----------------------------------------------------------------- motion (see app.css for screen transitions) */
+@media (prefers-reduced-motion: no-preference) {
+  html:has(body.site) { scroll-behavior: smooth; }
+  .site-nav a, .site-foot-links a, .crumbs a { transition: color 0.18s ease, background-color 0.18s ease; }
+  .guide-card { transition: transform 0.28s var(--spring), box-shadow 0.28s ease; }
+  .faqs details { transition: background-color 0.2s ease; }
+  .faqs summary::marker { transition: color 0.2s ease; }
+  .example .table-wrap, .contact-card { transition: box-shadow 0.25s ease; }
+}
