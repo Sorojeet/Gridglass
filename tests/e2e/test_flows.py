@@ -1262,6 +1262,7 @@ def test_recipe_with_merge_asks_for_the_other_file(phone, tmp_path):
     page.click('[data-action="save-recipe"]')
     page.fill("#recipe-name", "Add zones")
     page.click('.recipe-form button[type="submit"]')
+    expect(page.locator(".recipe-saved")).to_be_visible()
     stored = page.evaluate("JSON.parse(localStorage.getItem('gg.recipes'))[0].steps[0]")
     assert stored["op"] == "merge" and stored["other"] is None  # the expiring upload isn't kept
 
@@ -1782,3 +1783,73 @@ def test_version_at_the_bottom(phone):
     expect(page.locator(".app-version")).to_have_text(f"Gridglass version {__version__}")
     page.click("#home-upload")
     expect(page.locator(".app-version")).to_have_text(f"Gridglass version {__version__}")
+
+
+def _three_sheets(path, third_rows):
+    """A workbook whose third sheet is the real table; the first two have other columns."""
+    with xlsxwriter.Workbook(path) as wb:
+        wb.add_worksheet("Notes").write_column(0, 0, ["Read me", "Made by the shop"])
+        wb.add_worksheet("Summary").write_row(0, 0, ["Month", "Total"])
+        ws = wb.add_worksheet("Orders")
+        ws.write_row(0, 0, ["Customer", "City", "Amount"])
+        for r, row in enumerate(third_rows, start=1):
+            ws.write_row(r, 0, row)
+
+
+def test_recipe_remembers_and_asks_for_the_sheet(phone, tmp_path):
+    book = tmp_path / "october.xlsx"
+    _three_sheets(book, [["Asha", "Pune", 300], ["Ravi", "Delhi", 120], ["Meena", "Goa", 450]])
+    page = phone.open("/#/tool/sort_rows")
+    page.set_input_files("#file", str(book))
+    page.wait_for_selector("#pv table")
+    page.select_option("#sheet", "Orders")                                # the steps are made on the 3rd sheet
+    expect(page.locator(".file-chip")).to_contain_text("3 rows")
+    page.select_option("#s0c", "Amount")
+    apply(page)
+    page.click('[data-action="save-recipe"]')
+    page.fill("#recipe-name", "Biggest orders")
+    page.click('.recipe-form button[type="submit"]')
+    expect(page.locator(".recipe-saved")).to_be_visible()
+    assert page.evaluate("JSON.parse(localStorage.getItem('gg.recipes'))[0].sheet") == "Orders"
+
+    page.click('[data-action="startover"]')
+    page.click('.recipe a:has-text("Use")')
+    nov = tmp_path / "november.xlsx"
+    _three_sheets(nov, [["Ira", "Pune", 90], ["Dev", "Agra", 700]])
+    page.set_input_files("#file", str(nov))
+    expect(page.locator("#ptext")).to_contain_text("november.xlsx has 3 sheets")   # asks, nothing runs yet
+    expect(page.locator(".done")).to_have_count(0)
+    expect(page.locator("#rs-0")).to_have_value("Orders")                 # last time's sheet, already picked
+    expect(page.locator("#recipe-sheets .hint")).to_have_text("Last time: “Orders”.")
+    expect(page.locator("#rs-0 option").nth(2)).to_have_text("Orders · 2 rows")
+    page.click("#rs-run")
+    expect(page.locator(".done h1")).to_contain_text("Ran “Biggest orders”")
+    rows = result_json(page)
+    assert {r["Customer"] for r in rows} == {"Ira", "Dev"}
+
+
+def test_recipe_without_a_saved_sheet_asks_and_then_remembers(phone, tmp_path):
+    page = phone.open("/")
+    page.evaluate("""localStorage.setItem('gg.recipes', JSON.stringify([{id: 'r1', name: 'Pune only', steps: [
+        {op: 'filter_rows', match: 'all', conditions: [{column: 'City', operator: 'equals', value: 'Pune'}]}]}]))""")
+    page.goto(phone.base + "/#/recipe/r1")
+    book = tmp_path / "book.xlsx"
+    _three_sheets(book, [["Asha", "Pune", 300], ["Ravi", "Delhi", 120]])
+    page.set_input_files("#file", str(book))
+    expect(page.locator("#rs-0")).to_have_value("Notes")                  # nothing known: the sheet it opened on
+    expect(page.locator("#recipe-sheets .hint")).to_have_count(0)
+    page.select_option("#rs-0", "Orders")
+    page.click("#rs-run")
+    expect(page.locator(".done h1")).to_contain_text("Ran “Pune only”")
+    assert [r["Customer"] for r in result_json(page)] == ["Asha"]
+    assert page.evaluate("JSON.parse(localStorage.getItem('gg.recipes'))[0].sheet") == "Orders"   # next time it's picked
+
+
+def test_recipe_on_a_csv_does_not_ask_for_a_sheet(phone, tmp_path):
+    page = phone.open("/")
+    page.evaluate("""localStorage.setItem('gg.recipes', JSON.stringify([{id: 'r1', name: 'Tidy', sheet: 'Orders', steps: [{op: 'trim'}]}]))""")
+    page.goto(phone.base + "/#/recipe/r1")
+    f = tmp_path / "plain.csv"
+    f.write_text("Name\n  Zed \n")
+    page.set_input_files("#file", str(f))
+    expect(page.locator(".done h1")).to_contain_text("Ran “Tidy”")

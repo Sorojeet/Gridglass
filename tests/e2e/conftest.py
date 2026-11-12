@@ -90,7 +90,7 @@ class Phone:
         self.ctx, self.base = ctx, base
         self.page = ctx.new_page()
         self.errors: list[str] = []
-        self.page.on("pageerror", lambda e: self.errors.append(f"pageerror: {e}"))
+        self.page.on("pageerror", lambda e: self.errors.append(f"pageerror: {e} @ {e.stack}"))
         self.page.on("console", self._console)
 
     def _console(self, msg):
