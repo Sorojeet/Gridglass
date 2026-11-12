@@ -2010,6 +2010,7 @@ async function showPreview(steps, step, hint = null) {
   lastPreview = { steps, step, hint };
   const seq = ++previewSeq;
   const box = $('#pv');
+  if (!box) return; // the options screen was left before this preview was due (e.g. Apply pressed at once)
   const badge = $('#pv-badge');
   const note = $('#pv-note');
   box.classList.add('loading');
@@ -2495,19 +2496,35 @@ function onSaverClick(e) {
   }
 }
 
-function onSaverSubmit(e) {
+/** The sheet a workbook is open on (null for a CSV or a one-sheet workbook). */
+const sheetOf = (f) => (f?.sheets?.length > 1 ? f.sheet : null);
+
+/** The sheet each Merge / Stack file was open on, in slot order (those uploads expire, so ask now). */
+function slotSheets(steps) {
+  return Promise.all(slotsOf(steps).map((sl) => {
+    const s = steps[sl.step];
+    const id = s.op === 'merge' ? s.other : s.others?.[sl.k];
+    return id ? api(`/files/${id}`).then((r) => sheetOf(r.file)).catch(() => null) : null;
+  }));
+}
+
+async function onSaverSubmit(e) {
   e.preventDefault();
   const name = e.target.elements.name.value.trim();
   if (!name) return;
   const list = loadRecipes();
   const same = list.find((r) => r.name.toLowerCase() === name.toLowerCase());
   const steps = withoutFiles(structuredClone(state.file.steps));
-  if (same) Object.assign(same, { name, steps, updated: Date.now() });
+  // which sheet the steps were made on, so running the recipe on a workbook can offer the same one
+  e.submitter?.setAttribute('disabled', '');
+  const sheets = { sheet: sheetOf(state.file), slotSheets: await slotSheets(state.file.steps) };
+  if (same) Object.assign(same, { name, steps, ...sheets, updated: Date.now() });
   else {
     if (list.length >= MAX_RECIPES) { toast(`You can keep up to ${MAX_RECIPES} recipes. Delete one on the home screen first.`, 'error'); return; }
-    list.unshift({ id: newId(), name, steps, created: Date.now() });
+    list.unshift({ id: newId(), name, steps, ...sheets, created: Date.now() });
   }
   if (!storeRecipes(list)) return;
+  if (!$('#recipe-save')) { toast(`Saved “${name}”.`, 'success'); return; } // left the screen while it was saving
   $('#recipe-save').innerHTML = `<p class="recipe-saved">${ui('check')} ${same ? 'Updated' : 'Saved'} “${esc(name)}”. It's on the home screen.</p>`;
 }
 
@@ -2545,6 +2562,7 @@ function renderRecipe(id) {
       <p class="hint">${slots.length ? 'The file to run the recipe on · ' : ''}CSV, XLSX or JSON · up to ${config.max_upload_mb} MB</p>
       <div class="progress" id="progress" hidden><div class="bar"><span id="bar"></span></div><p id="ptext" aria-live="polite">Uploading…</p></div>
     </section>
+    <section class="recipe-sheets glass" id="recipe-sheets" aria-labelledby="rs-title" hidden></section>
     ${open ? `<button class="btn btn-secondary btn-block" type="button" data-action="run-open">${ui('file')} Run on ${esc(open.filename)}${open.steps.length ? ' (after its steps)' : ''}</button>` : ''}
     ${privacy()}`;
   const input = $('#file');
@@ -2552,6 +2570,7 @@ function renderRecipe(id) {
   $('[data-action="run-open"]')?.addEventListener('click', (e) => {
     e.target.closest('button').disabled = true;
     pending.main = state.file;
+    pending.fromOpen = true;
     readyToRun();
   });
   view.querySelectorAll('[data-slot-input]').forEach((el) => el.addEventListener('change', () => el.files[0] && uploadSlot(Number(el.dataset.slotInput), el.files[0])));
@@ -2578,6 +2597,7 @@ async function uploadForRecipe(r, file) {
     remember(res.file);
     if (mine !== pending) return; // left the recipe: keep the file open, but don't run anything
     mine.main = res.file;
+    mine.sheetsChosen = false; // a new file: ask about its sheets again
     await readyToRun();
   } catch (err) {
     if ($('#progress')) $('#progress').hidden = true;
@@ -2610,6 +2630,7 @@ async function uploadSlot(n, file) {
     if (p !== pending) { api(`/files/${res.file.id}`, { method: 'DELETE' }).catch(() => {}); return; } // left the screen
     if (p.files[n]) api(`/files/${p.files[n].id}`, { method: 'DELETE' }).catch(() => {}); // replaced
     p.files[n] = res.file;
+    p.sheetsChosen = false;
     text.textContent = `${res.file.filename} · ${plural(res.file.rows, 'row')}`;
     row.classList.add('done');
     await readyToRun();
@@ -2633,6 +2654,11 @@ async function readyToRun() {
     $('.recipe-slot:not(.done) label')?.focus();
     return;
   }
+  if (!p.sheetsChosen) {
+    const ask = sheetQuestions(p);
+    if (ask.length) { askSheets(p, ask); return; }
+  }
+  $('#recipe-sheets')?.setAttribute('hidden', '');
   p.busy = true;
   pending = null; // the extra files now belong to the main file's steps (Start over deletes them with it)
   $('#progress').hidden = false;
@@ -2641,6 +2667,82 @@ async function readyToRun() {
   await runRecipe({ ...r, steps: fillFiles(r.steps, p.slots, p.files, p.main) }, p.main);
   const used = new Set((state.file?.steps ?? []).flatMap(otherFiles)); // a step that didn't fit wasn't kept
   p.files.forEach((f) => used.has(f.id) || api(`/files/${f.id}`, { method: 'DELETE' }).catch(() => {}));
+}
+
+/** Workbooks with more than one sheet in this run: each needs its sheet chosen (the one used last time comes first). */
+function sheetQuestions(p) {
+  const out = [];
+  // a file already open with steps of its own stays on its sheet: changing it would undo them
+  if (p.main.sheets?.length > 1 && !(p.fromOpen && p.main.steps.length)) {
+    out.push({ key: 'main', file: p.main, last: p.recipe.sheet, label: p.slots.length ? `${p.main.filename} (the file to run it on)` : p.main.filename });
+  }
+  p.files.forEach((f, n) => {
+    if (f.sheets?.length > 1) out.push({ key: n, file: f, last: p.recipe.slotSheets?.[n], label: `${f.filename} (step ${p.slots[n].step + 1}: ${p.slots[n].label})` });
+  });
+  return out;
+}
+
+/** Ask which sheet to run on, before anything runs, with last time's sheet already picked. */
+function askSheets(p, ask) {
+  const box = $('#recipe-sheets');
+  $('#progress').hidden = false;
+  $('#bar').style.width = '100%';
+  $('#drop label')?.classList.remove('busy');
+  $('[data-action="run-open"]')?.remove();
+  $('#ptext').textContent = ask.length === 1 && ask[0].key === 'main'
+    ? `${p.main.filename} has ${p.main.sheets.length} sheets. Choose the one to run the recipe on.`
+    : 'Some files have more than one sheet. Choose the ones to use.';
+  const pick = (q) => (q.last && q.file.sheets.includes(q.last) ? q.last : q.file.sheet);
+  box.innerHTML = `<h2 id="rs-title">Which sheet?</h2>
+    ${ask.map((q, i) => `<div class="field"><label class="field-label" for="rs-${i}">${ask.length > 1 ? `Sheet in ${esc(q.label)}` : 'Sheet'}</label>
+      <select class="input" id="rs-${i}" data-q="${i}">${q.file.sheets.map((name) =>
+        `<option value="${esc(name)}" ${name === pick(q) ? 'selected' : ''}>${esc(name)}</option>`).join('')}</select>
+      ${q.last ? `<p class="hint">${q.file.sheets.includes(q.last) ? `Last time: “${esc(q.last)}”.` : `Last time it was “${esc(q.last)}”, which isn't in this file.`}</p>` : ''}</div>`).join('')}
+    <button class="btn btn-primary btn-block" type="button" id="rs-run">${ui('check')} Run the recipe</button>`;
+  box.hidden = false;
+  box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  ask.forEach(async (q, i) => { // add each sheet's size, so an empty or tiny sheet is easy to tell apart
+    try {
+      const { sheets } = await api(`/files/${q.file.id}/sheets`);
+      const sel = $(`#rs-${i}`);
+      if (!sel || p !== pending) return;
+      sheets.forEach((sh) => {
+        const o = [...sel.options].find((x) => x.value === sh.name);
+        if (o) o.textContent = `${sh.name} · ${sh.rows ? plural(sh.rows, 'row') : 'empty'}`;
+      });
+    } catch { /* names alone are fine */ }
+  });
+  $('#rs-run').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.classList.add('busy');
+    try {
+      for (const [i, q] of ask.entries()) {
+        const want = $(`#rs-${i}`).value;
+        if (want === q.file.sheet) continue;
+        const res = await api(`/files/${q.file.id}/sheet`, { method: 'PUT', body: { sheet: want } });
+        if (p !== pending) return;
+        if (q.key === 'main') { p.main = res.file; remember(res.file); } else p.files[q.key] = res.file;
+      }
+      rememberSheets(p);
+      p.sheetsChosen = true;
+      await readyToRun();
+    } catch (err) {
+      btn.disabled = false;
+      btn.classList.remove('busy');
+      toast(err.message, 'error');
+    }
+  });
+}
+
+/** Keep the sheets just chosen with the recipe, so next time they're picked already. */
+function rememberSheets(p) {
+  const list = loadRecipes();
+  const r = list.find((x) => x.id === p.recipe.id);
+  if (!r) return;
+  if (sheetOf(p.main)) r.sheet = p.main.sheet;
+  r.slotSheets = p.files.map((f, n) => sheetOf(f) ?? r.slotSheets?.[n] ?? null);
+  storeRecipes(list);
 }
 
 /** Add the recipe's steps after the file's own. If one doesn't fit, keep the ones before it and say which. */
@@ -2661,7 +2763,7 @@ async function runRecipe(r, file) {
     const n = at - base.length;
     const why = `Step ${n + 1} of the recipe (${stepNames([r.steps[n]])[0]}) doesn't fit this file: ${err.message.replace(/^Step \d+: /, '')}`;
     if (n === 0) {
-      toast(`${why} Nothing was changed.`, 'error');
+      toast(`${why} Nothing was changed.${file.sheets?.length > 1 ? ` It ran on the sheet “${file.sheet}”; use the recipe again to pick another.` : ''}`, 'error');
       if (location.hash === '#/') renderHome(); else location.hash = '#/';
       return;
     }
