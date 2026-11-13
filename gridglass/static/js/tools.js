@@ -42,6 +42,7 @@ export const icon = (name, cls = '') =>
 export const UI = {
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.6M12 17.2v.1"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
+  home: '<path d="M4 11.5 12 4.5l8 7"/><path d="M6.5 9.8V19a1 1 0 0 0 1 1H10v-5.5h4V20h2.5a1 1 0 0 0 1-1V9.8"/>',
   recipe: '<path d="M6 3h12v18l-6-4-6 4z"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',

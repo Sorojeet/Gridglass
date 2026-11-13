@@ -1853,3 +1853,27 @@ def test_recipe_on_a_csv_does_not_ask_for_a_sheet(phone, tmp_path):
     f.write_text("Name\n  Zed \n")
     page.set_input_files("#file", str(f))
     expect(page.locator(".done h1")).to_contain_text("Ran “Tidy”")
+
+
+def test_home_button_on_every_inner_screen(phone):
+    page = phone.open("/")
+    expect(page.locator(".home-btn")).to_have_count(0)                     # home has none
+    for path in ("/#/tool/sort_rows", "/#/upload", "/#/tool/create"):
+        page.goto(phone.base + path)
+        expect(page.locator(".home-btn")).to_have_attribute("aria-label", "Home")
+    page = phone.upload_sample("sort_rows")
+    page.click(".home-btn")                                                # straight home, the file kept
+    expect(page.locator("#grid .tool-card").first).to_be_visible()
+    expect(page.locator(".working")).to_contain_text("sample-orders.csv")
+
+
+def test_pressing_a_button_shows_a_ripple(phone):
+    page = phone.open("/#/tool/sort_rows")
+    choose = page.locator('label[for="file"]')
+    choose.dispatch_event("pointerdown", {"button": 0, "clientX": 60, "clientY": 0})
+    expect(choose.locator(".ripple")).to_have_count(1)                     # starts before the file picker opens
+    expect(choose.locator(".ripple")).to_have_count(0, timeout=3000)       # and cleans up after itself
+    page.emulate_media(reduced_motion="reduce")
+    choose.dispatch_event("pointerdown", {"button": 0})
+    page.wait_for_timeout(100)
+    expect(choose.locator(".ripple")).to_have_count(0)                     # none when motion is reduced

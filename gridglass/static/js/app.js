@@ -17,6 +17,44 @@ const plural = (k, w) => `${num(k)} ${w}${k === 1 ? '' : 's'}`;
 const ui = (name, cls) => icon(UI[name], cls);
 
 const VERSION = document.documentElement.dataset.version ?? '';
+
+/* ---------------------------------------------------------------- press feedback
+   A ripple from the point pressed and a small spring, on buttons, links styled as buttons, chips and
+   tool cards. It starts on pointerdown, so it shows even when a tap opens the file picker at once. */
+const PRESSABLE = '.btn, .icon-btn, .top-link, .tool-card, .chip, .seg button';
+const calm = matchMedia('(prefers-reduced-motion: reduce)');
+function press(el, x, y) {
+  if (calm.matches || el.disabled || el.getAttribute('aria-disabled') === 'true') return;
+  const r = el.getBoundingClientRect();
+  const px = (x ?? r.left + r.width / 2) - r.left;
+  const py = (y ?? r.top + r.height / 2) - r.top;
+  const size = 2 * Math.hypot(Math.max(px, r.width - px), Math.max(py, r.height - py)); // just reaches the far corner
+  if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+  // <i>, put first: code that edits a button's label (its last child, its spans) never meets the ripple
+  const box = document.createElement('i'); // clips the ripple to the button's shape
+  box.className = 'ripple-box';
+  box.setAttribute('aria-hidden', 'true');
+  const dot = document.createElement('i');
+  dot.className = 'ripple';
+  dot.style.cssText = `width:${size}px;height:${size}px;left:${px - size / 2}px;top:${py - size / 2}px`;
+  box.append(dot);
+  el.prepend(box);
+  dot.addEventListener('animationend', () => box.remove(), { once: true });
+  setTimeout(() => box.remove(), 1200); // in case the animation never ends (tab hidden by a picker)
+  // the spring runs on its own, so it never restarts the control's entrance animation
+  el.getAnimations?.().forEach((a) => { if (a.id === 'press') a.cancel(); });
+  el.animate?.([{ transform: 'scale(1)' }, { transform: 'scale(0.95)', offset: 0.35 }, { transform: 'scale(1)' }],
+    { duration: 320, easing: 'cubic-bezier(0.2, 0.9, 0.3, 1.2)', composite: 'add', id: 'press' });
+}
+document.addEventListener('pointerdown', (e) => {
+  const el = e.button === 0 && e.target.closest(PRESSABLE);
+  if (el) press(el, e.clientX, e.clientY);
+}, { passive: true });
+document.addEventListener('keydown', (e) => {
+  if (e.repeat || (e.key !== 'Enter' && e.key !== ' ')) return;
+  const el = e.target.closest?.(PRESSABLE);
+  if (el && el === e.target) press(el);
+});
 const config = { max_upload_mb: 100, retention_minutes: 60, page_rows: 1000, browse_max_rows: 10000 };
 const state = {
   file: null,      // server metadata of the current upload (id, filename, steps …)
@@ -213,7 +251,9 @@ function topbar({ back, title, close, edit, help, guides, upload } = {}) {
     ? `<a class="icon-btn glass" href="/tools/${help.slug}" aria-label="How to use ${esc(help.label)}" title="How to use ${esc(help.label)}">${ui('help')}</a>`
     : guides ? `<a class="top-link glass" href="/guides">${ui('help')}<span>Guides</span></a>` : '';
   const up = upload ? `<a class="top-link top-upload glass" href="#/upload" id="home-upload" aria-label="Upload a file">${ui('upload')}<span>Upload</span></a>` : '';
-  return `<header class="topbar">${left}<span class="spacer"></span>${aid}${up}
+  // every screen but home: one tap straight back to the tools (the file being worked on is kept)
+  const home = back || edit || close ? `<a class="icon-btn glass home-btn" href="#/" aria-label="Home" title="Home">${ui('home')}</a>` : '';
+  return `<header class="topbar">${left}<span class="spacer"></span>${aid}${up}${home}
     <button class="icon-btn glass theme-btn" type="button" data-action="theme" aria-label="${label}">${ui('moon', 'when-light')}${ui('sun', 'when-dark')}</button>${right}</header>`;
 }
 
@@ -2194,7 +2234,7 @@ function renderDone() {
       </div>
     </section>
     <section class="peek">
-      <button type="button" class="btn btn-secondary btn-sm" data-action="peek" aria-expanded="false" aria-controls="peek-box">${ui('sample')} Preview the result</button>
+      <button type="button" class="btn btn-secondary btn-sm" data-action="peek" aria-expanded="false" aria-controls="peek-box">${ui('sample')} <span class="peek-label">Preview the result</span></button>
       <div class="table-wrap glass" id="peek-box" tabindex="0" aria-label="Result preview" hidden></div>
       <p class="hint" id="peek-note" hidden></p>
     </section>
@@ -2237,7 +2277,7 @@ async function togglePeek(e) {
   const note = $('#peek-note');
   const open = btn.getAttribute('aria-expanded') !== 'true';
   btn.setAttribute('aria-expanded', String(open));
-  btn.lastChild.textContent = open ? ' Hide the preview' : ' Preview the result';
+  btn.querySelector('.peek-label').textContent = open ? 'Hide the preview' : 'Preview the result';
   box.hidden = !open;
   note.hidden = !open;
   if (!open || box.dataset.loaded) return;
