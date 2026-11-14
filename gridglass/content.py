@@ -758,12 +758,15 @@ TOOLS: list[ToolPage] = [
                "When you finish, the table opens like any other file: download it, or carry on with any Gridglass tool."],
         when=["Noting daily expenses or sales on a phone.", "Collecting names and phone numbers at an event.",
               "A quick stock count, walking around with your phone.", "Starting a small list you'll later sort, total or chart."],
-        steps=["Open the tool, name the table and add your columns (or tap a starter such as Expenses).",
+        steps=["Open the tool, name the table and add your columns, tap a starter such as Expenses, or take the "
+               "columns from a file you already have.",
                "Choose <b>Next: add rows</b> and fill in the form. Enter moves to the next box and saves the row after the last.",
                "Tap a row in the list to change it. Choose <b>Finish</b> to download or use other tools."],
         example=None,
         options=[("Column type", "Text, Number or Date. Number boxes open the number keypad and Date boxes a date picker."),
                  ("Starters", "Ready-made column lists for expenses, contacts, a stock list and attendance. Change them freely."),
+                 ("Columns from a file", "Copy the column names and types from a CSV, XLSX or JSON file (choose the sheet "
+                  "of a workbook), or from the file you have open. Only the header row is used; no rows are copied."),
                  ("Changing rows", "Tap any row to edit it, or use Previous and Next. Delete removes the row shown."),
                  ("Limits", "Up to 30 columns and 2,000 rows."),
                  ("Save as", "Spreadsheet (.xlsx), CSV, JSON or PDF.")],

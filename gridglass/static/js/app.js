@@ -113,7 +113,7 @@ function uploadFile(file, onProgress) {
     form.append('file', file, file.name);
     xhr.open('POST', `${API}/files`);
     xhr.responseType = 'json';
-    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
     xhr.onload = () => (xhr.status >= 200 && xhr.status < 300
       ? resolve(xhr.response) : reject(new ApiError(xhr.response?.error, xhr.status)));
     xhr.onerror = () => reject(new ApiError({ message: "Upload failed. Check your connection and try again." }, 0));
@@ -216,7 +216,7 @@ function route() {
   const recipe = h.match(/^#\/recipe\/([\w-]+)$/);
   if (recipe) { renderRecipe(recipe[1]); return finishRoute(); }
   leaveRecipe();
-  if (!(tool && tool[1] === 'create')) createReturn = null;
+  if (!(tool && tool[1] === 'create')) { createReturn = null; dropHeaderFile(); }
   if (h === '#/upload') { state.tool = null; state.alias = null; document.title = 'Upload a file — Gridglass'; renderUpload(); }
   else if (h === '#/result' && state.file) showResult();
   else if (edit && state.file) editStep(Number(edit[1]));
@@ -587,6 +587,14 @@ function namedCols(t) {
 const blankRow = (row) => !row || row.every((v) => !String(v ?? '').trim());
 
 let draftTable = null; // the table being made
+let headerFile = null; // a file uploaded only for its column names (Create a table); deleted once they're taken
+
+/** Column types in a file → the three kinds a new table has. */
+const kindOf = (type) => (/int|decimal|float|number/.test(type) ? 'number' : /date/.test(type) ? 'date' : 'text');
+function dropHeaderFile() {
+  if (headerFile) api(`/files/${headerFile.id}`, { method: 'DELETE' }).catch(() => {});
+  headerFile = null;
+}
 let createReturn = null; // the tool that sent people here ("Create a table" on its upload screen), opened on Finish
 
 /** Values typed before in a column: most used first, then most recent, spelled as typed most often. */
@@ -638,7 +646,14 @@ function renderTableColumns() {
       <div class="field"><label class="field-label" for="nt-name">Table name</label>
         <input class="input" id="nt-name" maxlength="80" value="${esc(t.name)}" autocomplete="off"></div>
       <div class="field"><span class="field-label">Start from (optional)</span>
-        <div class="chips wrap">${STARTERS.map(([name], i) => `<button type="button" class="chip" data-starter="${i}">${esc(name)}</button>`).join('')}</div></div>
+        <div class="chips wrap">${STARTERS.map(([name], i) => `<button type="button" class="chip" data-starter="${i}">${esc(name)}</button>`).join('')}</div>
+        <div class="nt-import">
+          ${state.file ? `<button type="button" class="btn btn-secondary btn-sm" data-action="cols-open">${ui('sample')} <span>Columns of ${esc(state.file.filename)}</span></button>` : ''}
+          <label class="btn btn-secondary btn-sm" for="nt-file" id="nt-file-btn">${ui('upload')} <span>Columns from a file</span></label>
+          <input id="nt-file" class="sr-only" type="file" accept="${ACCEPT}">
+        </div>
+        <div class="field" id="nt-sheet-field" hidden><label class="field-label" for="nt-sheet">Sheet</label><select class="input" id="nt-sheet"></select></div>
+        <p class="hint">Only the column names and types are copied, not the rows.</p></div>
       <div class="field"><span class="field-label" id="nt-cols-label">Columns</span>
         <ol class="new-col-list" id="nt-cols" aria-labelledby="nt-cols-label"></ol>
         <button type="button" class="btn btn-secondary btn-sm" data-action="add-col">${ui('plus')} Add column</button>
@@ -669,7 +684,7 @@ function renderTableColumns() {
     note.innerHTML = '<span>Name at least one column.</span>';
   };
   const addCol = () => { if (t.cols.length < NEW_TABLE.maxCols) { t.cols.push({ name: '', type: 'text' }); saveTable(t); draw(t.cols.length - 1); } };
-  $('#nt-name').addEventListener('input', (e) => { t.name = e.target.value; saveTable(t); });
+  $('#nt-name').addEventListener('input', (e) => { t.name = e.target.value; t.fromFile = false; saveTable(t); });
   list.addEventListener('input', (e) => {
     const el = e.target;
     if (el.dataset.colName !== undefined) t.cols[Number(el.dataset.colName)].name = el.value;
@@ -698,12 +713,85 @@ function renderTableColumns() {
     const [name, cols] = STARTERS[Number(b.dataset.starter)];
     if (t.rows.length) { toast('This table already has rows. Start a new, empty table first.', 'error'); return; }
     t.cols = cols.map(([n, type]) => ({ name: n, type }));
+    dropHeaderFile();
+    sheetField.hidden = true;
     if (!t.name.trim() || t.name === 'My table' || STARTERS.some(([n]) => n === t.name)) { t.name = name; $('#nt-name').value = name; }
     saveTable(t);
     draw();
   }));
+  // columns from a file: the one open now, or one uploaded just for its header row
+  const useColumns = async (file, { quiet } = {}) => {
+    const { preview } = await api(`/files/${file.id}/preview?limit=1`);
+    const got = preview.columns.filter((c) => String(c.name ?? '').trim());
+    if (!got.length) throw new Error(`No column names found in ${file.filename}.`);
+    t.cols = got.slice(0, NEW_TABLE.maxCols).map((c) => ({ name: String(c.name).slice(0, 60), type: kindOf(c.type) }));
+    t.rows = [];
+    t.cur = [];
+    if (!t.name.trim() || t.name === 'My table' || STARTERS.some(([n]) => n === t.name) || t.fromFile) {
+      t.name = file.filename.replace(/\.[^.]+$/, '').slice(0, 80) || t.name;
+      t.fromFile = true; // a later import may rename it again; typing a name stops that
+      $('#nt-name').value = t.name;
+    }
+    saveTable(t);
+    draw();
+    if (!quiet) {
+      toast(got.length > NEW_TABLE.maxCols
+        ? `Took the first ${NEW_TABLE.maxCols} of ${got.length} columns from ${file.filename}.`
+        : `Took ${plural(Math.min(got.length, NEW_TABLE.maxCols), 'column')} from ${file.filename}.`, 'success');
+    }
+  };
+  const hasRows = () => {
+    if (!t.rows.length) return false;
+    toast('This table already has rows. Start a new, empty table first.', 'error');
+    return true;
+  };
+  const sheetField = $('#nt-sheet-field');
+  const showSheets = (file) => { // a workbook: let people choose which sheet's header row to use
+    sheetField.hidden = !(file.sheets?.length > 1);
+    if (!sheetField.hidden) $('#nt-sheet').innerHTML = file.sheets.map((n) => opt(n, n, file.sheet)).join('');
+  };
+  $('[data-action="cols-open"]')?.addEventListener('click', async (e) => {
+    if (hasRows()) return;
+    const btn = e.currentTarget;
+    btn.classList.add('busy');
+    try { dropHeaderFile(); sheetField.hidden = true; await useColumns(state.file); } catch (err) { toast(err.message, 'error'); }
+    btn.classList.remove('busy');
+  });
+  $('#nt-file').addEventListener('click', (e) => { if (hasRows()) e.preventDefault(); });
+  $('#nt-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > config.max_upload_mb * 1024 * 1024) { toast(`That file is ${(file.size / 1048576).toFixed(1)} MB. The limit is ${config.max_upload_mb} MB.`, 'error'); return; }
+    const btn = $('#nt-file-btn');
+    const label = btn.querySelector('span');
+    btn.classList.add('busy');
+    label.textContent = 'Reading…';
+    try {
+      const res = await uploadFile(file);
+      dropHeaderFile();
+      headerFile = res.file;
+      await useColumns(res.file);
+      showSheets(res.file);
+    } catch (err) { toast(err.message, 'error'); }
+    if (!btn.isConnected) return;
+    btn.classList.remove('busy');
+    label.textContent = 'Columns from a file';
+  });
+  $('#nt-sheet').addEventListener('change', async (e) => {
+    if (!headerFile || hasRows()) return;
+    const sel = e.target;
+    sel.disabled = true;
+    try {
+      const res = await api(`/files/${headerFile.id}/sheet`, { method: 'PUT', body: { sheet: sel.value } });
+      headerFile = res.file;
+      await useColumns(res.file, { quiet: true });
+      toast(`Using the columns of “${sel.value}”.`, 'success');
+    } catch (err) { toast(err.message, 'error'); }
+    sel.disabled = false;
+  });
   $('[data-action="new-table"]')?.addEventListener('click', () => { draftTable = blankTable(); renderTableColumns(); toast('Started a new table.'); });
-  $('#nt-next').addEventListener('click', () => { t.stage = 'rows'; t.at = t.rows.length; saveTable(t); renderTableRows(); });
+  $('#nt-next').addEventListener('click', () => { dropHeaderFile(); t.stage = 'rows'; t.at = t.rows.length; saveTable(t); renderTableRows(); });
   draw();
 }
 

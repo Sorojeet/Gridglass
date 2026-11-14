@@ -406,6 +406,10 @@ td.null { background: repeating-linear-gradient(135deg, transparent 0 6px, var(-
 .new-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .new-head h1 { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; overflow-wrap: anywhere; }
 .new-row input[type="date"] { min-height: 48px; }
+.nt-import { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.nt-import .btn { max-width: 100%; }
+.nt-import .btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+#nt-sheet-field { margin-top: 10px; }
 .fill-chips { margin-top: 8px; gap: 6px; }
 .fill-chips .chip { min-height: 34px; padding: 0 12px; font-size: 13px; max-width: 100%; }
 .fill-chips .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
