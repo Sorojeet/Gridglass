@@ -31,6 +31,7 @@ const P = {
   unpivot: '<path d="M6 4v16h14M10 8h8M10 12h8M10 16h8"/>',
   convert: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
   newtable: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 10h18M9 10v10"/><path d="M14 15h4M16 13v4"/>',
+  edittable: '<path d="M11 20H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v4"/><path d="M3 10h18M9 10v10"/><path d="m14.5 20.5.5-2.6 4.6-4.6a1.4 1.4 0 0 1 2 2L17 19.9z"/>',
   merge: '<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/>',
   stack: '<rect x="4" y="3" width="16" height="7" rx="2"/><rect x="4" y="14" width="16" height="7" rx="2"/><path d="M12 10v4"/>',
   pages: '<rect x="8" y="3" width="12" height="15" rx="2"/><path d="M5 7v12a2 2 0 0 0 2 2h9"/><path d="M11 8h6M11 12h6"/>',
@@ -58,6 +59,7 @@ export const UI = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   sample: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/>',
   down: '<path d="M6 9l6 6 6-6"/>',
+  edit: '<path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/><path d="m14 8 3 3"/>',
   alert: '<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/>',
 };
 
@@ -599,6 +601,13 @@ export const TOOLS = [
     fields: [],
   },
   {
+    op: 'edit', cat: 'convert', icon: 'edittable', label: 'Edit a table',
+    desc: 'Change, add or delete rows of your file', keywords: 'edit change update modify correct fix row rows cell cells record entry excel sheet file existing typo form',
+    intro: 'Open a CSV or Excel file with up to 1,000 rows and change it one row at a time in a simple form: fix values, add rows or delete them, then download it.',
+    creator: true, // its own screens (shares the row editor with Create a table)
+    fields: [],
+  },
+  {
     op: 'split_pages', cat: 'convert', icon: 'pages', label: 'Split into pages',
     desc: 'By a column, every N rows, or each sheet', keywords: 'split pages sheets tabs per value break separate report each city chunks rows files zip workbook workbooks each sheet separate files extract sheets',
     intro: 'Split by a column (a part per city, say) or every N rows, into sheets, PDF pages or separate files. A workbook with several sheets can also become one file per sheet.',
@@ -618,6 +627,7 @@ export const PAGE = {
   change_type: 'change-type', split_column: 'split-column', add_column: 'add-column', merge: 'merge-files', stack: 'stack-files',
   pivot: 'pivot-table', chart: 'make-a-chart', unpivot: 'transpose', convert: 'convert-file', split_pages: 'split-into-pages',
   create: 'create-a-table',
+  edit: 'edit-a-table',
 };
 
 export const FORMATS = [['xlsx', 'Spreadsheet (.xlsx)'], ['csv', 'CSV (.csv)'], ['json', 'JSON (.json)'], ['pdf', 'PDF (.pdf)']];

@@ -42,7 +42,7 @@ def apply(page):
 
 def test_home_lists_every_tool_and_searches(phone):
     page = phone.open("/")
-    expect(page.locator(".tool-card")).to_have_count(len(ALL_OPS) + 1)  # + Create a table
+    expect(page.locator(".tool-card")).to_have_count(len(ALL_OPS) + 2)  # + Create a table, Edit a table
     page.fill("#q", "duplicates")
     expect(page.locator(".tool-card").first).to_contain_text("Remove duplicates")
     expect(page.locator(".tool-card.best .best-badge")).to_have_text("Best match")
@@ -1927,3 +1927,109 @@ def test_create_a_table_with_columns_of_the_open_file(phone):
     assert page.input_value('[data-col-type="4"]') == "number"             # Amount
     assert page.input_value('[data-col-type="5"]') == "date"               # Order date
     expect(page.locator(".working, .file-chip")).to_have_count(0)          # (create has no file card)
+
+
+# ----------------------------------------------------------------------------- edit a table
+
+STOCK = "Item,Category,Quantity,Price\nPen,Stationery,120,10\nTape,Office,15,30\nGlue,Stationery,60,25\nStapler,Office,8,180\n"
+
+
+def test_edit_a_file_change_add_delete_and_save(phone, tmp_path):
+    src = tmp_path / "stock.csv"
+    src.write_text(STOCK)
+    page = phone.open("/")
+    page.fill("#q", "fix a value in my excel file")
+    expect(page.locator(".tool-card").first).to_contain_text("Edit a table")
+    page.keyboard.press("Enter")
+    expect(page.locator(".table-tabs [aria-current]")).to_contain_text("Edit a file")
+    page.set_input_files("#file", str(src))
+
+    expect(page.locator(".new-head h1")).to_have_text("Editing stock.csv")
+    expect(page.locator("#nr-where")).to_have_text("Row 1 of 4")              # opens on the first row
+    expect(page.locator("#nr-form label")).to_have_text(["Item", "Category", "Quantity", "Price"])
+    expect(page.locator("#nr-0")).to_have_value("Pen")
+    assert page.get_attribute("#nr-2", "inputmode") == "decimal"
+
+    page.fill("#nr-2", "100")
+    page.click("#nr-save")
+    expect(page.locator("#nr-where")).to_have_text("Row 2 of 4")              # saved: on to the next row
+    page.click('[data-action="delete"]')                                      # Tape goes
+    expect(page.locator("#nr-count")).to_have_text("3 rows")
+    page.fill("#nr-find", "stap")                                             # find a row, Enter opens it
+    expect(page.locator("#nr-table [data-row]")).to_have_count(1)
+    page.press("#nr-find", "Enter")
+    expect(page.locator("#nr-0")).to_have_value("Stapler")
+    page.fill("#nr-3", "175")
+    page.click("#nr-save")
+    page.fill("#nr-find", "")
+    expect(page.locator("#nr-where")).to_have_text("New row 4")               # saved the last row: a new one next
+    page.fill("#nr-0", "Ruler")
+    page.fill("#nr-1", "Stationery")
+    page.fill("#nr-2", "70")
+    page.fill("#nr-3", "15")
+    page.click("#nr-save")
+    expect(page.locator("#nr-count")).to_have_text("4 rows")
+
+    page.click("#nr-finish")
+    expect(page).to_have_url(re.compile(r"#/tool/convert$"))
+    rows = result_json(page)
+    assert [(r["Item"], r["Quantity"], r["Price"]) for r in rows] == [
+        ("Pen", 100, 10), ("Glue", 60, 25), ("Stapler", 8, 175), ("Ruler", 70, 15)]
+    expect(page.locator(".file-chip")).to_contain_text("stock.csv")
+    page.goto(phone.base + "/#/tool/edit")                                    # saved: nothing left to continue
+    expect(page.locator('[data-action="ed-continue"]')).to_have_count(0)
+    expect(page.locator('[data-action="ed-open"]')).to_be_visible()           # the saved file can be edited again
+
+
+def test_edit_refuses_more_than_1000_rows(phone, tmp_path):
+    big = tmp_path / "big.csv"
+    big.write_text("n\n" + "".join(f"{i}\n" for i in range(1001)))
+    page = phone.open("/#/tool/edit")
+    expect(page.locator("#drop .hint")).to_contain_text("up to 1,000 rows")
+    page.set_input_files("#file", str(big))
+    expect(page.locator("#toast")).to_contain_text("up to 1,000 rows. This one has 1,001")
+    expect(page.locator("#drop")).to_be_visible()                             # still on the start screen
+    expect(page.locator("#nr-form")).to_have_count(0)
+
+
+def test_edit_rows_from_a_tool_and_back(phone):
+    page = phone.upload_sample("sort_rows")
+    page.click('[data-action="edit-rows"]')                                   # the Edit button on the file
+    expect(page.locator(".new-head h1")).to_have_text("Editing sample-orders.csv")
+    page.fill("#nr-3", "Kochi")                                               # City of row 1
+    page.click("#nr-save")
+    page.click("#nr-finish")
+    expect(page).to_have_url(re.compile(r"#/tool/sort_rows$"))                # back where it started
+    expect(page.locator("#pv table")).to_contain_text("Kochi")
+
+
+def test_edit_keeps_changes_until_saved_and_tabs_switch(phone, tmp_path):
+    src = tmp_path / "stock.csv"
+    src.write_text(STOCK)
+    page = phone.open("/#/tool/create")
+    page.click('.table-tabs a:has-text("Edit a file")')
+    expect(page.locator("h1")).to_have_text("Edit a table")
+    page.set_input_files("#file", str(src))
+    page.fill("#nr-0", "Blue pen")
+    page.click("#nr-save")
+    page.reload()                                                             # nothing is lost
+    expect(page.locator('[data-action="ed-continue"]')).to_be_visible()
+    expect(page.locator("#ed-cont")).to_have_text("Continue editing stock.csv")
+    page.click('[data-action="ed-continue"]')
+    expect(page.locator('[data-row="0"]')).to_contain_text("Blue pen")
+    page.click('[data-action="cols"]')                                        # columns of the file can change too
+    expect(page.locator("h1")).to_have_text("Columns of stock.csv")
+    expect(page.locator(".table-tabs, [data-starter], #nt-file")).to_have_count(0)
+    page.click('[data-action="ed-discard"]')
+    expect(page.locator('[data-action="ed-continue"]')).to_have_count(0)
+    page.click('.table-tabs a:has-text("New table")')                          # the new table is its own draft
+    expect(page.locator("#nt-cols")).to_be_visible()
+
+
+def test_home_offers_edit_rows_after_upload(phone):
+    page = phone.open("/#/upload")
+    page.click('[data-action="sample"]')
+    expect(page.locator('.working a[href="#/tool/edit?start=1"]')).to_be_visible()
+    page.click('.working a[href="#/tool/edit?start=1"]')
+    expect(page.locator(".new-head h1")).to_have_text("Editing sample-orders.csv")
+    page.click(".topbar a[aria-label='Close']")

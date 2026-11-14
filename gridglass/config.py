@@ -22,6 +22,7 @@ class Config:
     # Engine limits
     PREVIEW_ROWS = _int("PREVIEW_ROWS", 200)           # rows in a preview when the app doesn't ask for more
     PAGE_ROWS = _int("PAGE_ROWS", 1000)                # rows per page when browsing everything
+    EDIT_ROWS = _int("EDIT_ROWS", 1000)                # largest table the row editor opens
     BROWSE_MAX_ROWS = _int("BROWSE_MAX_ROWS", 10_000)  # beyond this, download the file to see it all
     MAX_STEPS = _int("MAX_STEPS", 200)
     MAX_PIVOT_COLUMNS = _int("MAX_PIVOT_COLUMNS", 200)

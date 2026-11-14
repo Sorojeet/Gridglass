@@ -778,6 +778,33 @@ TOOLS: list[ToolPage] = [
                "the rows you entered are kept.")],
         related=["convert-file", "sort-rows", "pivot-table"],
     ),
+    ToolPage(
+        slug="edit-a-table", op="edit", cat="convert", name="Edit a table",
+        title="Edit an Excel or CSV file online, one row at a time",
+        description="Open a CSV or Excel file with up to 1,000 rows and change it in a simple form on your phone or "
+                    "computer: fix values, add rows, delete rows, then download it as XLSX, CSV, JSON or PDF.",
+        intro=["Edit a table opens your file one row at a time. Each column becomes its own box, one under the other, "
+               "so fixing a value on a phone is as easy as filling in a form.",
+               "Find a row by typing any value in it, change it, and save. Add new rows or delete old ones the same way."],
+        when=["Fixing a few typos in a customer list.", "Updating stock counts or prices on the go.",
+              "Adding this week's entries to a small register.", "Removing rows you no longer need."],
+        steps=["Choose your file, or tap <b>Edit rows</b> on a file you've already uploaded.",
+               "Tap a row in the list (or find it), change the boxes and choose <b>Save changes</b>. Add or delete rows as needed.",
+               "Choose <b>Save</b> to download it or carry on with any Gridglass tool."],
+        example=None,
+        options=[("Size", "Files with up to 1,000 rows. For a bigger file, use Filter rows or Split into pages first."),
+                 ("Workbooks", "One sheet at a time: pick the sheet before you start. Only that sheet is saved."),
+                 ("Find a row", "Type any value to narrow the list, then tap the row. Enter opens the first match."),
+                 ("Columns", "Rename, add or remove columns from the Columns screen."),
+                 ("Your edits", "Kept on this device until you save, so a closed tab loses nothing."),
+                 ("Save as", "Spreadsheet (.xlsx), CSV, JSON or PDF.")],
+        faqs=[("Does it change my original file?", "No. Your file stays as it is; you download a new copy with the changes."),
+              ("Are formulas and formatting kept?", "No. Gridglass works with the values, so the saved copy has the values "
+               "without formulas, colours or other sheets."),
+              ("Why only 1,000 rows?", "Every row is loaded onto your phone or computer so it can be edited quickly. "
+               "For bigger files, tools such as Replace values or Fill blanks change thousands of rows at once.")],
+        related=["create-a-table", "replace-values", "filter-rows"],
+    ),
 ]
 
 # --------------------------------------------------------------------------- one search per page
@@ -916,6 +943,12 @@ SEARCH: dict[str, tuple[str, str, str]] = {  # slug: (phrase, first paragraph, m
         "files of N rows each. CSV files work too.",
         "Split an Excel sheet into multiple sheets by column value online, or into separate files of N rows. PDF "
         "pages too. Free."),
+    "edit-a-table": (
+        "Edit an Excel or CSV file online, one row at a time",
+        "Edit an Excel or CSV file online, one row at a time. Fix values, add rows or delete them in a simple form "
+        "that is easy to use on a phone.",
+        "Edit an Excel or CSV file online, one row at a time: change values, add or delete rows, and download it. "
+        "Free, no sign-up, files up to 1,000 rows."),
     "create-a-table": (
         "Create a table online and download it as Excel or CSV",
         "Create a table online and download it as Excel or CSV. Name the columns, then type one row at a time in a "
