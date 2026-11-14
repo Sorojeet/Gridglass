@@ -1877,3 +1877,53 @@ def test_pressing_a_button_shows_a_ripple(phone):
     choose.dispatch_event("pointerdown", {"button": 0})
     page.wait_for_timeout(100)
     expect(choose.locator(".ripple")).to_have_count(0)                     # none when motion is reduced
+
+
+def test_create_a_table_with_columns_from_a_file(phone, tmp_path):
+    page = phone.open("/#/tool/create")
+    src = tmp_path / "Customer list.csv"
+    src.write_text("Name,Phone,Joined,Spent\nAsha,98765432101,2026-01-05,1200.50\nRavi,91234567890,2026-02-11,80\n")
+    with page.expect_response(lambda r: r.request.method == "POST" and "/files" in r.url):
+        page.set_input_files("#nt-file", str(src))
+    expect(page.locator("#toast")).to_contain_text("Took 4 columns from Customer list.csv")
+    expect(page.locator("[data-col-name]")).to_have_count(4)
+    assert [page.input_value(f'[data-col-name="{i}"]') for i in range(4)] == ["Name", "Phone", "Joined", "Spent"]
+    assert [page.input_value(f'[data-col-type="{i}"]') for i in range(4)] == ["text", "text", "date", "number"]  # 11-digit phone stays text
+    expect(page.locator("#nt-name")).to_have_value("Customer list")
+    expect(page.locator("#nt-sheet-field")).to_be_hidden()                 # a CSV has no sheets
+    with page.expect_request(lambda r: r.method == "DELETE"):              # the upload was only for its header row
+        page.click("#nt-next")
+    expect(page.locator("#nr-form label")).to_have_text(["Name", "Phone", "Joined", "Spent"])
+    expect(page.locator("#nr-2")).to_have_attribute("type", "date")
+    page.fill("#nr-0", "Meena")
+    page.click("#nr-save")
+    expect(page.locator("#nr-count")).to_have_text("1 row")
+    page.click('[data-action="cols"]')                                     # rows typed: columns can't be swapped
+    page.locator("#nt-file").dispatch_event("click")
+    expect(page.locator("#toast")).to_contain_text("already has rows")
+
+
+def test_create_a_table_with_columns_from_a_sheet(phone, tmp_path):
+    page = phone.open("/#/tool/create")
+    book = tmp_path / "shop.xlsx"
+    _three_sheets(book, [["Asha", "Pune", 300]])
+    page.set_input_files("#nt-file", str(book))
+    expect(page.locator("#nt-sheet-field")).to_be_visible()                # a workbook: pick the sheet
+    expect(page.locator("#nt-sheet")).to_have_value("Notes")
+    page.select_option("#nt-sheet", "Orders")
+    expect(page.locator("#toast")).to_contain_text("Using the columns of “Orders”")
+    assert [page.input_value(f'[data-col-name="{i}"]') for i in range(3)] == ["Customer", "City", "Amount"]
+    assert page.input_value('[data-col-type="2"]') == "number"
+    page.click('[data-starter] >> text="Contacts"')                        # a starter replaces them again
+    expect(page.locator("#nt-sheet-field")).to_be_hidden()
+
+
+def test_create_a_table_with_columns_of_the_open_file(phone):
+    page = phone.upload_sample("sort_rows")
+    page.goto(phone.base + "/#/tool/create")
+    page.click('[data-action="cols-open"]')
+    expect(page.locator("[data-col-name]")).to_have_count(6)
+    assert page.input_value('[data-col-name="0"]') == "Order ID"
+    assert page.input_value('[data-col-type="4"]') == "number"             # Amount
+    assert page.input_value('[data-col-type="5"]') == "date"               # Order date
+    expect(page.locator(".working, .file-chip")).to_have_count(0)          # (create has no file card)
