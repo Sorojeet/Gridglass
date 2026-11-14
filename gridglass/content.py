@@ -810,31 +810,31 @@ TOOLS: list[ToolPage] = [
         related=["convert-file", "sort-rows", "pivot-table"],
     ),
     ToolPage(
-        slug="edit-a-table", op="edit", cat="convert", name="Edit a table",
-        title="Edit an Excel or CSV file online, one row at a time",
-        description="Open a CSV or Excel file with up to 1,000 rows and change it in a simple form on your phone or "
-                    "computer: fix values, add rows, delete rows, then download it as XLSX, CSV, JSON or PDF.",
-        intro=["Edit a table opens your file one row at a time. Each column becomes its own box, one under the other, "
-               "so fixing a value on a phone is as easy as filling in a form.",
-               "Find a row by typing any value in it, change it, and save. Add new rows or delete old ones the same way."],
-        when=["Fixing a few typos in a customer list.", "Updating stock counts or prices on the go.",
-              "Adding this week's entries to a small register.", "Removing rows you no longer need."],
-        steps=["Choose your file, or tap <b>Edit rows</b> on a file you've already uploaded.",
-               "Tap a row in the list (or find it), change the boxes and choose <b>Save changes</b>. Add or delete rows as needed.",
-               "Choose <b>Save</b> to download it or carry on with any Gridglass tool."],
+        slug="add-rows", op="edit", cat="convert", name="Add rows",
+        title="Add rows to an Excel or CSV file online",
+        description="Add rows to a CSV or Excel file with up to 1,000 rows in a simple form on your phone or computer. "
+                    "You can also change or delete rows, then download it as XLSX, CSV, JSON or PDF.",
+        intro=["Add rows opens your file in a form: each column becomes its own box, one under the other, so adding "
+               "a new row on a phone is as easy as filling in a form. Values already in a column are one tap away.",
+               "Need to fix a row too? Tap it in the list, or find it by typing any value in it, then change or delete it."],
+        when=["Adding this week's entries to a register or log.", "Adding new customers or products to a list.",
+              "Updating stock counts or prices on the go.", "Fixing a few typos, or removing rows you no longer need."],
+        steps=["Choose your file, or tap <b>Add rows</b> on a file you've already uploaded.",
+               "Fill in the form and save each new row. To change a row, tap it in the list (or find it) and save it.",
+               "Choose <b>Done</b> to download it or carry on with any Gridglass tool."],
         example=None,
         options=[("Size", "Files with up to 1,000 rows. For a bigger file, use Filter rows or Split into pages first."),
                  ("Workbooks", "One sheet at a time: pick the sheet before you start. Only that sheet is saved."),
                  ("Find a row", "Type any value to narrow the list, then tap the row. Enter opens the first match."),
                  ("Columns", "Rename, add or remove columns from the Columns screen."),
-                 ("Your edits", "Kept on this device until you save, so a closed tab loses nothing."),
+                 ("Your changes", "Kept on this device until you're done, so a closed tab loses nothing."),
                  ("Save as", "Spreadsheet (.xlsx), CSV, JSON or PDF.")],
-        faqs=[("Does it change my original file?", "No. Your file stays as it is; you download a new copy with the changes."),
+        faqs=[("Does it change my original file?", "No. Your file stays as it is; you download a new copy with the new rows."),
               ("Are formulas and formatting kept?", "No. Gridglass works with the values, so the saved copy has the values "
                "without formulas, colours or other sheets."),
-              ("Why only 1,000 rows?", "Every row is loaded onto your phone or computer so it can be edited quickly. "
-               "For bigger files, tools such as Replace values or Fill blanks change thousands of rows at once.")],
-        related=["create-a-table", "replace-values", "filter-rows"],
+              ("Why only 1,000 rows?", "Every row is loaded onto your phone or computer so it can be changed quickly. "
+               "To add rows to a bigger file, make them with Create a table and put them under it with Stack files.")],
+        related=["create-a-table", "stack-files", "update-rows"],
     ),
 ]
 
@@ -980,11 +980,11 @@ SEARCH: dict[str, tuple[str, str, str]] = {  # slug: (phrase, first paragraph, m
         "blank, only in the rows you pick, like SQL's UPDATE … SET … WHERE.",
         "Update rows in a CSV or Excel file where a condition matches: set a column only in the rows you pick, like "
         "SQL UPDATE … WHERE. Free, no sign-up."),
-    "edit-a-table": (
-        "Edit an Excel or CSV file online, one row at a time",
-        "Edit an Excel or CSV file online, one row at a time. Fix values, add rows or delete them in a simple form "
-        "that is easy to use on a phone.",
-        "Edit an Excel or CSV file online, one row at a time: change values, add or delete rows, and download it. "
+    "add-rows": (
+        "Add rows to an Excel or CSV file online",
+        "Add rows to an Excel or CSV file online, one at a time in a simple form that is easy to use on a phone. "
+        "Change or delete rows too.",
+        "Add rows to an Excel or CSV file online in a simple form; change or delete rows too, then download it. "
         "Free, no sign-up, files up to 1,000 rows."),
     "create-a-table": (
         "Create a table online and download it as Excel or CSV",
@@ -1003,7 +1003,7 @@ def _for_search(t: ToolPage) -> ToolPage:
 
 
 TOOLS = [_for_search(t) for t in TOOLS]
-MOVED = {"unpivot": "transpose"}  # old tool page addresses, forwarded permanently
+MOVED = {"unpivot": "transpose", "edit-a-table": "add-rows"}  # old tool page addresses, forwarded permanently
 TOOL_BY_SLUG = {t.slug: t for t in TOOLS}
 
 #: Shown on every information page. Other products are named only to describe what Gridglass works with.
