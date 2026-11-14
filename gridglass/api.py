@@ -21,6 +21,7 @@
                                            &split_by=<column>: one sheet (.xlsx) / page (PDF) per value
                                            &drop_split=1: leave that column out of each part
     GET    /files/<id>/sheets              a workbook's sheets with their rows and columns
+    GET    /files/<id>/rows                every row after the saved steps, for editing (up to EDIT_ROWS)
     GET    /files/<id>/export-sheets?format=xlsx  each sheet of the workbook as its own file, in a .zip
 """
 from __future__ import annotations
@@ -139,7 +140,7 @@ def _save(file_id: str, raw_steps: list[dict[str, Any]]):
 def client_config():
     """Limits the app shows to users before they upload."""
     c = current_app.config
-    return jsonify(max_upload_mb=c["MAX_UPLOAD_MB"], retention_minutes=c["FILE_RETENTION_MINUTES"],
+    return jsonify(max_upload_mb=c["MAX_UPLOAD_MB"], retention_minutes=c["FILE_RETENTION_MINUTES"], edit_rows=c["EDIT_ROWS"],
                    preview_rows=c["PREVIEW_ROWS"], page_rows=c["PAGE_ROWS"], browse_max_rows=c["BROWSE_MAX_ROWS"],
                    export_formats=sorted(EXPORT_FORMATS))
 
@@ -218,6 +219,18 @@ def change_header(file_id):
 def get_preview(file_id):
     _, lf = _steps_and_frame(file_id, store().meta(file_id)["steps"])
     return jsonify(preview=_page(lf))
+
+
+@bp.get("/files/<file_id>/rows")
+def all_rows(file_id):
+    """Every row after the saved steps, for the row editor. Only for small tables (EDIT_ROWS, 1,000 by default)."""
+    _, lf = _steps_and_frame(file_id, store().meta(file_id)["steps"])
+    most = _cfg("EDIT_ROWS")
+    page = preview(lf, most + 1)
+    if page["total_rows"] > most:
+        raise GridglassError(f"Editing works on tables of up to {most:,} rows. This one has {page['total_rows']:,}. "
+                             "Use Filter rows or Split into pages to make it smaller first.", code="too_many_rows")
+    return jsonify(rows=page)
 
 
 @bp.post("/files/<file_id>/preview")

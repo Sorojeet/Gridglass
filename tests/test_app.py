@@ -316,7 +316,7 @@ def test_index_and_static(client):
 
 def test_service_worker_at_root(client):
     r = client.get("/sw.js")
-    assert r.status_code == 200 and b"gridglass-v35" in r.data and r.headers["Cache-Control"] == "no-cache"
+    assert r.status_code == 200 and b"gridglass-v36" in r.data and r.headers["Cache-Control"] == "no-cache"
     r.close()
 
 
@@ -550,3 +550,28 @@ def test_each_sheet_of_a_workbook_downloads_as_its_own_file(client, tmp_path):
 def test_only_workbooks_split_into_sheets(client, file_id):
     r = client.get(f"/api/v1/files/{file_id}/sheets")
     assert r.status_code == 400 and "workbook" in r.get_json()["error"]["message"]
+
+
+# --------------------------------------------------------------------------- rows for the editor
+
+def test_all_rows_for_the_editor_follow_the_steps(client, file_id):
+    client.post(f"/api/v1/files/{file_id}/steps", json={"op": "remove_columns", "columns": ["Amount"]})
+    rows = client.get(f"/api/v1/files/{file_id}/rows").get_json()["rows"]
+    assert [c["name"] for c in rows["columns"]] == ["Name", "City"]
+    assert len(rows["rows"]) == rows["total_rows"] == 4
+
+
+def test_all_rows_refuses_big_tables(client):
+    big = b"n\n" + b"".join(f"{i}\n".encode() for i in range(1001))
+    fid = upload(client, big, "big.csv").get_json()["file"]["id"]
+    res = client.get(f"/api/v1/files/{fid}/rows")
+    assert res.status_code == 422
+    err = res.get_json()["error"]
+    assert err["code"] == "too_many_rows" and "up to 1,000 rows" in err["message"] and "1,001" in err["message"]
+    small = b"n\n" + b"".join(f"{i}\n".encode() for i in range(1000))
+    fid = upload(client, small, "ok.csv").get_json()["file"]["id"]
+    assert len(client.get(f"/api/v1/files/{fid}/rows").get_json()["rows"]["rows"]) == 1000
+
+
+def test_config_says_how_many_rows_can_be_edited(client):
+    assert client.get("/api/v1/config").get_json()["edit_rows"] == 1000

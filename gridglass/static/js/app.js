@@ -216,7 +216,8 @@ function route() {
   const recipe = h.match(/^#\/recipe\/([\w-]+)$/);
   if (recipe) { renderRecipe(recipe[1]); return finishRoute(); }
   leaveRecipe();
-  if (!(tool && tool[1] === 'create')) { createReturn = null; dropHeaderFile(); }
+  if (!(tool && (tool[1] === 'create' || tool[1] === 'edit'))) { createReturn = null; dropHeaderFile(); }
+  else if (tool[1] === 'edit') dropHeaderFile();
   if (h === '#/upload') { state.tool = null; state.alias = null; document.title = 'Upload a file — Gridglass'; renderUpload(); }
   else if (h === '#/result' && state.file) showResult();
   else if (edit && state.file) editStep(Number(edit[1]));
@@ -276,6 +277,7 @@ function fileChip() {
     <span class="file-actions">${sheets}
     <button class="btn-link" type="button" data-action="check" aria-expanded="false" aria-controls="health">Check</button>
     ${hasHeaderRow(f) ? `<button class="btn-link" type="button" data-action="headers" aria-expanded="false" aria-controls="header-pick">Headers</button>` : ''}
+    ${state.before <= (config.edit_rows ?? 1000) && state.editIndex === null ? `<a class="btn-link" href="#/tool/edit?start=1" data-action="edit-rows">Edit rows</a>` : ''}
     <button class="btn-link" type="button" data-action="newfile">Change</button></span>
   </div>
   <section class="header-pick glass" id="header-pick" aria-labelledby="header-pick-title" hidden></section>
@@ -445,6 +447,7 @@ function renderHome() {
       <span class="file-icon">${ui('file')}</span>
       <span class="file-text"><strong>${esc(state.file.filename)}</strong><small>${state.file.steps.length ? `${plural(state.file.steps.length, 'step')} applied · ` : ''}pick any tool to keep going</small></span>
       ${state.file.steps.length ? `<a class="btn btn-secondary btn-sm" href="#/result">${ui('download')} Back to result</a>` : ''}
+      ${state.file.rows <= (config.edit_rows ?? 1000) ? `<a class="btn btn-secondary btn-sm" href="#/tool/edit?start=1">${ui('edit')} Edit rows</a>` : ''}
       <button class="btn-link" type="button" data-action="startover">Clear</button>
     </div>` : '';
   view.dataset.screen = 'home';
@@ -554,7 +557,7 @@ async function openTool(tool) {
 // other file, so every tool and download works on it.
 
 const TABLE_KEY = 'gg.table';
-const NEW_TABLE = { maxCols: 30, maxRows: 2000 };
+const NEW_TABLE = { maxCols: 30 }; // rows: no limit for a new table; a file opened for editing has up to config.edit_rows
 const COL_TYPES = [['text', 'Text'], ['number', 'Number'], ['date', 'Date']];
 /** Ready-made column sets to start from. */
 const STARTERS = [
@@ -566,15 +569,22 @@ const STARTERS = [
 const blankTable = () => ({ name: 'My table', cols: [{ name: '', type: 'text' }, { name: '', type: 'text' }, { name: '', type: 'text' }],
   rows: [], cur: [], at: 0, stage: 'columns' });
 
-function loadTable() {
+const EDIT_KEY = 'gg.edit'; // a file being edited is kept apart from the new table, so neither replaces the other
+const keyOf = (mode) => (mode === 'edit' ? EDIT_KEY : TABLE_KEY);
+function loadTable(mode = 'new') {
   try {
-    const t = JSON.parse(localStorage.getItem(TABLE_KEY));
-    return t && Array.isArray(t.cols) && Array.isArray(t.rows) ? t : null;
+    const t = JSON.parse(localStorage.getItem(keyOf(mode)));
+    return t && Array.isArray(t.cols) && Array.isArray(t.rows) ? { ...t, mode } : null;
   } catch { return null; }
 }
 function saveTable(t) {
-  try { localStorage.setItem(TABLE_KEY, JSON.stringify(t)); } catch { /* private mode or full: keep going in memory */ }
+  try { localStorage.setItem(keyOf(t.mode), JSON.stringify(t)); } catch { /* private mode or full: keep going in memory */ }
 }
+function dropTable(mode) {
+  drafts[mode] = null;
+  try { localStorage.removeItem(keyOf(mode)); } catch { /* nothing to remove */ }
+}
+const drafts = { new: null, edit: null };
 /** The columns that have a name, with repeats told apart ("Name", "Name (2)"). */
 function namedCols(t) {
   const seen = {};
@@ -590,7 +600,7 @@ let draftTable = null; // the table being made
 let headerFile = null; // a file uploaded only for its column names (Create a table); deleted once they're taken
 
 /** Column types in a file → the three kinds a new table has. */
-const kindOf = (type) => (/int|decimal|float|number/.test(type) ? 'number' : /date/.test(type) ? 'date' : 'text');
+const kindOf = (type) => (/int|decimal|float|number/.test(type) ? 'number' : type === 'date' ? 'date' : 'text'); // date and time stays text
 function dropHeaderFile() {
   if (headerFile) api(`/files/${headerFile.id}`, { method: 'DELETE' }).catch(() => {});
   headerFile = null;
@@ -623,10 +633,125 @@ function quickPicks(t, c) {
   return [[today(), 'Today'], ...(last && last !== today() ? [[last, shortDate(last)]] : [])];
 }
 
+/** New table | Edit a file: the two ways into the row editor. */
+const tableTabs = (on) => `<nav class="seg table-tabs" aria-label="Make or edit a table">
+    <a href="#/tool/create" ${on === 'new' ? 'aria-current="page"' : ''}>${icon('newtable')} New table</a>
+    <a href="#/tool/edit" ${on === 'edit' ? 'aria-current="page"' : ''}>${icon('edittable')} Edit a file</a></nav>`;
+
 function renderCreate() {
-  draftTable = draftTable ?? loadTable() ?? blankTable();
+  if (state.tool.op === 'edit') {
+    drafts.edit = drafts.edit ?? loadTable('edit');
+    if (state.preset?.start && state.file) { state.preset = null; openForEdit(state.file); return; } // the Edit button on a file
+    renderEditStart();
+    return;
+  }
+  drafts.new = drafts.new ?? loadTable('new') ?? { ...blankTable(), mode: 'new' };
+  draftTable = drafts.new;
   if (draftTable.stage === 'rows' && namedCols(draftTable).length) renderTableRows();
   else renderTableColumns();
+}
+
+/** Edit a file: continue earlier edits, edit the open file, or pick one (up to config.edit_rows rows). */
+function renderEditStart() {
+  view.dataset.screen = 'create';
+  const tool = state.tool;
+  const from = createReturn && TOOL[createReturn];
+  const d = drafts.edit;
+  const f = state.file;
+  const most = num(config.edit_rows ?? 1000);
+  view.innerHTML = `${topbar(from ? { back: `#/tool/${from.op}`, title: from.label, help: helpFor(tool) } : { back: '#/', title: 'All tools', help: helpFor(tool) })}
+    <section class="intro">
+      <span class="badge cat-${tool.cat}">${CATS[tool.cat]}</span>
+      <h1>${tool.label}</h1>
+      <p>${tool.intro}</p>
+    </section>
+    ${tableTabs('edit')}
+    ${d ? `<section class="edit-from glass" aria-labelledby="ed-cont">
+      <span class="file-icon">${ui('file')}</span>
+      <span class="file-text"><strong id="ed-cont">Continue editing ${esc(d.source?.filename ?? d.name)}</strong><small>${plural(d.rows.length, 'row')} · your changes are on this device, not saved yet</small></span>
+      <span class="edit-from-actions"><button class="btn btn-primary btn-sm" type="button" data-action="ed-continue">Continue</button>
+      <button class="btn-link" type="button" data-action="ed-discard">Discard changes</button></span></section>` : ''}
+    ${f ? `<section class="edit-from glass" aria-labelledby="ed-open">
+      <span class="file-icon">${ui('file')}</span>
+      <span class="file-text"><strong id="ed-open">${esc(f.filename)}</strong><small>${f.sheets?.length > 1 ? `Sheet “${esc(f.sheet)}” · ` : ''}${f.steps.length ? `${plural(f.steps.length, 'step')} applied, included · ` : ''}the file you have open</small></span>
+      <span class="edit-from-actions">${f.sheets?.length > 1 && !f.steps.length ? `<label class="sr-only" for="ed-sheet">Sheet</label><select class="input input-sm" id="ed-sheet">${f.sheets.map((n) => opt(n, n, f.sheet)).join('')}</select>` : ''}
+      <button class="btn ${d ? 'btn-secondary' : 'btn-primary'} btn-sm" type="button" data-action="ed-open">${ui('edit')} Edit this file</button></span></section>` : ''}
+    <section class="dropzone glass" id="drop">
+      <span class="drop-icon">${icon('edittable')}</span>
+      <label class="btn ${d || f ? 'btn-secondary' : 'btn-primary'} btn-lg" for="file">${f ? 'Choose another file' : 'Choose a file to edit'}</label>
+      <input id="file" class="sr-only" type="file" accept="${ACCEPT}">
+      <p class="hint">CSV, XLSX or JSON · up to ${most} rows</p>
+      <div class="progress" id="progress" hidden><div class="bar"><span id="bar"></span></div><p id="ptext" aria-live="polite">Uploading…</p></div>
+    </section>
+    ${f ? '' : `<button class="btn btn-secondary btn-block" type="button" data-action="sample">${ui('sample')} Try a sample file</button>`}
+    <section class="how"><h2>How it works</h2><ol class="how-steps">
+      <li><span>1</span>Pick a file with up to ${most} rows. A workbook opens on one sheet.</li>
+      <li><span>2</span>Each row opens as a form: change it, add rows or delete them. Tap a row in the list, or find it.</li>
+      <li><span>3</span>Save to download it as XLSX, CSV, JSON or PDF, or use it with any tool.</li></ol></section>
+    ${privacy()}`;
+  $('[data-action="ed-continue"]')?.addEventListener('click', () => { draftTable = drafts.edit; draftTable.stage = 'rows'; renderTableRows(); });
+  $('[data-action="ed-discard"]')?.addEventListener('click', () => { dropTable('edit'); renderEditStart(); toast('Changes discarded.', 'info'); });
+  $('[data-action="ed-open"]')?.addEventListener('click', (e) => openForEdit(state.file, e.currentTarget));
+  $('#ed-sheet')?.addEventListener('change', async (e) => {
+    try {
+      const res = await api(`/files/${state.file.id}/sheet`, { method: 'PUT', body: { sheet: e.target.value } });
+      remember(res.file);
+      renderEditStart();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  const pick = async (file) => {
+    if (file.size > config.max_upload_mb * 1024 * 1024) { toast(`That file is ${(file.size / 1048576).toFixed(1)} MB. The limit is ${config.max_upload_mb} MB.`, 'error'); return; }
+    $('#progress').hidden = false;
+    view.querySelectorAll('.dropzone label, [data-action="sample"]').forEach((el) => el.classList.add('busy'));
+    try {
+      const res = await uploadFile(file, (p) => {
+        $('#bar').style.width = `${Math.round(p * 100)}%`;
+        $('#ptext').textContent = p < 1 ? `Uploading… ${Math.round(p * 100)}%` : 'Reading your file…';
+      });
+      if (state.file && state.file.id !== res.file.id) forget();
+      remember(res.file); // it's the file being worked on now, for every tool
+      if (res.file.sheets?.length > 1) toast(`Opened the sheet “${res.file.sheet}”. To edit another, go back and pick it.`);
+      await openForEdit(res.file);
+    } catch (err) {
+      if (!$('#progress')) return;
+      $('#progress').hidden = true;
+      view.querySelectorAll('.busy').forEach((el) => el.classList.remove('busy'));
+      $('#file').value = '';
+      toast(err.message, 'error');
+    }
+  };
+  $('#file').addEventListener('change', (e) => e.target.files[0] && pick(e.target.files[0]));
+  $('[data-action="sample"]')?.addEventListener('click', () => pick(sampleFile()));
+  const drop = $('#drop');
+  ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.remove('over')));
+  drop.addEventListener('drop', (e) => { e.preventDefault(); const f2 = e.dataTransfer.files[0]; if (f2) pick(f2); });
+}
+
+/** Load every row of a file into the editor (the server refuses files over config.edit_rows rows). */
+async function openForEdit(file, btn) {
+  btn?.classList.add('busy');
+  try {
+    const { rows: data } = await api(`/files/${file.id}/rows`);
+    const cell = (v) => (v === null || v === undefined ? '' : String(v));
+    const t = {
+      mode: 'edit', name: file.filename.replace(/\.[^.]+$/, '') || 'My table',
+      source: { id: file.id, filename: file.filename, sheet: file.sheets?.length > 1 ? file.sheet : null },
+      cols: data.columns.map((c) => ({ name: String(c.name), type: kindOf(c.type) })),
+      rows: data.rows.map((r) => r.map(cell)), cur: [], at: 0, stage: 'rows',
+    };
+    if (drafts.edit && drafts.edit.source?.id !== file.id && drafts.edit.rows.length) toast(`Earlier changes to ${drafts.edit.source?.filename ?? 'a file'} were discarded.`, 'info');
+    drafts.edit = t;
+    draftTable = t;
+    saveTable(t);
+    renderTableRows();
+  } catch (err) {
+    btn?.classList.remove('busy');
+    if (!state.tool || state.tool.op !== 'edit') { location.hash = '#/tool/edit'; } // came from the Edit button on a file
+    else if (!$('#drop')) renderEditStart();
+    else { $('#progress') && ($('#progress').hidden = true); view.querySelectorAll('.busy').forEach((el) => el.classList.remove('busy')); }
+    toast(err.message, 'error');
+  }
 }
 
 function renderTableColumns() {
@@ -639,13 +764,14 @@ function renderTableColumns() {
   view.innerHTML = `${topbar(from ? { back: `#/tool/${from.op}`, title: from.label, help: helpFor(tool) } : { back: '#/', title: 'All tools', help: helpFor(tool) })}
     <section class="intro">
       <span class="badge cat-${tool.cat}">${CATS[tool.cat]}</span>
-      <h1>${tool.label}</h1>
-      <p>${tool.intro}</p>
+      <h1>${t.mode === 'edit' ? `Columns of ${esc(t.source?.filename ?? t.name)}` : tool.label}</h1>
+      <p>${t.mode === 'edit' ? 'Rename, add or remove columns. Removing one removes its values from every row.' : tool.intro}</p>
     </section>
+    ${t.mode === 'edit' ? '' : tableTabs('new')}
     <section class="card glass form new-cols">
-      <div class="field"><label class="field-label" for="nt-name">Table name</label>
+      <div class="field"><label class="field-label" for="nt-name">${t.mode === 'edit' ? 'File name' : 'Table name'}</label>
         <input class="input" id="nt-name" maxlength="80" value="${esc(t.name)}" autocomplete="off"></div>
-      <div class="field"><span class="field-label">Start from (optional)</span>
+      ${t.mode === 'edit' ? '' : `<div class="field"><span class="field-label">Start from (optional)</span>
         <div class="chips wrap">${STARTERS.map(([name], i) => `<button type="button" class="chip" data-starter="${i}">${esc(name)}</button>`).join('')}</div>
         <div class="nt-import">
           ${state.file ? `<button type="button" class="btn btn-secondary btn-sm" data-action="cols-open">${ui('sample')} <span>Columns of ${esc(state.file.filename)}</span></button>` : ''}
@@ -653,7 +779,7 @@ function renderTableColumns() {
           <input id="nt-file" class="sr-only" type="file" accept="${ACCEPT}">
         </div>
         <div class="field" id="nt-sheet-field" hidden><label class="field-label" for="nt-sheet">Sheet</label><select class="input" id="nt-sheet"></select></div>
-        <p class="hint">Only the column names and types are copied, not the rows.</p></div>
+        <p class="hint">Only the column names and types are copied, not the rows.</p></div>`}
       <div class="field"><span class="field-label" id="nt-cols-label">Columns</span>
         <ol class="new-col-list" id="nt-cols" aria-labelledby="nt-cols-label"></ol>
         <button type="button" class="btn btn-secondary btn-sm" data-action="add-col">${ui('plus')} Add column</button>
@@ -661,8 +787,9 @@ function renderTableColumns() {
     </section>
     <div class="action-bar">
       <button type="button" class="act-note" id="nt-note" data-kind="needs" hidden></button>
-      <button class="btn btn-primary btn-lg btn-block" type="button" id="nt-next">Next: add rows</button>
-      ${t.rows.length ? `<button class="btn-link" type="button" data-action="new-table">Start a new, empty table</button>` : ''}
+      <button class="btn btn-primary btn-lg btn-block" type="button" id="nt-next">${t.mode === 'edit' ? 'Back to the rows' : 'Next: add rows'}</button>
+      ${t.mode === 'edit' ? `<button class="btn-link" type="button" data-action="ed-discard">Discard changes</button>`
+        : t.rows.length ? `<button class="btn-link" type="button" data-action="new-table">Start a new, empty table</button>` : ''}
     </div>`;
   const list = $('#nt-cols');
   const draw = (focus) => {
@@ -672,7 +799,7 @@ function renderTableColumns() {
       <select class="input" data-col-type="${i}" aria-label="Type of column ${i + 1}">${COL_TYPES.map(([v, l]) => opt(v, l, c.type)).join('')}</select>
       <button type="button" class="icon-btn" data-col-remove="${i}" aria-label="Remove column ${i + 1}" ${t.cols.length > 1 ? '' : 'disabled'}>${ui('close')}</button>
     </li>`).join('');
-    $('[data-action="add-col"]').disabled = t.cols.length >= NEW_TABLE.maxCols;
+    $('[data-action="add-col"]').disabled = t.cols.length >= Math.max(NEW_TABLE.maxCols, t.mode === 'edit' ? t.cols.length + 5 : 0);
     if (focus !== undefined) list.querySelector(`[data-col-name="${focus}"]`)?.focus();
     check();
   };
@@ -683,7 +810,7 @@ function renderTableColumns() {
     note.hidden = ok;
     note.innerHTML = '<span>Name at least one column.</span>';
   };
-  const addCol = () => { if (t.cols.length < NEW_TABLE.maxCols) { t.cols.push({ name: '', type: 'text' }); saveTable(t); draw(t.cols.length - 1); } };
+  const addCol = () => { if (!$('[data-action="add-col"]').disabled) { t.cols.push({ name: '', type: 'text' }); saveTable(t); draw(t.cols.length - 1); } };
   $('#nt-name').addEventListener('input', (e) => { t.name = e.target.value; t.fromFile = false; saveTable(t); });
   list.addEventListener('input', (e) => {
     const el = e.target;
@@ -709,6 +836,7 @@ function renderTableColumns() {
     draw();
   });
   $('[data-action="add-col"]').addEventListener('click', addCol);
+  $('[data-action="ed-discard"]')?.addEventListener('click', () => { dropTable('edit'); location.hash = '#/tool/edit'; renderEditStart(); toast('Changes discarded.', 'info'); });
   view.querySelectorAll('[data-starter]').forEach((b) => b.addEventListener('click', () => {
     const [name, cols] = STARTERS[Number(b.dataset.starter)];
     if (t.rows.length) { toast('This table already has rows. Start a new, empty table first.', 'error'); return; }
@@ -757,8 +885,8 @@ function renderTableColumns() {
     try { dropHeaderFile(); sheetField.hidden = true; await useColumns(state.file); } catch (err) { toast(err.message, 'error'); }
     btn.classList.remove('busy');
   });
-  $('#nt-file').addEventListener('click', (e) => { if (hasRows()) e.preventDefault(); });
-  $('#nt-file').addEventListener('change', async (e) => {
+  $('#nt-file')?.addEventListener('click', (e) => { if (hasRows()) e.preventDefault(); });
+  $('#nt-file')?.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     e.target.value = '';
     if (!file) return;
@@ -778,7 +906,7 @@ function renderTableColumns() {
     btn.classList.remove('busy');
     label.textContent = 'Columns from a file';
   });
-  $('#nt-sheet').addEventListener('change', async (e) => {
+  $('#nt-sheet')?.addEventListener('change', async (e) => {
     if (!headerFile || hasRows()) return;
     const sel = e.target;
     sel.disabled = true;
@@ -790,8 +918,14 @@ function renderTableColumns() {
     } catch (err) { toast(err.message, 'error'); }
     sel.disabled = false;
   });
-  $('[data-action="new-table"]')?.addEventListener('click', () => { draftTable = blankTable(); renderTableColumns(); toast('Started a new table.'); });
-  $('#nt-next').addEventListener('click', () => { dropHeaderFile(); t.stage = 'rows'; t.at = t.rows.length; saveTable(t); renderTableRows(); });
+  $('[data-action="new-table"]')?.addEventListener('click', () => { drafts.new = { ...blankTable(), mode: 'new' }; draftTable = drafts.new; renderTableColumns(); toast('Started a new table.'); });
+  $('#nt-next').addEventListener('click', () => {
+    dropHeaderFile();
+    t.stage = 'rows';
+    if (t.mode !== 'edit') t.at = t.rows.length;
+    saveTable(t);
+    renderTableRows();
+  });
   draw();
 }
 
@@ -807,7 +941,7 @@ function renderTableRows() {
       <button class="icon-btn glass theme-btn" type="button" data-action="theme" aria-label="Switch theme">${ui('moon', 'when-light')}${ui('sun', 'when-dark')}</button>
       <a class="icon-btn" href="#/" aria-label="Close">${ui('close')}</a></header>
     <section class="new-head">
-      <h1>${esc(t.name.trim() || 'My table')}</h1>
+      <h1>${t.mode === 'edit' ? `Editing ${esc(t.source?.filename ?? t.name)}` : esc(t.name.trim() || 'My table')}</h1>
       <span class="pill" id="nr-where" aria-live="polite"></span>
     </section>
     <form class="card glass form new-row" id="nr-form" autocomplete="off" novalidate></form>
@@ -817,13 +951,17 @@ function renderTableRows() {
       <button class="btn btn-secondary btn-sm" type="button" data-action="next">Next <span class="flip">${ui('back')}</span></button>
     </section>
     <section class="new-table">
-      <div class="preview-head"><h2 id="nr-title">Your table</h2><span class="pill" id="nr-count"></span></div>
+      <div class="preview-head"><h2 id="nr-title">${t.mode === 'edit' ? 'All rows' : 'Your table'}</h2><span class="pill" id="nr-count"></span></div>
+      <div class="field nr-find" id="nr-find-field" hidden><label class="sr-only" for="nr-find">Find a row</label>
+        <input class="input" id="nr-find" type="search" placeholder="Find a row: type any value" autocomplete="off" enterkeyhint="search"></div>
       <div class="table-wrap glass" id="nr-table" tabindex="0" aria-labelledby="nr-title"></div>
-      <p class="hint">Tap a row to change it. Your table is kept on this device, so you can come back to it.</p>
+      <p class="hint">${t.mode === 'edit'
+        ? 'Tap a row to change it. Your changes are kept on this device until you save.'
+        : 'Tap a row to change it. Your table is kept on this device, so you can come back to it.'}</p>
     </section>
     <div class="action-bar">
       <button class="btn btn-primary btn-lg btn-block" type="submit" form="nr-form" id="nr-save"></button>
-      <button class="btn btn-secondary btn-block" type="button" id="nr-finish">${ui('check')} Finish: download or use tools</button>
+      <button class="btn btn-secondary btn-block" type="button" id="nr-finish">${ui('check')} ${t.mode === 'edit' ? 'Done: download or use tools' : 'Finish: download or use tools'}</button>
     </div>`;
   const form = $('#nr-form');
   const values = () => cols.map((c) => form.elements[`c${c.i}`].value);
@@ -851,18 +989,39 @@ function renderTableRows() {
       values: pastValues(t, Number(input.dataset.col), skip).slice(0, 200).map((e) => ({ value: e.v, count: e.count })), truncated: false,
     })));
     $('#nr-where').textContent = editing() ? `Row ${num(t.at + 1)} of ${num(t.rows.length)}` : `New row ${num(t.rows.length + 1)}`;
-    $('#nr-save').textContent = editing() ? 'Save changes' : 'Save row and add another';
+    $('#nr-save').textContent = editing() ? (t.mode === 'edit' ? 'Save this row' : 'Save changes') : 'Save row and add another';
     $('[data-action="prev"]').disabled = t.at === 0;
     $('[data-action="next"]').disabled = !editing();
     $('[data-action="delete"]').disabled = !editing();
-    $('#nr-count').textContent = plural(t.rows.length, 'row');
     $('#nr-finish').disabled = !t.rows.length && blankRow(t.cur);
-    $('#nr-table').innerHTML = t.rows.length ? `<table><thead><tr><th scope="col" class="num-col">#</th>${cols.map((c) => `<th scope="col"><span>${esc(c.name)}</span></th>`).join('')}</tr></thead>
-      <tbody>${t.rows.map((r, i) => `<tr data-row="${i}" tabindex="0" ${i === t.at ? 'aria-current="true"' : ''}><td class="num-col">${i + 1}</td>${cols.map((c) => `<td>${esc(r[c.i] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table>`
-      : '<p class="empty">No rows yet. Fill in the form and save your first row.</p>';
+    drawList();
     if (focus) form.querySelector('input')?.focus({ preventScroll: !desktop.matches });
     $('#nr-table [aria-current]')?.scrollIntoView({ block: 'nearest' });
   };
+  // the list of rows, narrowed by "Find a row" (shown once there are more than a few)
+  const findField = $('#nr-find-field');
+  let find = '';
+  const LIST_MAX = 500; // a phone stays quick: past this, find narrows the list
+  const drawList = () => {
+    findField.hidden = t.mode !== 'edit' && t.rows.length <= 8 && !find; // a file: always; a new table: once it has grown
+    const q = find.trim().toLowerCase();
+    const hits = [];
+    t.rows.forEach((r, i) => { if (!q || cols.some((c) => String(r[c.i] ?? '').toLowerCase().includes(q))) hits.push(i); });
+    const shown = hits.length > LIST_MAX ? hits.filter((i) => Math.abs(i - t.at) < LIST_MAX / 2).slice(0, LIST_MAX) : hits;
+    $('#nr-count').textContent = q ? `${num(hits.length)} of ${plural(t.rows.length, 'row')}` : shown.length < hits.length
+      ? `${num(shown.length)} of ${plural(t.rows.length, 'row')} shown` : plural(t.rows.length, 'row');
+    $('#nr-table').innerHTML = !t.rows.length ? '<p class="empty">No rows yet. Fill in the form and save your first row.</p>'
+      : !hits.length ? '<p class="empty">No row has that. Try another word.</p>'
+      : `<table><thead><tr><th scope="col" class="num-col">#</th>${cols.map((c) => `<th scope="col"><span>${esc(c.name)}</span></th>`).join('')}</tr></thead>
+      <tbody>${shown.map((i) => { const r = t.rows[i]; return `<tr data-row="${i}" tabindex="0" ${i === t.at ? 'aria-current="true"' : ''}><td class="num-col">${i + 1}</td>${cols.map((c) => `<td>${esc(r[c.i] ?? '')}</td>`).join('')}</tr>`; }).join('')}</tbody></table>`;
+  };
+  $('#nr-find').addEventListener('input', (e) => { find = e.target.value; drawList(); });
+  $('#nr-find').addEventListener('keydown', (e) => { // Enter opens the first match
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const first = $('#nr-table [data-row]');
+    if (first) go(Number(first.dataset.row));
+  });
   const keep = () => { // remember what's typed, so nothing is lost on reload
     const v = values();
     const full = Array(t.cols.length).fill('');
@@ -923,9 +1082,8 @@ function renderTableRows() {
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     keep();
-    if (editing()) { t.at = t.rows.length; toast('Row saved.', 'success'); } else {
+    if (editing()) { t.at = t.mode === 'edit' ? t.at + 1 : t.rows.length; toast('Row saved.', 'success'); } else { // a file: on to the next row
       if (blankRow(t.cur)) { toast('Type something in at least one field first.', 'error'); return; }
-      if (t.rows.length >= NEW_TABLE.maxRows) { toast(`That's the limit of ${num(NEW_TABLE.maxRows)} rows for a table made here. Finish, then use Stack files to add more.`, 'error'); return; }
       t.rows.push(t.cur);
       t.cur = [];
       t.at = t.rows.length;
@@ -974,8 +1132,11 @@ async function finishTable() {
     }
     if (state.file) forget();
     remember(res.file);
-    const then = createReturn && TOOL[createReturn] ? createReturn : 'convert';
-    toast(`${name.replace(/\.csv$/, '')} is ready: ${plural(rows.length, 'row')}.`, 'success');
+    const then = createReturn && TOOL[createReturn] && !TOOL[createReturn].creator ? createReturn : 'convert';
+    if (t.mode === 'edit') { // saved: the edited file is now the one being worked on, so its draft is done
+      dropTable('edit');
+      toast(`Saved your changes: ${plural(rows.length, 'row')}.`, 'success');
+    } else toast(`${name.replace(/\.csv$/, '')} is ready: ${plural(rows.length, 'row')}.`, 'success');
     location.hash = `#/tool/${then}`;
   } catch (err) {
     btn.disabled = false;
@@ -1141,6 +1302,7 @@ function renderOptions() {
   $('[data-action="newfile"]').addEventListener('click', newFile);
   $('[data-action="headers"]')?.addEventListener('click', toggleHeaders);
   $('[data-action="check"]').addEventListener('click', toggleHealth);
+  $('[data-action="edit-rows"]')?.addEventListener('click', () => { createReturn = (state.alias ?? state.tool)?.op ?? null; }); // back here once saved
   $('#sheet')?.addEventListener('change', (e) => changeSheet(e.target.value));
   $('#pv-pager').addEventListener('click', onPager);
   if (pivot) wireChart();
