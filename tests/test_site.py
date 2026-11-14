@@ -63,6 +63,10 @@ def test_moved_tool_pages_forward_permanently(client):
     assert r.status_code == 301 and r.location.endswith("/tools/transpose")
     html = client.get("/tools/transpose").get_data(as_text=True)
     assert "<h1>Transpose rows and columns in a CSV or Excel file</h1>" in html and 'href="/#/tool/unpivot"' in html
+    r = client.get("/tools/edit-a-table")                       # renamed to Add rows (v1.28.1)
+    assert r.status_code == 301 and r.location.endswith("/tools/add-rows")
+    html = client.get("/tools/add-rows").get_data(as_text=True)
+    assert "<h1>Add rows to an Excel or CSV file online</h1>" in html and 'href="/#/tool/edit"' in html
 
 
 def test_tool_pages_open_the_right_tool(client):

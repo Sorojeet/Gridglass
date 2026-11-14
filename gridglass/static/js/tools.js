@@ -630,9 +630,9 @@ export const TOOLS = [
     fields: [],
   },
   {
-    op: 'edit', cat: 'convert', icon: 'edittable', label: 'Edit a table',
-    desc: 'Change, add or delete rows of your file', keywords: 'edit change update modify correct fix row rows cell cells record entry excel sheet file existing typo form',
-    intro: 'Open a CSV or Excel file with up to 1,000 rows and change it one row at a time in a simple form: fix values, add rows or delete them, then download it.',
+    op: 'edit', cat: 'convert', icon: 'edittable', label: 'Add rows',
+    desc: 'Add, change or delete rows in your file', keywords: 'add append insert new rows row record entry edit change modify correct fix cell cells excel sheet file existing typo form',
+    intro: 'Open a CSV or Excel file with up to 1,000 rows and add rows one at a time in a simple form. You can also change or delete rows, then download it.',
     creator: true, // its own screens (shares the row editor with Create a table)
     fields: [],
   },
@@ -656,7 +656,7 @@ export const PAGE = {
   change_type: 'change-type', split_column: 'split-column', add_column: 'add-column', merge: 'merge-files', stack: 'stack-files',
   pivot: 'pivot-table', chart: 'make-a-chart', unpivot: 'transpose', convert: 'convert-file', split_pages: 'split-into-pages',
   create: 'create-a-table',
-  edit: 'edit-a-table',
+  edit: 'add-rows',
 };
 
 export const FORMATS = [['xlsx', 'Spreadsheet (.xlsx)'], ['csv', 'CSV (.csv)'], ['json', 'JSON (.json)'], ['pdf', 'PDF (.pdf)']];

@@ -228,7 +228,7 @@ def all_rows(file_id):
     most = _cfg("EDIT_ROWS")
     page = preview(lf, most + 1)
     if page["total_rows"] > most:
-        raise GridglassError(f"Editing works on tables of up to {most:,} rows. This one has {page['total_rows']:,}. "
+        raise GridglassError(f"Adding rows works on tables of up to {most:,} rows. This one has {page['total_rows']:,}. "
                              "Use Filter rows or Split into pages to make it smaller first.", code="too_many_rows")
     return jsonify(rows=page)
 

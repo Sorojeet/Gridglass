@@ -277,7 +277,7 @@ function fileChip() {
     <span class="file-actions">${sheets}
     <button class="btn-link" type="button" data-action="check" aria-expanded="false" aria-controls="health">Check</button>
     ${hasHeaderRow(f) ? `<button class="btn-link" type="button" data-action="headers" aria-expanded="false" aria-controls="header-pick">Headers</button>` : ''}
-    ${state.before <= (config.edit_rows ?? 1000) && state.editIndex === null ? `<a class="btn-link" href="#/tool/edit?start=1" data-action="edit-rows">Edit rows</a>` : ''}
+    ${state.before <= (config.edit_rows ?? 1000) && state.editIndex === null ? `<a class="btn-link" href="#/tool/edit?start=1" data-action="edit-rows">Add rows</a>` : ''}
     <button class="btn-link" type="button" data-action="newfile">Change</button></span>
   </div>
   <section class="header-pick glass" id="header-pick" aria-labelledby="header-pick-title" hidden></section>
@@ -447,7 +447,7 @@ function renderHome() {
       <span class="file-icon">${ui('file')}</span>
       <span class="file-text"><strong>${esc(state.file.filename)}</strong><small>${state.file.steps.length ? `${plural(state.file.steps.length, 'step')} applied · ` : ''}pick any tool to keep going</small></span>
       ${state.file.steps.length ? `<a class="btn btn-secondary btn-sm" href="#/result">${ui('download')} Back to result</a>` : ''}
-      ${state.file.rows <= (config.edit_rows ?? 1000) ? `<a class="btn btn-secondary btn-sm" href="#/tool/edit?start=1">${ui('edit')} Edit rows</a>` : ''}
+      ${state.file.rows <= (config.edit_rows ?? 1000) ? `<a class="btn btn-secondary btn-sm" href="#/tool/edit?start=1">${ui('plus')} Add rows</a>` : ''}
       <button class="btn-link" type="button" data-action="startover">Clear</button>
     </div>` : '';
   view.dataset.screen = 'home';
@@ -633,10 +633,10 @@ function quickPicks(t, c) {
   return [[today(), 'Today'], ...(last && last !== today() ? [[last, shortDate(last)]] : [])];
 }
 
-/** New table | Edit a file: the two ways into the row editor. */
+/** New table | Add rows: the two ways into the row editor. */
 const tableTabs = (on) => `<nav class="seg table-tabs" aria-label="Make or edit a table">
     <a href="#/tool/create" ${on === 'new' ? 'aria-current="page"' : ''}>${icon('newtable')} New table</a>
-    <a href="#/tool/edit" ${on === 'edit' ? 'aria-current="page"' : ''}>${icon('edittable')} Edit a file</a></nav>`;
+    <a href="#/tool/edit" ${on === 'edit' ? 'aria-current="page"' : ''}>${icon('edittable')} Add rows</a></nav>`;
 
 function renderCreate() {
   if (state.tool.op === 'edit') {
@@ -651,7 +651,7 @@ function renderCreate() {
   else renderTableColumns();
 }
 
-/** Edit a file: continue earlier edits, edit the open file, or pick one (up to config.edit_rows rows). */
+/** Add rows (to a file): continue earlier changes, use the open file, or pick one (up to config.edit_rows rows). */
 function renderEditStart() {
   view.dataset.screen = 'create';
   const tool = state.tool;
@@ -668,17 +668,17 @@ function renderEditStart() {
     ${tableTabs('edit')}
     ${d ? `<section class="edit-from glass" aria-labelledby="ed-cont">
       <span class="file-icon">${ui('file')}</span>
-      <span class="file-text"><strong id="ed-cont">Continue editing ${esc(d.source?.filename ?? d.name)}</strong><small>${plural(d.rows.length, 'row')} · your changes are on this device, not saved yet</small></span>
+      <span class="file-text"><strong id="ed-cont">Continue with ${esc(d.source?.filename ?? d.name)}</strong><small>${plural(d.rows.length, 'row')} · your changes are on this device, not saved yet</small></span>
       <span class="edit-from-actions"><button class="btn btn-primary btn-sm" type="button" data-action="ed-continue">Continue</button>
       <button class="btn-link" type="button" data-action="ed-discard">Discard changes</button></span></section>` : ''}
     ${f ? `<section class="edit-from glass" aria-labelledby="ed-open">
       <span class="file-icon">${ui('file')}</span>
       <span class="file-text"><strong id="ed-open">${esc(f.filename)}</strong><small>${f.sheets?.length > 1 ? `Sheet “${esc(f.sheet)}” · ` : ''}${f.steps.length ? `${plural(f.steps.length, 'step')} applied, included · ` : ''}the file you have open</small></span>
       <span class="edit-from-actions">${f.sheets?.length > 1 && !f.steps.length ? `<label class="sr-only" for="ed-sheet">Sheet</label><select class="input input-sm" id="ed-sheet">${f.sheets.map((n) => opt(n, n, f.sheet)).join('')}</select>` : ''}
-      <button class="btn ${d ? 'btn-secondary' : 'btn-primary'} btn-sm" type="button" data-action="ed-open">${ui('edit')} Edit this file</button></span></section>` : ''}
+      <button class="btn ${d ? 'btn-secondary' : 'btn-primary'} btn-sm" type="button" data-action="ed-open">${ui('plus')} Add rows to this file</button></span></section>` : ''}
     <section class="dropzone glass" id="drop">
       <span class="drop-icon">${icon('edittable')}</span>
-      <label class="btn ${d || f ? 'btn-secondary' : 'btn-primary'} btn-lg" for="file">${f ? 'Choose another file' : 'Choose a file to edit'}</label>
+      <label class="btn ${d || f ? 'btn-secondary' : 'btn-primary'} btn-lg" for="file">${f ? 'Choose another file' : 'Choose a file'}</label>
       <input id="file" class="sr-only" type="file" accept="${ACCEPT}">
       <p class="hint">CSV, XLSX or JSON · up to ${most} rows</p>
       <div class="progress" id="progress" hidden><div class="bar"><span id="bar"></span></div><p id="ptext" aria-live="polite">Uploading…</p></div>
@@ -686,7 +686,7 @@ function renderEditStart() {
     ${f ? '' : `<button class="btn btn-secondary btn-block" type="button" data-action="sample">${ui('sample')} Try a sample file</button>`}
     <section class="how"><h2>How it works</h2><ol class="how-steps">
       <li><span>1</span>Pick a file with up to ${most} rows. A workbook opens on one sheet.</li>
-      <li><span>2</span>Each row opens as a form: change it, add rows or delete them. Tap a row in the list, or find it.</li>
+      <li><span>2</span>Add new rows in a simple form. To change or delete a row, tap it in the list or find it.</li>
       <li><span>3</span>Save to download it as XLSX, CSV, JSON or PDF, or use it with any tool.</li></ol></section>
     ${privacy()}`;
   $('[data-action="ed-continue"]')?.addEventListener('click', () => { draftTable = drafts.edit; draftTable.stage = 'rows'; renderTableRows(); });
@@ -941,7 +941,7 @@ function renderTableRows() {
       <button class="icon-btn glass theme-btn" type="button" data-action="theme" aria-label="Switch theme">${ui('moon', 'when-light')}${ui('sun', 'when-dark')}</button>
       <a class="icon-btn" href="#/" aria-label="Close">${ui('close')}</a></header>
     <section class="new-head">
-      <h1>${t.mode === 'edit' ? `Editing ${esc(t.source?.filename ?? t.name)}` : esc(t.name.trim() || 'My table')}</h1>
+      <h1>${t.mode === 'edit' ? `Add rows to ${esc(t.source?.filename ?? t.name)}` : esc(t.name.trim() || 'My table')}</h1>
       <span class="pill" id="nr-where" aria-live="polite"></span>
     </section>
     <form class="card glass form new-row" id="nr-form" autocomplete="off" novalidate></form>

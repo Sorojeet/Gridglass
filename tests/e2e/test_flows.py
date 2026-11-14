@@ -42,7 +42,7 @@ def apply(page):
 
 def test_home_lists_every_tool_and_searches(phone):
     page = phone.open("/")
-    expect(page.locator(".tool-card")).to_have_count(len(ALL_OPS) + 2)  # + Create a table, Edit a table
+    expect(page.locator(".tool-card")).to_have_count(len(ALL_OPS) + 2)  # + Create a table, Add rows
     page.fill("#q", "duplicates")
     expect(page.locator(".tool-card").first).to_contain_text("Remove duplicates")
     expect(page.locator(".tool-card.best .best-badge")).to_have_text("Best match")
@@ -1938,13 +1938,13 @@ def test_edit_a_file_change_add_delete_and_save(phone, tmp_path):
     src = tmp_path / "stock.csv"
     src.write_text(STOCK)
     page = phone.open("/")
-    page.fill("#q", "fix a value in my excel file")
-    expect(page.locator(".tool-card").first).to_contain_text("Edit a table")
+    page.fill("#q", "add new rows to my excel file")
+    expect(page.locator(".tool-card").first).to_contain_text("Add rows")
     page.keyboard.press("Enter")
-    expect(page.locator(".table-tabs [aria-current]")).to_contain_text("Edit a file")
+    expect(page.locator(".table-tabs [aria-current]")).to_contain_text("Add rows")
     page.set_input_files("#file", str(src))
 
-    expect(page.locator(".new-head h1")).to_have_text("Editing stock.csv")
+    expect(page.locator(".new-head h1")).to_have_text("Add rows to stock.csv")
     expect(page.locator("#nr-where")).to_have_text("Row 1 of 4")              # opens on the first row
     expect(page.locator("#nr-form label")).to_have_text(["Item", "Category", "Quantity", "Price"])
     expect(page.locator("#nr-0")).to_have_value("Pen")
@@ -1995,7 +1995,7 @@ def test_edit_refuses_more_than_1000_rows(phone, tmp_path):
 def test_edit_rows_from_a_tool_and_back(phone):
     page = phone.upload_sample("sort_rows")
     page.click('[data-action="edit-rows"]')                                   # the Edit button on the file
-    expect(page.locator(".new-head h1")).to_have_text("Editing sample-orders.csv")
+    expect(page.locator(".new-head h1")).to_have_text("Add rows to sample-orders.csv")
     page.fill("#nr-3", "Kochi")                                               # City of row 1
     page.click("#nr-save")
     page.click("#nr-finish")
@@ -2007,14 +2007,14 @@ def test_edit_keeps_changes_until_saved_and_tabs_switch(phone, tmp_path):
     src = tmp_path / "stock.csv"
     src.write_text(STOCK)
     page = phone.open("/#/tool/create")
-    page.click('.table-tabs a:has-text("Edit a file")')
-    expect(page.locator("h1")).to_have_text("Edit a table")
+    page.click('.table-tabs a:has-text("Add rows")')
+    expect(page.locator("h1")).to_have_text("Add rows")
     page.set_input_files("#file", str(src))
     page.fill("#nr-0", "Blue pen")
     page.click("#nr-save")
     page.reload()                                                             # nothing is lost
     expect(page.locator('[data-action="ed-continue"]')).to_be_visible()
-    expect(page.locator("#ed-cont")).to_have_text("Continue editing stock.csv")
+    expect(page.locator("#ed-cont")).to_have_text("Continue with stock.csv")
     page.click('[data-action="ed-continue"]')
     expect(page.locator('[data-row="0"]')).to_contain_text("Blue pen")
     page.click('[data-action="cols"]')                                        # columns of the file can change too
@@ -2031,7 +2031,7 @@ def test_home_offers_edit_rows_after_upload(phone):
     page.click('[data-action="sample"]')
     expect(page.locator('.working a[href="#/tool/edit?start=1"]')).to_be_visible()
     page.click('.working a[href="#/tool/edit?start=1"]')
-    expect(page.locator(".new-head h1")).to_have_text("Editing sample-orders.csv")
+    expect(page.locator(".new-head h1")).to_have_text("Add rows to sample-orders.csv")
     page.click(".topbar a[aria-label='Close']")
 
 
