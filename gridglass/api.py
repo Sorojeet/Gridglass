@@ -34,7 +34,7 @@ from flask import Blueprint, current_app, jsonify, request, send_file
 from .engine import (OPS, ExportError, GridglassError, IngestError, InvalidStepsError, build, distinct_values,
                      open_source, parse_steps, preview, profile)
 from .engine.io import EXPORT_FORMATS, export
-from .engine.steps import DECIMALS
+from .engine.steps import DECIMALS, UpdateRows
 from .limits import from_config, limiter
 from .storage import NotFound, Store
 
@@ -44,7 +44,7 @@ limiter.limit(from_config("RATE_LIMIT_API"))(bp)
 CATEGORIES = {
     "clean": ["remove_duplicates", "trim", "change_case", "replace_values", "fill_blanks", "remove_blank_rows"],
     "shape": ["remove_columns", "keep_columns", "rename_columns", "filter_rows", "sort_rows", "keep_rows",
-              "change_type", "split_column", "add_column"],
+              "change_type", "split_column", "add_column", "update_rows"],
     "combine": ["merge", "stack"],
     "summarize": ["pivot", "unpivot"],
 }
@@ -237,8 +237,12 @@ def all_rows(file_id):
 def draft_preview(file_id):
     """Live preview while the user adjusts a tool's options. Nothing is saved."""
     raw = _body().get("steps", store().meta(file_id)["steps"])
-    _, lf = _steps_and_frame(file_id, raw)
-    return jsonify(preview=_page(lf))
+    steps, lf = _steps_and_frame(file_id, raw)
+    out = {"preview": _page(lf)}
+    if steps and isinstance(steps[-1], UpdateRows):  # say how many rows the update picks, before it's applied
+        _, before = _steps_and_frame(file_id, raw[:-1])
+        out["matched"] = steps[-1].matched(before, before.collect_schema())
+    return jsonify(out)
 
 
 @bp.get("/files/<file_id>/values")

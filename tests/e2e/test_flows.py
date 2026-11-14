@@ -13,7 +13,7 @@ from playwright.sync_api import expect
 
 ALL_OPS = [
     "remove_duplicates", "trim", "change_case", "replace_values", "fill_blanks", "remove_blank_rows",
-    "filter_rows", "sort_rows", "remove_columns", "keep_columns", "rename_columns", "keep_rows",
+    "filter_rows", "update_rows", "sort_rows", "remove_columns", "keep_columns", "rename_columns", "keep_rows",
     "change_type", "split_column", "add_column", "merge", "stack", "pivot", "chart", "unpivot", "convert", "split_pages",
 ]  # "create" needs no file: it has its own tests
 SAMPLE_ROWS = 45  # the built-in sample: 40 orders + 5 exact duplicates
@@ -2033,3 +2033,53 @@ def test_home_offers_edit_rows_after_upload(phone):
     page.click('.working a[href="#/tool/edit?start=1"]')
     expect(page.locator(".new-head h1")).to_have_text("Editing sample-orders.csv")
     page.click(".topbar a[aria-label='Close']")
+
+
+# ----------------------------------------------------------------------------- update rows (SET … WHERE)
+
+def test_update_rows_sets_a_column_where_rows_match(phone):
+    page = phone.upload_sample("update_rows")
+    expect(page.locator("#apply")).to_be_disabled()                           # a condition needs a value
+    page.select_option("#f-column", "City")
+    page.fill("#f-value", "Pune (west)")
+    page.select_option("#c0col", "Amount")
+    page.select_option("#c0op", "greater_than")
+    page.fill("#c0v", "400")
+    expect(page.locator("#pv-badge")).to_contain_text("will change")
+    expect(page.locator("#pv-note")).to_contain_text("Showing only the rows that change")
+    changing = int(page.locator("#pv-badge").inner_text().split()[0])
+    expect(page.locator("#pv tbody tr")).to_have_count(min(changing, 50))
+    page.locator('[data-key="only"]').evaluate("el => el.click()")            # every row again
+    expect(page.locator("#pv-note")).not_to_contain_text("Showing only")
+    apply(page)
+    expect(page.locator(".done h1")).to_have_text(f"{changing} rows updated")
+    rows = result_json(page)
+    assert len(rows) == SAMPLE_ROWS                                           # no row removed
+    assert all((r["City"] == "Pune (west)") == (r["Amount"] is not None and r["Amount"] > 400) for r in rows)
+
+
+def test_update_rows_from_another_column_or_blank_and_type_errors(phone):
+    page = phone.upload_sample("update_rows")
+    page.select_option("#f-column", "Amount")
+    page.fill("#f-value", "Paid")                                             # text into numbers: explained
+    page.select_option("#c0col", "City")
+    page.fill("#c0v", "Delhi")
+    expect(page.locator("#pv .form-error")).to_contain_text("'Paid' can't go into 'Amount'")
+    expect(page.locator("#apply")).to_be_disabled()
+    page.click('[data-seg="set_to"][data-val="blank"]')
+    expect(page.locator("#f-value")).to_have_count(0)
+    expect(page.locator("#pv-badge")).to_contain_text("will change")
+    apply(page)
+    rows = result_json(page)
+    assert all(r["Amount"] is None for r in rows if r["City"] == "Delhi")
+    assert any(r["Amount"] is not None for r in rows if r["City"] != "Delhi")
+
+
+def test_update_rows_value_dropdown_shows_the_columns_values(phone):
+    page = phone.upload_sample("update_rows")
+    page.select_option("#f-column", "City")
+    page.focus("#f-value")
+    expect(page.locator("#f-value-list [role=option]").first).to_be_visible()
+    expect(page.locator("#f-value-list")).to_contain_text("Mumbai")
+    page.locator("#f-value-list [role=option]", has_text="Mumbai").click()
+    expect(page.locator("#f-value")).to_have_value("Mumbai")

@@ -11,7 +11,7 @@ from gridglass.engine import OPS, InvalidStepsError, StepError, build, parse_ste
 # --------------------------------------------------------------------------- validation
 
 def test_every_tool_is_registered():
-    assert len(OPS) == 19
+    assert len(OPS) == 20
     assert {"remove_duplicates", "trim", "filter_rows", "merge", "stack", "pivot", "unpivot"} <= set(OPS)
 
 
@@ -842,3 +842,57 @@ def test_pivot_names_the_value_that_needs_numbers(apply):
         apply(lf, {"op": "pivot", "rows": ["Party"], "values": [{"func": "sum", "column": "Date_"}, {"func": "sum", "column": "amount"}]})
     with pytest.raises(StepError, match="'Party' holds text"):
         apply(lf, {"op": "pivot", "rows": ["Date_"], "values": [{"func": "average", "column": "Party"}]})
+
+
+# --------------------------------------------------------------------------- update rows (SET … WHERE)
+
+BILLS = pl.LazyFrame({
+    "Name": ["Asha", "Ravi", "Meena", "Dev"],
+    "Amount": [500, 1500, None, 2500],
+    "Status": ["Due", "Due", "Due", None],
+    "Rate": [1.5, 2.0, 3.0, 4.0],
+    "Due on": [date(2026, 11, 1), date(2026, 11, 2), date(2026, 11, 3), date(2026, 11, 4)],
+})
+
+
+def _update(**kw):
+    return build(BILLS, parse_steps([{"op": "update_rows", **kw}])).collect()
+
+
+def test_update_sets_a_value_only_where_the_conditions_match():
+    out = _update(column="Status", value="Paid", conditions=[{"column": "Amount", "operator": "greater_than", "value": "1000"}])
+    assert out["Status"].to_list() == ["Due", "Paid", "Due", "Paid"]   # a blank Amount is not "more than"; it stays
+
+
+def test_update_with_any_of_several_conditions():
+    out = _update(column="Status", value="Check", match="any", conditions=[
+        {"column": "Name", "operator": "equals", "value": "asha"},          # not case-sensitive by default
+        {"column": "Amount", "operator": "is_blank"}])
+    assert out["Status"].to_list() == ["Check", "Due", "Check", None]
+
+
+def test_update_number_and_date_columns_keep_their_type():
+    out = _update(column="Amount", value="1,200", conditions=[{"column": "Name", "operator": "equals", "value": "Ravi"}])
+    assert out["Amount"].dtype == pl.Int64 and out["Amount"].to_list() == [500, 1200, None, 2500]
+    out = _update(column="Due on", value="2026-12-31", conditions=[{"column": "Status", "operator": "is_blank"}])
+    assert out["Due on"].to_list()[-1] == date(2026, 12, 31) and out["Due on"].dtype == pl.Date
+    out = _update(column="Amount", value="12.5", conditions=[{"column": "Name", "operator": "equals", "value": "Asha"}])
+    assert out["Amount"].dtype == pl.Float64 and out["Amount"].to_list()[0] == 12.5   # the decimals are kept
+
+
+def test_update_to_blank_or_from_another_column():
+    out = _update(column="Status", set_to="blank", conditions=[{"column": "Amount", "operator": "less_than", "value": "1000"}])
+    assert out["Status"].to_list() == [None, "Due", "Due", None]
+    out = _update(column="Amount", set_to="column", from_column="Rate", conditions=[{"column": "Amount", "operator": "is_blank"}])
+    assert out["Amount"].to_list() == [500, 1500, 3.0, 2500]
+    out = _update(column="Status", set_to="column", from_column="Amount", conditions=[])   # no WHERE: every row
+    assert out["Status"].to_list() == ["500", "1500", None, "2500"]
+
+
+def test_update_explains_a_value_that_does_not_fit():
+    with pytest.raises(StepError, match="'Paid' can't go into 'Amount': that column holds whole numbers"):
+        _update(column="Amount", value="Paid", conditions=[])
+    with pytest.raises(StepError, match="'Name' holds text values, which can't go into 'Amount'"):
+        _update(column="Amount", set_to="column", from_column="Name", conditions=[])
+    with pytest.raises(InvalidStepsError, match="Choose the column to take the value from"):
+        parse_steps([{"op": "update_rows", "column": "Amount", "set_to": "column"}])

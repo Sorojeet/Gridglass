@@ -332,6 +332,37 @@ TOOLS: list[ToolPage] = [
         related=["sort-rows", "keep-top-rows", "pivot-table", "split-into-pages"],
     ),
     ToolPage(
+        slug="update-rows", op="update_rows", cat="shape", name="Update rows",
+        title="Update rows in a CSV or Excel file where a condition matches",
+        description="Set a column to a new value only in the rows that match your conditions, like SQL's UPDATE … SET … "
+                    "WHERE, without writing SQL. Works on CSV and Excel files.",
+        intro=["Update rows changes one column, but only in the rows you pick with conditions. Mark every order over "
+               "₹1,000 as Paid, clear a field for one city, or copy a value from another column where it's blank.",
+               "It works like SQL's UPDATE … SET … WHERE, with a form instead of a query. Every other row stays as it is."],
+        when=["Marking rows: Status = Paid where Amount is more than 1000.",
+              "Correcting a value for some rows only: Region = North where City is Delhi.",
+              "Clearing a column where another one says Cancelled.",
+              "Filling a blank column from another one, only where it's empty."],
+        steps=["Pick the column to change and what to set it to: a value, another column, or blank.",
+               "Add the conditions under <b>Where</b>. The preview shows only the rows that will change, and how many.",
+               "Choose <b>Update rows</b>, then download or carry on with another tool."],
+        example=None,
+        options=[("Set this column", "The column to change. Only this column changes."),
+                 ("To", "A value you type or pick from the column, another column's value in the same row, or blank."),
+                 ("Where", "One or more conditions: is, is not, contains, starts with, is more than, is blank and more. "
+                           "Choose whether rows must match all of them or any."),
+                 ("Types", "A number column takes numbers and a date column takes dates (2026-11-14). To put text into "
+                           "a number column, use Change type first."),
+                 ("Preview", "Shows only the rows that will change and how many; switch it off to see every row.")],
+        faqs=[("Is this the same as SQL UPDATE?", "It does the same job: UPDATE table SET column = value WHERE conditions. "
+               "You fill in a form instead of writing the query, and you see the result before you apply it."),
+              ("What happens to rows that don't match?", "Nothing. They keep their value. Rows with a blank in a "
+               "condition's column don't match a comparison such as 'is more than'."),
+              ("Can I update several columns?", "One column per step. Add another Update rows step for the next column; "
+               "both are applied, and both can be saved as a recipe.")],
+        related=["filter-rows", "replace-values", "add-column"],
+    ),
+    ToolPage(
         slug="sort-rows", op="sort_rows", cat="shape", name="Sort rows",
         title="Sort a CSV or spreadsheet by one or more columns",
         description="Sort rows A to Z, Z to A, smallest or largest first, by one column and then by others to "
@@ -943,6 +974,12 @@ SEARCH: dict[str, tuple[str, str, str]] = {  # slug: (phrase, first paragraph, m
         "files of N rows each. CSV files work too.",
         "Split an Excel sheet into multiple sheets by column value online, or into separate files of N rows. PDF "
         "pages too. Free."),
+    "update-rows": (
+        "Update rows in a CSV or Excel file where a condition matches",
+        "Update rows in a CSV or Excel file where a condition matches. Set a column to a value, another column or "
+        "blank, only in the rows you pick, like SQL's UPDATE … SET … WHERE.",
+        "Update rows in a CSV or Excel file where a condition matches: set a column only in the rows you pick, like "
+        "SQL UPDATE … WHERE. Free, no sign-up."),
     "edit-a-table": (
         "Edit an Excel or CSV file online, one row at a time",
         "Edit an Excel or CSV file online, one row at a time. Fix values, add rows or delete them in a simple form "

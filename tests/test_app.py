@@ -39,12 +39,12 @@ def file_id(client):
 
 def test_healthz(client):
     body = client.get("/healthz").get_json()
-    assert body["status"] == "ok" and body["tools"] == 19
+    assert body["status"] == "ok" and body["tools"] == 20
 
 
 def test_tools_list(client):
     body = client.get("/api/v1/tools").get_json()
-    assert len(body["tools"]) == 19 and body["export_formats"] == ["csv", "json", "pdf", "xlsx"]
+    assert len(body["tools"]) == 20 and body["export_formats"] == ["csv", "json", "pdf", "xlsx"]
     trim = next(t for t in body["tools"] if t["op"] == "trim")
     assert trim["category"] == "clean" and trim["label"] == "Trim spaces"
     assert "collapse_spaces" in trim["schema"]["properties"]
@@ -316,7 +316,7 @@ def test_index_and_static(client):
 
 def test_service_worker_at_root(client):
     r = client.get("/sw.js")
-    assert r.status_code == 200 and b"gridglass-v36" in r.data and r.headers["Cache-Control"] == "no-cache"
+    assert r.status_code == 200 and b"gridglass-v37" in r.data and r.headers["Cache-Control"] == "no-cache"
     r.close()
 
 
@@ -575,3 +575,13 @@ def test_all_rows_refuses_big_tables(client):
 
 def test_config_says_how_many_rows_can_be_edited(client):
     assert client.get("/api/v1/config").get_json()["edit_rows"] == 1000
+
+
+def test_preview_of_an_update_says_how_many_rows_match(client, file_id):
+    step = {"op": "update_rows", "column": "City", "value": "Kochi",
+            "conditions": [{"column": "Amount", "operator": "greater_than", "value": "100"}]}
+    body = client.post(f"/api/v1/files/{file_id}/preview", json={"steps": [step]}).get_json()
+    data = client.get(f"/api/v1/files/{file_id}/rows").get_json()["rows"]
+    amount = [c["name"] for c in data["columns"]].index("Amount")
+    assert body["matched"] == sum(1 for r in data["rows"] if (r[amount] or 0) > 100) > 0
+    assert "matched" not in client.post(f"/api/v1/files/{file_id}/preview", json={"steps": []}).get_json()
