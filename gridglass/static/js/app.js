@@ -1576,6 +1576,15 @@ const FIELD = {
   select: (f, v) => `<select class="input" id="f-${f.key}" data-key="${f.key}">${(typeof f.options === 'function' ? f.options(state.draft) : f.options).map(([o, l]) => opt(o, l, v)).join('')}</select>`,
   choice: (f, v) => seg(f.key, f.options, v, f.label),
   text: (f, v) => `<input class="input" id="f-${f.key}" data-key="${f.key}" value="${esc(v)}" placeholder="${esc(f.placeholder || '')}">`,
+  valuebox: (f, v) => { // type a value, or pick one already in the column named by another field
+    const column = state.draft[f.valuesOf] ?? '';
+    return `<div class="combo">
+      <input class="input" id="f-${f.key}" data-key="${f.key}" value="${esc(v)}" placeholder="${esc(f.placeholder || '')}"
+        role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="f-${f.key}-list" autocomplete="off" data-values-for="${esc(column)}">
+      <button type="button" class="combo-btn" data-combo-toggle="f-${f.key}" aria-label="Show values in ${esc(column)}" tabindex="-1">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      <ul class="combo-list glass" id="f-${f.key}-list" role="listbox" aria-label="Values in ${esc(column)}" hidden></ul></div>`;
+  },
   number: (f, v) => `<input class="input" id="f-${f.key}" data-key="${f.key}" type="number" inputmode="decimal" value="${esc(v)}"
     ${f.min !== undefined ? `min="${f.min}"` : ''} ${f.max !== undefined ? `max="${f.max}"` : ''} step="${f.step || 1}">`,
   values(f, v) { // the values of another field's column, as chips: all of them, or the ones chosen
@@ -1736,7 +1745,7 @@ function renderForm() {
     const control = FIELD[f.type](f, d[f.key]);
     const enter = before && !before.has(f.key) ? ' enter' : ''; // new because of a choice just made: unfold
     if (f.type === 'toggle') return `<div class="field${enter}">${control}</div>`;
-    const labelled = ['text', 'number', 'column', 'select'].includes(f.type);
+    const labelled = ['text', 'valuebox', 'number', 'column', 'select'].includes(f.type);
     return `<div class="field${enter}" data-field="${f.key}">
       ${labelled ? `<label class="field-label" for="f-${f.key}">${esc(f.label)}</label>` : `<span class="field-label">${esc(f.label)}</span>`}
       ${control}</div>`;
@@ -2308,9 +2317,12 @@ async function showPreview(steps, step, hint = null) {
     const offset = state.browse.all ? state.browse.page * config.page_rows : 0;
     // Report filter pages: preview the pivot as one table (without the page column); a note says how it splits.
     const paged = !hint && step?.op === 'pivot' && step.pages;
-    const shown = paged ? [...steps.slice(0, -1), (({ pages, ...whole }) => whole)(step)] : steps;
+    // Update rows: by default the preview shows only the rows it picks (filtered before the update), so the change shows
+    const only = !hint && step?.op === 'update_rows' && step.conditions.length && state.draft?.only !== false;
+    const shown = paged ? [...steps.slice(0, -1), (({ pages, ...whole }) => whole)(step)]
+      : only ? [...steps.slice(0, -1), { op: 'filter_rows', match: step.match, conditions: step.conditions }, step] : steps;
     const check = paged ? api(`/files/${state.file.id}/preview?limit=1`, { method: 'POST', body: { steps } }) : null;
-    const [{ preview }] = await Promise.all([
+    const [{ preview, matched }] = await Promise.all([
       api(`/files/${state.file.id}/preview?limit=${previewRows()}&offset=${offset}`, { method: 'POST', body: { steps: shown } }), check]);
     if (seq !== previewSeq) return;
     if (state.browse.all && preview.total_rows > config.browse_max_rows) { // grew past the limit: back to quick view
@@ -2326,11 +2338,14 @@ async function showPreview(steps, step, hint = null) {
     const was = badge.textContent;
     badge.dataset.kind = diff < 0 ? 'warn' : 'ok';
     badge.textContent = hint ? '' : !step ? plural(preview.total_rows, 'row')
+      : matched !== undefined ? (matched ? `${plural(matched, 'row')} will change` : 'No rows match')
       : diff < 0 ? `${num(-diff)} fewer rows` : diff > 0 ? `${num(diff)} more rows` : plural(preview.total_rows, 'row');
+    if (matched !== undefined) { badge.dataset.kind = matched ? 'ok' : 'warn'; state.matched = matched; }
     const colDiff = preview.columns.length - state.cols.length;
     note.classList.toggle('needs', Boolean(hint));
     note.textContent = [
       hint || '',
+      only ? (matched ? `Showing only the rows that change.` : 'No row matches these conditions, so nothing will change.') : '',
       preview.truncated && !state.browse.all ? `Showing the first ${num(preview.rows.length)} of ${num(preview.total_rows)} rows.` : '',
       !state.browse.all && preview.total_rows > config.browse_max_rows ? 'Download the file to see every row.' : '',
       colDiff ? `${colDiff > 0 ? '+' : '−'}${plural(Math.abs(colDiff), 'column')}.` : '',
@@ -2468,7 +2483,7 @@ function renderDone() {
   state.stage = 'done';
   view.dataset.screen = 'done';
   document.title = 'Your result — Gridglass';
-  const title = state.result.recipe ? `Ran “${state.result.recipe}”` : edited ? 'Changes saved' : t?.done ? t.done(before, after, state.file.steps.at(-1)) : t ? `${t.label} done` : 'Your file is ready';
+  const title = state.result.recipe ? `Ran “${state.result.recipe}”` : edited ? 'Changes saved' : t?.done ? t.done(before, after, state.file.steps.at(-1), state.matched) : t ? `${t.label} done` : 'Your file is ready';
   const steps = state.file.steps;
   const last = steps.length - 1;
   const lastTool = TOOL[steps[last]?.op];

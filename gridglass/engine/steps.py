@@ -363,6 +363,88 @@ class FilterRows(Step):
         return lf.filter(hit)
 
 
+class UpdateRows(Step):
+    """Set one column where conditions match, like SQL's UPDATE … SET … WHERE. Other rows keep their value.
+
+    `set_to` is a typed value (checked against the column's type), another column's value, or blank.
+    With no conditions every row is updated.
+    """
+
+    label: ClassVar[str] = "Update rows"
+    op: Literal["update_rows"]
+    column: Col
+    set_to: Literal["value", "column", "blank"] = "value"
+    value: Annotated[str, StringConstraints(max_length=2000)] = ""
+    from_column: Col | None = None
+    conditions: Annotated[list[Condition], Field(max_length=20)] = []
+    match: Literal["all", "any"] = "all"
+
+    @model_validator(mode="after")
+    def _source(self):
+        if self.set_to == "column" and not self.from_column:
+            raise ValueError("Choose the column to take the value from.")
+        return self
+
+    def where(self, schema: pl.Schema) -> pl.Expr:
+        """True for the rows to update. A blank compared with a value is 'no match', so those rows stay as they are."""
+        if not self.conditions:
+            return pl.lit(True)
+        exprs = [c.expr(schema) for c in self.conditions]
+        hit = pl.all_horizontal(exprs) if self.match == "all" else pl.any_horizontal(exprs)
+        return hit.fill_null(False)
+
+    def apply(self, lf, schema):
+        need(schema, [self.column, *[c.column for c in self.conditions], *([self.from_column] if self.set_to == "column" else [])])
+        c, dtype = self.column, schema[self.column]
+        old, new = pl.col(c), None
+        if self.set_to == "blank":
+            new = pl.lit(None, dtype=dtype)
+        elif self.set_to == "value":
+            if is_text(dtype):
+                new = pl.lit(self.value, dtype=pl.String)
+            elif not self.value.strip():
+                new = pl.lit(None, dtype=dtype)  # an empty value on a number or date column means blank
+            else:
+                try:
+                    v = coerce(self.value, dtype, c)
+                except ColumnError:
+                    kind = _KIND.get(friendly_dtype(dtype), friendly_dtype(dtype))
+                    raise ColumnError(
+                        f"'{self.value}' can't go into '{c}': that column holds {kind}s. Type a {kind}, "
+                        f"or use Change type to make '{c}' a text column first."
+                    ) from None
+                if dtype.is_integer() and isinstance(v, float) and not v.is_integer():
+                    old, new = old.cast(pl.Float64), pl.lit(v, dtype=pl.Float64)  # 12.5 into whole numbers: keep the .5
+                else:
+                    new = pl.lit(v, dtype=dtype)
+        else:
+            src = schema[self.from_column]
+            new = pl.col(self.from_column)
+            if src == dtype:
+                pass
+            elif is_text(dtype):
+                new = new.cast(pl.String)
+            elif dtype.is_numeric() and src.is_numeric():
+                want = pl.Float64 if (src.is_float() and not dtype.is_float()) else dtype
+                old, new = old.cast(want), new.cast(want)
+            else:
+                raise ColumnError(
+                    f"'{self.from_column}' holds {_KIND.get(friendly_dtype(src), 'other value')}s, which can't go into "
+                    f"'{c}' ({_KIND.get(friendly_dtype(dtype), 'other value')}s). Use Change type on one of them first."
+                )
+        return lf.with_columns(pl.when(self.where(schema)).then(new).otherwise(old).alias(c))
+
+    def matched(self, lf: pl.LazyFrame, schema: pl.Schema) -> int:
+        """How many rows the conditions pick (shown before the update is applied)."""
+        need(schema, [c.column for c in self.conditions])
+        return int(lf.select(self.where(schema).sum()).collect().item() or 0) if self.conditions else int(
+            lf.select(pl.len()).collect().item())
+
+
+_KIND = {"integer": "whole number", "decimal": "number", "date": "date", "datetime": "date and time",
+         "boolean": "yes/no value", "text": "text value"}
+
+
 class Rule(Condition):
     """One line of an if-then column: when <condition>, the new column says <then>."""
     then: Annotated[str, StringConstraints(max_length=500)] = ""
@@ -1111,7 +1193,7 @@ class Unpivot(Step):
 STEP_MODELS: tuple[type[Step], ...] = (
     RemoveDuplicates, Trim, ChangeCase, ReplaceValues, FillBlanks, RemoveBlankRows,
     RemoveColumns, KeepColumns, RenameColumns, FilterRows, SortRows, KeepRows,
-    ChangeType, SplitColumn, AddColumn, Merge, Stack, Pivot, Unpivot,
+    ChangeType, SplitColumn, AddColumn, Merge, Stack, Pivot, Unpivot, UpdateRows,
 )
 
 AnyStep = Annotated[Union[STEP_MODELS], Field(discriminator="op")]
