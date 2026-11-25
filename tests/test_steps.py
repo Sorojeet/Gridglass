@@ -11,7 +11,7 @@ from gridglass.engine import OPS, InvalidStepsError, StepError, build, parse_ste
 # --------------------------------------------------------------------------- validation
 
 def test_every_tool_is_registered():
-    assert len(OPS) == 20
+    assert len(OPS) == 21
     assert {"remove_duplicates", "trim", "filter_rows", "merge", "stack", "pivot", "unpivot"} <= set(OPS)
 
 
@@ -896,3 +896,40 @@ def test_update_explains_a_value_that_does_not_fit():
         _update(column="Amount", set_to="column", from_column="Name", conditions=[])
     with pytest.raises(InvalidStepsError, match="Choose the column to take the value from"):
         parse_steps([{"op": "update_rows", "column": "Amount", "set_to": "column"}])
+
+
+# --------------------------------------------------------------------------- view data (SELECT … WHERE … ORDER BY … TOP N)
+
+SHOP = pl.LazyFrame({"Name": ["A", "B", "C", "D", "E"], "City": ["Pune", "Delhi", "Pune", "Goa", "Pune"],
+                     "Amount": [5, 15, None, 25, 9]})
+
+
+def _select(**kw):
+    return build(SHOP, parse_steps([{"op": "select_rows", **kw}])).collect()
+
+
+def test_select_with_nothing_chosen_is_the_whole_table():
+    assert _select().equals(SHOP.collect())
+
+
+def test_select_where_order_by_top_n_and_columns():
+    out = _select(columns=["Name", "Amount"], conditions=[{"column": "City", "operator": "equals", "value": "pune"}],
+                  order_by="Amount", descending=True, take="top", count=2)
+    assert out.columns == ["Name", "Amount"] and out.rows() == [("E", 9), ("A", 5)]
+
+
+def test_select_bottom_n_sorted_with_blanks_last():
+    out = _select(order_by="Amount", take="bottom", count=2)
+    assert out["Name"].to_list() == ["D", "C"]                        # the blank Amount sorts last
+
+
+def test_select_distinct_and_any_condition():
+    assert _select(columns=["City"], distinct=True)["City"].to_list() == ["Pune", "Delhi", "Goa"]
+    out = _select(match="any", conditions=[{"column": "City", "operator": "equals", "value": "Goa"},
+                                           {"column": "Amount", "operator": "less_than", "value": "6"}])
+    assert out["Name"].to_list() == ["A", "D"]
+
+
+def test_select_names_a_missing_column():
+    with pytest.raises(StepError, match="Nope"):
+        _select(columns=["Nope"])

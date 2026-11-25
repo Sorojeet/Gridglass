@@ -2,6 +2,7 @@
 // become an API step. The server validates every step, so these are UI hints, not the rules.
 
 export const CATS = {
+  query: 'Query',
   clean: 'Clean',
   shape: 'Shape',
   combine: 'Combine',
@@ -21,6 +22,7 @@ const P = {
   rename: '<path d="M4 20h4L19 9l-4-4L4 16v4zM13 7l4 4"/>',
   filter: '<path d="M4 5h16l-6 8v6l-4-2v-4L4 5z"/>',
   sort: '<path d="M7 4v16M4 17l3 3 3-3M13 6h7M13 12h5M13 18h3"/>',
+  query: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M9 9v11"/><circle cx="15.5" cy="14.5" r="2.3"/><path d="m17.2 16.2 1.8 1.8"/>',
   keeprows: '<path d="M4 6h16M4 10.5h16M4 15h9M4 19.5h5"/>',
   type: '<path d="M5 7V5h14v2M12 5v14M9 19h6"/>',
   split: '<rect x="3" y="6" width="7" height="12" rx="2"/><rect x="14" y="6" width="7" height="12" rx="2"/>',
@@ -246,7 +248,38 @@ export const TOOLS = [
     done: (b, a) => (b > a ? `${plural(b - a, 'blank row')} removed` : 'No blank rows found'),
   },
   {
-    op: 'filter_rows', cat: 'shape', icon: 'filter', label: 'Filter rows',
+    op: 'select_rows', cat: 'query', icon: 'query', label: 'View data',
+    desc: 'Pick columns, where, sort, top or bottom N', keywords: 'view see look browse show select query sql where top bottom limit columns rows records',
+    intro: 'Look at your data the way an SQL SELECT does: choose the columns, add Where conditions, sort, and take the top or bottom rows. Up to 1,000 rows show at once.',
+    verb: 'Keep this view',
+    bigPreview: true, // shows up to config.page_rows rows
+    fields: [
+      { key: 'columns', type: 'columns', label: 'Show columns', optional: true, ordered: true, default: null,
+        allLabel: 'All columns', someLabel: 'Choose columns' },
+      { key: 'conditions', type: 'conditions', label: 'Where', optional: true, default: [],
+        emptyHint: 'Every row. Add a condition to show only some.' },
+      { key: 'match', type: 'choice', label: 'Rows must match', default: 'all',
+        options: [['all', 'All conditions'], ['any', 'Any condition']], show: (d) => d.conditions.length > 1 },
+      { key: 'order_by', type: 'column', label: 'Sort by', optional: true, emptyLabel: 'Keep the file’s order', default: '' },
+      { key: 'order', type: 'choice', label: 'Order', default: 'asc', show: (d) => !!d.order_by,
+        options: [['asc', 'Smallest / A first'], ['desc', 'Largest / Z first']] },
+      { key: 'take', type: 'choice', label: 'Rows', default: 'all',
+        options: [['all', 'All rows'], ['top', 'Top N'], ['bottom', 'Bottom N']] },
+      { key: 'count', type: 'number', label: 'How many', min: 1, default: '10', show: (d) => d.take !== 'all' },
+      { key: 'distinct', type: 'toggle', label: 'Only distinct rows (no repeats)', default: false },
+    ],
+    build: (d) => ({
+      columns: d.columns ?? [], match: d.match, conditions: conditionsOut(d.conditions),
+      order_by: d.order_by || null, descending: d.order === 'desc',
+      take: d.take, count: d.take === 'all' ? undefined : Number(d.count) || 10, distinct: !!d.distinct,
+    }),
+    done: (b, a) => `Kept a view of ${plural(a, 'row')}`,
+    ready: (d) => (d.conditions.some((c) => !NO_VALUE_OPS.has(c.operator) && !String(c.value).trim()) ? 'Type a value for each condition.'
+      : d.take !== 'all' && !(Number(d.count) >= 1) ? 'Type how many rows to show.'
+      : d.columns && !d.columns.length ? 'Choose at least one column.' : null),
+  },
+  {
+    op: 'filter_rows', cat: 'query', icon: 'filter', label: 'Filter rows',
     desc: 'Keep only rows that match', keywords: 'where condition search keep',
     intro: 'Keep the rows you need: by text, numbers, dates or blanks.',
     verb: 'Filter rows',
@@ -264,7 +297,7 @@ export const TOOLS = [
     ready: (d) => (d.conditions.some((c) => !NO_VALUE_OPS.has(c.operator) && !String(c.value).trim()) ? 'Type a value to filter by.' : null),
   },
   {
-    op: 'update_rows', cat: 'shape', icon: 'update', label: 'Update rows',
+    op: 'update_rows', cat: 'query', icon: 'update', label: 'Update rows',
     desc: 'Set a column where rows match', keywords: 'update set where sql change values condition status mark bulk edit if then overwrite',
     intro: 'Change one column, only in the rows that match your conditions (like SQL’s UPDATE … SET … WHERE). Every other row stays as it is.',
     verb: 'Update rows',
@@ -328,7 +361,7 @@ export const TOOLS = [
     ready: (d) => (Object.values(d.mapping).some((v) => v.trim()) ? null : 'Type a new name next to any column.'),
   },
   {
-    op: 'keep_rows', cat: 'shape', icon: 'keeprows', label: 'Keep top or bottom rows',
+    op: 'keep_rows', cat: 'query', icon: 'keeprows', label: 'Keep top or bottom rows',
     desc: 'First or last N rows', keywords: 'limit head tail top bottom first last',
     intro: 'Keep only the first or last rows — handy after sorting.',
     verb: 'Keep rows',
@@ -651,7 +684,7 @@ export const TOOL = Object.fromEntries(TOOLS.map((t) => [t.op, t]));
 /** Each tool's page on the site (/tools/<slug>): what it does, when to use it, an example. */
 export const PAGE = {
   remove_duplicates: 'remove-duplicates', trim: 'trim-spaces', change_case: 'change-case', replace_values: 'replace-values',
-  fill_blanks: 'fill-blanks', remove_blank_rows: 'remove-blank-rows', filter_rows: 'filter-rows', update_rows: 'update-rows', sort_rows: 'sort-rows',
+  fill_blanks: 'fill-blanks', remove_blank_rows: 'remove-blank-rows', select_rows: 'view-data', filter_rows: 'filter-rows', update_rows: 'update-rows', sort_rows: 'sort-rows',
   remove_columns: 'remove-columns', keep_columns: 'choose-columns', rename_columns: 'rename-columns', keep_rows: 'keep-top-rows',
   change_type: 'change-type', split_column: 'split-column', add_column: 'add-column', merge: 'merge-files', stack: 'stack-files',
   pivot: 'pivot-table', chart: 'make-a-chart', unpivot: 'transpose', convert: 'convert-file', split_pages: 'split-into-pages',
@@ -765,6 +798,7 @@ export const RELATED = {
   remove_blank_rows: ['fill_blanks', 'remove_duplicates', 'filter_rows', 'sort_rows'],
   filter_rows: ['sort_rows', 'pivot', 'keep_rows', 'update_rows', 'split_pages'],
   update_rows: ['filter_rows', 'replace_values', 'pivot', 'add_column'],
+  select_rows: ['pivot', 'convert', 'update_rows', 'split_pages'],
   sort_rows: ['keep_rows', 'filter_rows', 'remove_duplicates', 'split_pages'],
   remove_columns: ['keep_columns', 'rename_columns', 'add_column', 'split_column', 'change_type'],
   keep_columns: ['rename_columns', 'remove_columns', 'add_column', 'sort_rows'],
