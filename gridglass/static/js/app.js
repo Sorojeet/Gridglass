@@ -8,7 +8,7 @@ import { DEFAULT_OPTIONS, MAX_CATEGORIES, PALETTES, arrange, chartData, chartSVG
 const API = '/api/v1';
 const desktop = window.matchMedia('(min-width: 1024px)');
 // Quick preview: 50 rows on phones, 200 on desktop. "Show all rows" pages through up to 10k, 1,000 at a time.
-const previewRows = () => (state.browse.all ? config.page_rows : desktop.matches ? 200 : 50);
+const previewRows = () => (state.browse.all || state.tool?.bigPreview ? config.page_rows : desktop.matches ? 200 : 50);
 const $ = (s, el = document) => el.querySelector(s);
 const view = $('#view');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -447,6 +447,7 @@ function renderHome() {
       <span class="file-icon">${ui('file')}</span>
       <span class="file-text"><strong>${esc(state.file.filename)}</strong><small>${state.file.steps.length ? `${plural(state.file.steps.length, 'step')} applied · ` : ''}pick any tool to keep going</small></span>
       ${state.file.steps.length ? `<a class="btn btn-secondary btn-sm" href="#/result">${ui('download')} Back to result</a>` : ''}
+      <a class="btn btn-secondary btn-sm" href="#/tool/select_rows">${icon('query')} View data</a>
       ${state.file.rows <= (config.edit_rows ?? 1000) ? `<a class="btn btn-secondary btn-sm" href="#/tool/edit?start=1">${ui('plus')} Add rows</a>` : ''}
       <button class="btn-link" type="button" data-action="startover">Clear</button>
     </div>` : '';
@@ -500,7 +501,8 @@ function fillGrid() {
   const q = homeQuery.trim();
   const inCat = (t) => homeCat === 'all' || t.cat === homeCat;
   let list;
-  if (!q) list = TOOLS.filter(inCat).map((tool) => ({ tool }));
+  const order = Object.keys(CATS); // grouped as the chips are: Query first
+  if (!q) list = TOOLS.filter(inCat).map((tool, i) => ({ tool, i })).sort((a, b) => order.indexOf(a.tool.cat) - order.indexOf(b.tool.cat) || a.i - b.i);
   else { // ranked by what was asked; weak leftovers are dropped
     const found = searchTools(homeQuery).filter((r) => inCat(r.tool));
     const top = found[0]?.score ?? 0;
@@ -2336,9 +2338,10 @@ async function showPreview(steps, step, hint = null) {
     if (state.view === 'chart') renderChart();
     const diff = preview.total_rows - state.before;
     const was = badge.textContent;
-    badge.dataset.kind = diff < 0 ? 'warn' : 'ok';
+    badge.dataset.kind = diff < 0 && step?.op !== 'select_rows' ? 'warn' : 'ok'; // a view picks rows on purpose
     badge.textContent = hint ? '' : !step ? plural(preview.total_rows, 'row')
       : matched !== undefined ? (matched ? `${plural(matched, 'row')} will change` : 'No rows match')
+      : step.op === 'select_rows' ? (!preview.total_rows ? 'No rows match' : preview.total_rows === state.before ? plural(preview.total_rows, 'row') : `${plural(preview.total_rows, 'row')} of ${num(state.before)}`)
       : diff < 0 ? `${num(-diff)} fewer rows` : diff > 0 ? `${num(diff)} more rows` : plural(preview.total_rows, 'row');
     if (matched !== undefined) { badge.dataset.kind = matched ? 'ok' : 'warn'; state.matched = matched; }
     const colDiff = preview.columns.length - state.cols.length;

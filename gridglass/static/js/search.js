@@ -187,6 +187,8 @@ const INTENTS = [
   { q: 'split sheet file page group value column', op: 'split_pages', hint: 'A sheet, page or file for each value' },
   { q: 'print pdf', op: 'convert', hint: 'Save as a PDF' },
   { q: 'create new table blank scratch make own', op: 'create', hint: 'Name columns, then type rows' },
+  { q: 'view see look browse show data rows records', op: 'select_rows', hint: 'See up to 1,000 rows' },
+  { q: 'select query sql where top bottom n limit', op: 'select_rows', hint: 'Columns, where, top or bottom N' },
   { q: 'update set where sql mark status rows match condition', op: 'update_rows', hint: 'Set a column where rows match' },
   { q: 'change value only rows where if condition overwrite', op: 'update_rows', hint: 'Change a column for matching rows' },
   { q: 'add append insert new rows record entry existing file excel', op: 'edit', hint: 'Add rows to your file in a form' },

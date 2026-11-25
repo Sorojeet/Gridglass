@@ -43,8 +43,9 @@ limiter.limit(from_config("RATE_LIMIT_API"))(bp)
 
 CATEGORIES = {
     "clean": ["remove_duplicates", "trim", "change_case", "replace_values", "fill_blanks", "remove_blank_rows"],
-    "shape": ["remove_columns", "keep_columns", "rename_columns", "filter_rows", "sort_rows", "keep_rows",
-              "change_type", "split_column", "add_column", "update_rows"],
+    "query": ["select_rows", "filter_rows", "keep_rows", "update_rows"],
+    "shape": ["remove_columns", "keep_columns", "rename_columns", "sort_rows",
+              "change_type", "split_column", "add_column"],
     "combine": ["merge", "stack"],
     "summarize": ["pivot", "unpivot"],
 }

@@ -13,7 +13,7 @@ from playwright.sync_api import expect
 
 ALL_OPS = [
     "remove_duplicates", "trim", "change_case", "replace_values", "fill_blanks", "remove_blank_rows",
-    "filter_rows", "update_rows", "sort_rows", "remove_columns", "keep_columns", "rename_columns", "keep_rows",
+    "select_rows", "filter_rows", "update_rows", "sort_rows", "remove_columns", "keep_columns", "rename_columns", "keep_rows",
     "change_type", "split_column", "add_column", "merge", "stack", "pivot", "chart", "unpivot", "convert", "split_pages",
 ]  # "create" needs no file: it has its own tests
 SAMPLE_ROWS = 45  # the built-in sample: 40 orders + 5 exact duplicates
@@ -2083,3 +2083,51 @@ def test_update_rows_value_dropdown_shows_the_columns_values(phone):
     expect(page.locator("#f-value-list")).to_contain_text("Mumbai")
     page.locator("#f-value-list [role=option]", has_text="Mumbai").click()
     expect(page.locator("#f-value")).to_have_value("Mumbai")
+
+
+# ----------------------------------------------------------------------------- query: view data (SELECT)
+
+def test_view_data_shows_up_to_1000_rows_and_queries_like_select(phone, tmp_path):
+    big = tmp_path / "big.csv"
+    big.write_text("Id,City,Amount\n" + "".join(f"{i},{['Pune', 'Delhi', 'Goa'][i % 3]},{i * 10}\n" for i in range(1, 1501)))
+    page = phone.open("/#/tool/select_rows")
+    page.set_input_files("#file", str(big))
+    expect(page.locator("#pv tbody tr")).to_have_count(1000)                  # about 1,000 rows at once
+    expect(page.locator("#pv-badge")).to_have_text("1,500 rows")
+    page.click('[data-add="conditions"]')                                      # WHERE City = Goa
+    page.select_option("#c0col", "City")
+    page.fill("#c0v", "Goa")
+    page.select_option("#f-order_by", "Amount")                               # ORDER BY Amount DESC
+    page.click('[data-seg="order"][data-val="desc"]')
+    page.click('[data-seg="take"][data-val="top"]')                            # TOP 3
+    page.fill("#f-count", "3")
+    page.click('[data-seg="columns__mode"][data-val="some"]')                  # SELECT Id, Amount
+    page.click('[data-col="Id"]')
+    page.click('[data-col="Amount"]')
+    expect(page.locator("#pv-badge")).to_have_text("3 rows of 1,500")
+    expect(page.locator("#pv thead th")).to_have_count(2)
+    apply(page)
+    assert [(r["Id"], r["Amount"]) for r in result_json(page)] == [(1499, 14990), (1496, 14960), (1493, 14930)]
+
+
+def test_view_data_bottom_n_and_distinct(phone):
+    page = phone.upload_sample("select_rows")
+    page.click('[data-seg="take"][data-val="bottom"]')
+    page.fill("#f-count", "2")
+    expect(page.locator("#pv tbody tr")).to_have_count(2)
+    page.click('[data-seg="take"][data-val="all"]')
+    page.click('[data-seg="columns__mode"][data-val="some"]')
+    page.click('[data-col="City"]')
+    page.locator('[data-key="distinct"]').evaluate("el => el.click()")
+    expect(page.locator("#pv tbody tr")).to_have_count(5)                     # five cities in the sample
+
+
+def test_query_group_comes_first_on_home(phone):
+    page = phone.open("/")
+    expect(page.locator(".tool-card").first).to_contain_text("View data")
+    page.click('[data-cat="query"]')
+    expect(page.locator(".tool-card .tool-name")).to_have_text(["View data", "Filter rows", "Update rows", "Keep top or bottom rows"])
+    page = phone.open("/#/upload")
+    page.click('[data-action="sample"]')
+    page.click('.working a[href="#/tool/select_rows"]')
+    expect(page.locator("#pv tbody tr")).to_have_count(45)

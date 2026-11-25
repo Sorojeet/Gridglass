@@ -39,12 +39,12 @@ def file_id(client):
 
 def test_healthz(client):
     body = client.get("/healthz").get_json()
-    assert body["status"] == "ok" and body["tools"] == 20
+    assert body["status"] == "ok" and body["tools"] == 21
 
 
 def test_tools_list(client):
     body = client.get("/api/v1/tools").get_json()
-    assert len(body["tools"]) == 20 and body["export_formats"] == ["csv", "json", "pdf", "xlsx"]
+    assert len(body["tools"]) == 21 and body["export_formats"] == ["csv", "json", "pdf", "xlsx"]
     trim = next(t for t in body["tools"] if t["op"] == "trim")
     assert trim["category"] == "clean" and trim["label"] == "Trim spaces"
     assert "collapse_spaces" in trim["schema"]["properties"]
@@ -316,7 +316,7 @@ def test_index_and_static(client):
 
 def test_service_worker_at_root(client):
     r = client.get("/sw.js")
-    assert r.status_code == 200 and b"gridglass-v38" in r.data and r.headers["Cache-Control"] == "no-cache"
+    assert r.status_code == 200 and b"gridglass-v39" in r.data and r.headers["Cache-Control"] == "no-cache"
     r.close()
 
 

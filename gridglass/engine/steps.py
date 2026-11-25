@@ -487,6 +487,42 @@ class SortRows(Step):
         )
 
 
+class SelectRows(Step):
+    """View data: SQL's SELECT columns … WHERE … ORDER BY … with TOP or BOTTOM N, in that order.
+
+    Every part is optional: no columns means all of them, no conditions means every row.
+    """
+
+    label: ClassVar[str] = "View data"
+    op: Literal["select_rows"]
+    columns: Annotated[list[Col], Field(max_length=500)] = []
+    conditions: Annotated[list[Condition], Field(max_length=20)] = []
+    match: Literal["all", "any"] = "all"
+    order_by: Col | None = None
+    descending: bool = False
+    take: Literal["all", "top", "bottom"] = "all"
+    count: Annotated[int, Field(ge=1, le=10_000_000)] = 100
+    distinct: bool = False
+
+    def apply(self, lf, schema):
+        need(schema, [*self.columns, *[c.column for c in self.conditions], *([self.order_by] if self.order_by else [])])
+        if self.conditions:
+            exprs = [c.expr(schema) for c in self.conditions]
+            hit = pl.all_horizontal(exprs) if self.match == "all" else pl.any_horizontal(exprs)
+            lf = lf.filter(hit.fill_null(False))
+        if self.order_by:
+            lf = lf.sort(self.order_by, descending=self.descending, nulls_last=True, maintain_order=True)
+        if self.columns:
+            lf = lf.select(list(dict.fromkeys(self.columns)))
+        if self.distinct:
+            lf = lf.unique(maintain_order=True)
+        if self.take == "top":
+            lf = lf.head(self.count)
+        elif self.take == "bottom":
+            lf = lf.tail(self.count)
+        return lf
+
+
 class KeepRows(Step):
     label: ClassVar[str] = "Keep top or bottom rows"
     op: Literal["keep_rows"]
@@ -1193,7 +1229,7 @@ class Unpivot(Step):
 STEP_MODELS: tuple[type[Step], ...] = (
     RemoveDuplicates, Trim, ChangeCase, ReplaceValues, FillBlanks, RemoveBlankRows,
     RemoveColumns, KeepColumns, RenameColumns, FilterRows, SortRows, KeepRows,
-    ChangeType, SplitColumn, AddColumn, Merge, Stack, Pivot, Unpivot, UpdateRows,
+    ChangeType, SplitColumn, AddColumn, Merge, Stack, Pivot, Unpivot, UpdateRows, SelectRows,
 )
 
 AnyStep = Annotated[Union[STEP_MODELS], Field(discriminator="op")]

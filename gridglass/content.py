@@ -14,6 +14,7 @@ CONTACT_EMAIL = "hello@gridglass.in"
 UPDATED = "2 November 2026"  # privacy policy and terms
 
 CATEGORIES = {
+    "query": "Query",
     "clean": "Clean",
     "shape": "Shape",
     "combine": "Combine",
@@ -291,7 +292,34 @@ TOOLS: list[ToolPage] = [
     ),
     # ------------------------------------------------------------------ shape
     ToolPage(
-        slug="filter-rows", op="filter_rows", cat="shape", name="Filter rows",
+        slug="view-data", op="select_rows", cat="query", name="View data",
+        title="View and query CSV or Excel data online, like SQL SELECT",
+        description="See up to 1,000 rows of a CSV or Excel file at once and query it like SQL SELECT: choose columns, "
+                    "add Where conditions, sort, and take the top or bottom N rows. No SQL to write.",
+        intro=["View data shows your file as a table, up to 1,000 rows at a time, and lets you ask it questions the way "
+               "SQL's SELECT does: which columns, which rows (Where), in what order, and how many from the top or bottom.",
+               "Nothing changes in your file while you look. If a view is useful, keep it and download it like any result."],
+        when=["Checking what's in a file before you clean it.", "The 10 biggest orders: sort by Amount, largest first, Top N = 10.",
+              "Only the rows for one city, with just the columns you need.", "A list of distinct values, such as every city once."],
+        steps=["Upload your file. Every column and up to 1,000 rows show straight away.",
+               "Pick columns, add <b>Where</b> conditions, choose <b>Sort by</b> and <b>Top N</b> or <b>Bottom N</b>. The table updates as you go.",
+               "To keep the result, choose <b>Keep this view</b>, then download it or carry on with another tool."],
+        example=None,
+        options=[("Show columns", "All columns, or only the ones you pick, in the order you pick them (SELECT a, b)."),
+                 ("Where", "Conditions such as is, contains, is more than, is blank or is one of; all or any must match."),
+                 ("Sort by", "One column, smallest or A first, or largest or Z first (ORDER BY)."),
+                 ("Rows", "All rows, Top N or Bottom N, taken after sorting (LIMIT / TOP)."),
+                 ("Only distinct rows", "Leaves out rows that repeat (SELECT DISTINCT)."),
+                 ("How many show", "Up to 1,000 rows at once; use Show all to page through more.")],
+        faqs=[("Do I need to know SQL?", "No. Each part of a SELECT is a box in the form. If you do know SQL: it runs "
+               "WHERE, then ORDER BY, then the columns and DISTINCT, then TOP or BOTTOM N."),
+              ("Does viewing change my file?", "No. Only Keep this view adds it as a step, and you can undo that."),
+              ("What's the difference from Filter rows?", "Filter rows only removes rows. View data also picks columns, "
+               "sorts and limits, all in one place, and is made for looking around.")],
+        related=["filter-rows", "keep-top-rows", "pivot-table"],
+    ),
+    ToolPage(
+        slug="filter-rows", op="filter_rows", cat="query", name="Filter rows",
         title="Filter rows in a CSV or spreadsheet online",
         description="Keep only the rows you need: by text, numbers, dates or blanks, with up to 20 conditions "
                     "matched all together or any one. Pick values from a list of what's in the column.",
@@ -332,7 +360,7 @@ TOOLS: list[ToolPage] = [
         related=["sort-rows", "keep-top-rows", "pivot-table", "split-into-pages"],
     ),
     ToolPage(
-        slug="update-rows", op="update_rows", cat="shape", name="Update rows",
+        slug="update-rows", op="update_rows", cat="query", name="Update rows",
         title="Update rows in a CSV or Excel file where a condition matches",
         description="Set a column to a new value only in the rows that match your conditions, like SQL's UPDATE … SET … "
                     "WHERE, without writing SQL. Works on CSV and Excel files.",
@@ -451,7 +479,7 @@ TOOLS: list[ToolPage] = [
         related=["choose-columns", "stack-files", "merge-files"],
     ),
     ToolPage(
-        slug="keep-top-rows", op="keep_rows", cat="shape", name="Keep top or bottom rows",
+        slug="keep-top-rows", op="keep_rows", cat="query", name="Keep top or bottom rows",
         title="Keep the top or bottom rows of a CSV or spreadsheet",
         description="Keep only the first or last N rows. Sort first to get a top 10 or bottom 5 by any column.",
         intro=["Keep top or bottom rows cuts a file down to its first or last rows. Combined with sorting it gives "
@@ -974,6 +1002,12 @@ SEARCH: dict[str, tuple[str, str, str]] = {  # slug: (phrase, first paragraph, m
         "files of N rows each. CSV files work too.",
         "Split an Excel sheet into multiple sheets by column value online, or into separate files of N rows. PDF "
         "pages too. Free."),
+    "view-data": (
+        "View and query CSV or Excel data online, like SQL SELECT",
+        "View and query CSV or Excel data online, like SQL SELECT: see up to 1,000 rows, choose columns, filter with "
+        "Where, sort, and take the top or bottom N rows.",
+        "View and query CSV or Excel data online, like SQL SELECT: columns, Where, sort, top or bottom N, up to "
+        "1,000 rows at once. Free."),
     "update-rows": (
         "Update rows in a CSV or Excel file where a condition matches",
         "Update rows in a CSV or Excel file where a condition matches. Set a column to a value, another column or "
